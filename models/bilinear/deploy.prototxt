@@ -1,0 +1,110 @@
+name: "BilinearRegressionNet"
+input: "image_curr"
+input_shape {
+  dim: 1
+  dim: 10
+  dim: 7
+}
+input: "vel"
+input_shape {
+  dim: 1
+  dim: 2
+}
+force_backward: true
+layer {
+  name: "flatten1"
+  type: "Flatten"
+  bottom: "image_curr"
+  top: "y"
+}
+layer {
+  name: "fc1"
+  type: "InnerProduct"
+  bottom: "y"
+  top: "fc1_y"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  inner_product_param {
+    num_output: 70
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "fc2"
+  type: "InnerProduct"
+  bottom: "vel"
+  top: "fc2_u"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  inner_product_param {
+    num_output: 70
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "fc3"
+  type: "InnerProduct"
+  bottom: "vel"
+  top: "fc3_u"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 0
+    decay_mult: 0
+  }
+  inner_product_param {
+    num_output: 70
+    weight_filler {
+      type: "gaussian"
+      std: 0.01
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+}
+layer {
+  name: "prod"
+  type: "Eltwise"
+  bottom: "fc1_y"
+  bottom: "fc2_u"
+  top: "prod_y_u"
+  eltwise_param { operation: PROD }
+}
+layer {
+  name: "sum"
+  type: "Eltwise"
+  bottom: "prod_y_u"
+  bottom: "fc3_u"
+  top: "y_diff_pred"
+  eltwise_param { operation: SUM }
+}
