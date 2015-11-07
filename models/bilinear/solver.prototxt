@@ -1,4 +1,4 @@
-net: "train_val.prototxt"
+net: "models/bilinear/train_val.prototxt"
 solver_type: SGD
 test_iter: 1000
 test_interval: 2500
@@ -11,5 +11,5 @@ max_iter: 10000
 momentum: 0.9
 weight_decay: 0.0005
 snapshot: 1000
-snapshot_prefix: "snapshot/train"
+snapshot_prefix: "models/bilinear/train"
 solver_mode: GPU

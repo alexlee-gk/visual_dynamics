@@ -6,7 +6,7 @@ layer{
     top: "vel"
     top: "image_diff"
     hdf5_data_param{
-        source: "/home/alex/rll/visual_dynamics/image_vel_train_data.txt"
+        source: "data/image_vel_train_data.txt"
         batch_size: 100
         shuffle: true
     }
@@ -21,7 +21,7 @@ layer{
     top: "vel"
     top: "image_diff"
     hdf5_data_param{
-        source: "/home/alex/rll/visual_dynamics/image_vel_test_data.txt"
+        source: "data/image_vel_test_data.txt"
         batch_size: 100
     }
     include{
