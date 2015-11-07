@@ -1,0 +1,11 @@
+<launch>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find rotors_gazebo)/worlds/test_city.world" />
+    <arg name="paused" value="false" />
+  </include>
+
+  <include file="launch/spawn_asus_camera.launch"/>
+
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" />
+</launch>
