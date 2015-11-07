@@ -8,7 +8,6 @@ import cv2
 from cv_bridge import CvBridge, CvBridgeError
 import h5py
 import util
-import IPython as ipy
 
 class ImageSubscriberAndRandomController:
     def __init__(self, **kwargs):
