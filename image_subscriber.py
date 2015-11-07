@@ -30,9 +30,9 @@ class ImageSubscriberAndRandomController:
         self.bridge = CvBridge()
         self.image_sub = rospy.Subscriber(self.model_name + '/rgb/image_raw', sensor_msgs.msg.Image, self.callback)
         self.image = None
-        self.prev_image = None
+        self.image_prev = None
         self.vel = None
-        self.prev_vel = None
+        self.vel_prev = None
     
     def callback(self, data):
         # get image
@@ -48,7 +48,7 @@ class ImageSubscriberAndRandomController:
         height, width = self.image.shape[:2]
         self.image = cv2.resize(self.image, (int(width/self.rescale_factor), int(height/self.rescale_factor)))
 
-        if self.step != 0 and np.any(self.prev_vel) and np.allclose(self.prev_image, self.image): # non-zero vel and image hasn't changed
+        if self.step != 0 and np.any(self.vel_prev) and np.allclose(self.image_prev, self.image): # non-zero vel and image hasn't changed
             return
 
         # generate and apply action
@@ -81,9 +81,9 @@ class ImageSubscriberAndRandomController:
                 else:
                     self.f.create_dataset(data_key, data_shape)
             if self.step != 0:
-                prev_image_std = util.standarize(self.prev_image)
+                image_prev_std = util.standarize(self.image_prev)
                 self.f["image_next"][self.step-1] = image_std.T
-                self.f["image_diff"][self.step-1] = image_std.T - prev_image_std.T
+                self.f["image_diff"][self.step-1] = image_std.T - image_prev_std.T
             if self.step != self.num_steps:
                 self.f["image_curr"][self.step] = image_std.T
                 self.f["vel"][self.step] = self.vel[self.vel_max != 0] # exclude axes with fixed position
@@ -95,8 +95,8 @@ class ImageSubscriberAndRandomController:
             rospy.signal_shutdown("Collected all data, shutting down")
             return
         
-        self.prev_image = self.image
-        self.prev_vel = self.vel
+        self.image_prev = self.image
+        self.vel_prev = self.vel
         self.step += 1
 
 def main():
