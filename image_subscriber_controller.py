@@ -40,6 +40,7 @@ class ImageSubscriberAndController(object):
         self.pos0 = self.generate_initial_position()
 
         self.image_sub = rospy.Subscriber(self.model_name + '/rgb/image_raw', sensor_msgs.msg.Image, self.callback)
+        self.done = False
 
     def shutdown(self, msg):
         self.image_sub.unregister()
@@ -136,7 +137,9 @@ class ImageSubscriberAndController(object):
             self.traj_iter += 1
             self.step_iter = 0
             if self.traj_iter == self.num_trajs:
-                self.shutdown("Collected all data, shutting down")
+                print "Collected all data"
+                self.image_sub.unregister()
+                self.done = True
                 return
             self.image_prev = None
             self.pos_prev = None
@@ -168,12 +171,13 @@ def main():
     
     rospy.init_node('image_subscriber_controller', anonymous=True, log_level=rospy.INFO)
 
-    ImageSubscriberAndRandomController(**vars(args))
+    image_sub_ctrl = ImageSubscriberAndRandomController(**vars(args))
     
-    try:
-        rospy.spin()
-    except KeyboardInterrupt:
-        print "Shutting down"
+    while not image_sub_ctrl.done:
+        try:
+            rospy.sleep(1)
+        except KeyboardInterrupt:
+            print "Shutting down"
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
