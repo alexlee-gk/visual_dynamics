@@ -9,7 +9,7 @@ from cv_bridge import CvBridge, CvBridgeError
 import h5py
 import util
 
-class ImageSubscriberAndRandomController:
+class ImageSubscriberAndRandomController(object):
     def __init__(self, **kwargs):
         self.model_name = kwargs['model_name']
         self.num_steps = kwargs['num_steps']
@@ -28,11 +28,14 @@ class ImageSubscriberAndRandomController:
         if self.visualize:
             cv2.namedWindow("Image window", 1)
         self.bridge = CvBridge()
-        self.image_sub = rospy.Subscriber(self.model_name + '/rgb/image_raw', sensor_msgs.msg.Image, self.callback)
         self.image = None
         self.image_prev = None
+        self.pos = None
+        self.pos_prev = None
         self.vel = None
         self.vel_prev = None
+
+        self.image_sub = rospy.Subscriber(self.model_name + '/rgb/image_raw', sensor_msgs.msg.Image, self.callback)
     
     def callback(self, data):
         # get image
@@ -48,13 +51,16 @@ class ImageSubscriberAndRandomController:
         height, width = self.image.shape[:2]
         self.image = cv2.resize(self.image, (int(width/self.rescale_factor), int(height/self.rescale_factor)))
 
-        if self.step != 0 and np.any(self.vel_prev) and np.allclose(self.image_prev, self.image): # non-zero vel and image hasn't changed
+        if self.step > 0 and np.any(self.vel_prev) and np.all(self.image_prev == self.image): # non-zero vel and image hasn't changed
+            return
+
+        pose = util.get_model_pose(self.model_name)
+        self.pos = np.asarray([pose.position.x, pose.position.y, pose.position.z])
+        if self.step > 0 and not np.all(self.pos == (self.pos_prev + self.vel_prev)):
             return
 
         # generate and apply action
         self.vel = (2*np.random.random(3) - 1) * self.vel_max
-        pose = util.get_model_pose(self.model_name)
-        self.pos = np.asarray([pose.position.x, pose.position.y, pose.position.z])
         pos_next = np.clip(self.pos + self.vel, self.pos_min, self.pos_max)
         self.vel = pos_next - self.pos # recompute vel because of clipping
         pose.position.x, pose.position.y, pose.position.z = pos_next
@@ -96,6 +102,7 @@ class ImageSubscriberAndRandomController:
             return
         
         self.image_prev = self.image
+        self.pos_prev = self.pos
         self.vel_prev = self.vel
         self.step += 1
 
