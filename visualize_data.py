@@ -22,9 +22,12 @@ def main():
             vis_image = util.create_vis_image(image_curr_data, vel_data, image_diff_data, height=args.height, draw_vel=args.draw_vel)
 
             # # debug that image addition is done correctly
+            # import numpy as np
             # image_next_std = image_next_data.T
             # image_next = util.destandarize(image_next_std).astype(np.uint8)
-            # vis_image = np.c_[vis_image, util.resize(image_next, args.height)]
+            # image_next = util.resize_from_height(image_next, args.height)
+            # image_next = np.repeat(image_next[:, :, None], 3, axis=2) if image_next.ndim == 2 else image_next
+            # vis_image = np.concatenate([vis_image, image_next], axis=1)
             
             cv2.imshow("Image window", vis_image)
             key = cv2.waitKey(0)

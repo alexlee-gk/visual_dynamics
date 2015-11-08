@@ -12,6 +12,7 @@ import util
 class ImageSubscriberAndRandomController(object):
     def __init__(self, **kwargs):
         self.model_name = kwargs['model_name']
+        self.num_trajs = kwargs['num_trajs']
         self.num_steps = kwargs['num_steps']
         self.vel_max = np.asarray(kwargs['vel_max'])
         self.pos_min = np.asarray(kwargs['pos_min'])
@@ -21,62 +22,84 @@ class ImageSubscriberAndRandomController(object):
         
         if kwargs['output'] is not None:
             self.f = h5py.File(kwargs['output'], "a")
+            self.data_iter = 0
         else:
             self.f = None
-        self.step = 0
+        self.traj_iter = 0
+        self.step_iter = 0
 
         if self.visualize:
             cv2.namedWindow("Image window", 1)
         self.bridge = CvBridge()
-        self.image = None
         self.image_prev = None
-        self.pos = None
         self.pos_prev = None
-        self.vel = None
         self.vel_prev = None
+        self.pos0 = self.generate_initial_position()
 
         self.image_sub = rospy.Subscriber(self.model_name + '/rgb/image_raw', sensor_msgs.msg.Image, self.callback)
+
+    def generate_initial_position(self):
+        pos0 = self.pos_min + np.random.random(3) * (self.pos_max - self.pos_min)
+        return pos0
+
+    def generate_velocity(self, pos, image):
+        vel = (2*np.random.random(3) - 1) * self.vel_max
+        pos_next = np.clip(pos + vel, self.pos_min, self.pos_max)
+        vel = pos_next - pos # recompute vel because of clipping
+        return vel
     
     def callback(self, data):
+        # get position
+        pose = util.get_model_pose(self.model_name)
+        pos = np.asarray([pose.position.x, pose.position.y, pose.position.z])
+
+        # set initial position
+        if self.step_iter == 0 and not np.all(pos == self.pos0):
+            pose.position.x, pose.position.y, pose.position.z = self.pos0
+            util.set_model_pose(self.model_name, pose)
+            self.skip_frames = 5
+            return
+        # skip frames to ensure that the pose has been set
+        if self.step_iter == 0 and self.skip_frames > 0:
+            self.skip_frames -= 1
+            return
+
         # get image
         try:
             bgr_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-            self.image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
+            image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
         except CvBridgeError, e:
             print e
             self.image_sub.unregister()
             print "Error in receiving or converting the image, shutting down"
             rospy.signal_shutdown("Error, shutting down")
             return
-        height, width = self.image.shape[:2]
-        self.image = cv2.resize(self.image, (int(width/self.rescale_factor), int(height/self.rescale_factor)))
+        height, width = image.shape[:2]
+        image = cv2.resize(image, (int(width/self.rescale_factor), int(height/self.rescale_factor)))
 
-        if self.step > 0 and np.any(self.vel_prev) and np.all(self.image_prev == self.image): # non-zero vel and image hasn't changed
+        # check images and positions are consistent with previous velocity
+        if self.step_iter > 0 and np.any(self.vel_prev) and np.all(self.image_prev == image): # non-zero vel and image hasn't changed
             return
-
-        pose = util.get_model_pose(self.model_name)
-        self.pos = np.asarray([pose.position.x, pose.position.y, pose.position.z])
-        if self.step > 0 and not np.all(self.pos == (self.pos_prev + self.vel_prev)):
+        if self.step_iter > 0 and not np.all(pos == (self.pos_prev + self.vel_prev)):
             return
 
         # generate and apply action
-        self.vel = (2*np.random.random(3) - 1) * self.vel_max
-        pos_next = np.clip(self.pos + self.vel, self.pos_min, self.pos_max)
-        self.vel = pos_next - self.pos # recompute vel because of clipping
-        pose.position.x, pose.position.y, pose.position.z = pos_next
+        vel = self.generate_velocity(pos, image)
+        pose.position.x, pose.position.y, pose.position.z = (pos + vel)
         util.set_model_pose(self.model_name, pose)
 
         # visualization
         if self.visualize:
-            cv2.imshow("Image window", self.image)
+            cv2.imshow("Image window", image)
             cv2.waitKey(1)
 
         # save data
         if self.f is not None:
-            image_std = util.standarize(self.image)
+            image_std = util.standarize(image)
             data_keys = ["image_curr", "image_next", "image_diff", "vel", "pos"]
-            image_shape = (self.num_steps, ) + image_std.T.shape
-            data_shapes = [image_shape,  image_shape, image_shape, (self.num_steps,  (self.vel_max != 0).sum()), (self.num_steps,  3)]
+            num_data = self.num_trajs * self.num_steps
+            image_shape = (num_data, ) + image_std.T.shape
+            data_shapes = [image_shape,  image_shape, image_shape, (num_data,  (self.vel_max != 0).sum()), (num_data, len(pos))]
             for data_key, data_shape in zip(data_keys, data_shapes):
                 if data_key in self.f:
                     if self.f[data_key].shape != data_shape:
@@ -86,48 +109,51 @@ class ImageSubscriberAndRandomController(object):
                         return
                 else:
                     self.f.create_dataset(data_key, data_shape)
-            if self.step != 0:
+            assert self.data_iter == (self.traj_iter * self.num_steps + self.step_iter)
+            if self.step_iter != 0:
                 image_prev_std = util.standarize(self.image_prev)
-                self.f["image_next"][self.step-1] = image_std.T
-                self.f["image_diff"][self.step-1] = image_std.T - image_prev_std.T
-            if self.step != self.num_steps:
-                self.f["image_curr"][self.step] = image_std.T
-                self.f["vel"][self.step] = self.vel[self.vel_max != 0] # exclude axes with fixed position
-                self.f["pos"][self.step] = self.pos
+                self.f["image_next"][self.data_iter-1] = image_std.T
+                self.f["image_diff"][self.data_iter-1] = image_std.T - image_prev_std.T
+            if self.step_iter != self.num_steps:
+                self.f["image_curr"][self.data_iter] = image_std.T
+                self.f["vel"][self.data_iter] = vel[self.vel_max != 0] # exclude axes with fixed position
+                self.f["pos"][self.data_iter] = pos
+                self.data_iter += 1
         
-        if self.step == self.num_steps:
-            self.image_sub.unregister()
-            print "Collected all data, shutting down"
-            rospy.signal_shutdown("Collected all data, shutting down")
-            return
-        
-        self.image_prev = self.image
-        self.pos_prev = self.pos
-        self.vel_prev = self.vel
-        self.step += 1
+        self.image_prev = image
+        self.pos_prev = pos
+        self.vel_prev = vel
+        self.step_iter += 1
+
+        if self.step_iter == (self.num_steps + 1):
+            self.traj_iter += 1
+            self.step_iter = 0
+            if self.traj_iter == self.num_trajs:
+                self.image_sub.unregister()
+                print "Collected all data, shutting down"
+                rospy.signal_shutdown("Collected all data, shutting down")
+                return
+            self.image_prev = None
+            self.pos_prev = None
+            self.vel_prev = None
+            self.pos0 = self.generate_initial_position()
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', '-o', type=str, default=None)
     parser.add_argument('--model_name', type=str, default='asus_camera')
-    parser.add_argument('--num_steps', '-n', type=int, default=100)
+    parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
+    parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--vel_max', type=float, nargs=3, default=[.1, 0, .1], metavar=tuple([xyz + '_vel_max' for xyz in 'xyz']))
     parser.add_argument('--pos_min', type=float, nargs=3, default=[-5, 6, .5], metavar=tuple([xyz + '_pos_min' for xyz in 'xyz']))
     parser.add_argument('--pos_max', type=float, nargs=3, default=[5, 6, 5.5], metavar=tuple([xyz + '_pos_max' for xyz in 'xyz']))
-    parser.add_argument('--rescale_factor', '-r', type=float, default=8, metavar='r', help='rescale image by 1/r')
+    parser.add_argument('--rescale_factor', '-r', type=float, default=64, metavar='R', help='rescale image by 1/R')
     parser.add_argument('--visualize', '-v', type=int, default=1)
     
     args = parser.parse_args()
     
     rospy.init_node('image_subscriber', anonymous=True, log_level=rospy.INFO)
 
-    pos0 = (np.asarray(args.pos_min) + np.asarray(args.pos_max))/2
-    util.set_model_pose(args.model_name, util.create_pose(pos0, 0,0,np.pi/2))
-    pose = util.get_model_pose(args.model_name)
-    assert pose.position.x == pos0[0]
-    assert pose.position.y == pos0[1]
-    assert pose.position.z == pos0[2]
-    
     ImageSubscriberAndRandomController(**vars(args))
     
     try:

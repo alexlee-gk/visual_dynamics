@@ -26,17 +26,21 @@ def upsample_waypoints(waypoints, max_dist):
         upsampled_waypoints.append(linspace2d(wp0, wp1, num))
     return np.concatenate(upsampled_waypoints)
 
-def create_pose(xyz, roll, pitch, yaw):
+def create_pose_from_transform(transform):
+    pos, quat = transform
     pose = geometry_msgs.msg.Pose()
-    pose.position.x = xyz[0]
-    pose.position.y = xyz[1]
-    pose.position.z = xyz[2]
-    quat = tf.transformations.quaternion_from_euler(roll, pitch, yaw)
+    pose.position.x = pos[0]
+    pose.position.y = pos[1]
+    pose.position.z = pos[2]
     pose.orientation.x = quat[0]
     pose.orientation.y = quat[1]
     pose.orientation.z = quat[2]
     pose.orientation.w = quat[3]
     return pose
+
+def create_pose(xyz, roll, pitch, yaw):
+    quat = tf.transformations.quaternion_from_euler(roll, pitch, yaw)
+    return create_pose_from_transform((xyz, quat))
 
 def create_pose_msg(xyz, roll, pitch, yaw, frame_id):
     pose_stamped = geometry_msgs.msg.PoseStamped()
@@ -123,21 +127,21 @@ def create_vis_image(image_curr_data, vel_data, image_diff_data, height=480, dra
                      (w/2 + rescale_factors[0], h - h/2), 
                      [0, 0, 255],
                      thickness=2,
-                     tip_length=5)
+                     tip_length=rescale_factors[0]*0.2)
         arrowed_line(images[0], 
                      (w/2, h/2), 
                      (w/2, h - (h/2 + rescale_factors[0])), 
                      [0, 255, 0],
                      thickness=2,
-                     tip_length=5)
+                     tip_length=rescale_factors[0]*0.2)
         # draw rescaled velocity
         arrowed_line(images[0], 
                      (w/2, h/2), 
                      (w/2 + vel_data[0] * rescale_vel * rescale_factors[0], 
                       h - (h/2 + vel_data[1] * rescale_vel * rescale_factors[0])), 
                      [255, 0, 0],
-                     thickness=5,
-                     tip_length=15)
+                     thickness=2,
+                     tip_length=rescale_factors[0]*0.4)
     
     vis_image = np.concatenate(images, axis=1)
     return vis_image
