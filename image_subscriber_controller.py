@@ -100,7 +100,7 @@ class ImageSubscriberAndController(object):
 
         # visualization
         if self.visualize:
-            cv2.imshow("Image window", image)
+            cv2.imshow("Image window", cv2.resize(image, (width, height), interpolation=cv2.INTER_NEAREST))
             cv2.waitKey(1)
 
         # save data
@@ -178,6 +178,7 @@ def main():
             rospy.sleep(1)
         except KeyboardInterrupt:
             print "Shutting down"
+            break
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
