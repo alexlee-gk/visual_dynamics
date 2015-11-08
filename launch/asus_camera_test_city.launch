@@ -5,7 +5,13 @@
     <arg name="paused" value="false" />
   </include>
 
-  <include file="launch/spawn_asus_camera.launch"/>
+  <include file="$(find visual_dynamics)/launch/spawn_asus_camera.launch"/>
+
+  <node name="gazebo_model_tf_broadcaster" pkg="visual_dynamics" type="gazebo_model_tf_broadcaster.py" respawn="false" output="screen" >
+    <param name="model_name" type="string" value="asus_camera" />
+    <param name="model_frame" type="string" value="asus_camera_base_link" />
+    <param name="parent_frame" type="string" value="world" />
+  </node>
 
   <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" />
 </launch>

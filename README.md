@@ -1,1 +1,1 @@
-# visual-dynamics
+# visual_dynamics

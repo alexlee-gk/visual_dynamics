@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 
 <robot name="asus_camera" xmlns:xacro="http://ros.org/wiki/xacro">
-    <xacro:include filename="asus_camera.xacro" />
+    <xacro:include filename="$(find visual_dynamics)/urdf/asus_camera.xacro" />
 
-    <link name="world" />
+    <link name="asus_camera_base_link" />
     
     <!-- Asus Xiton Live Pro -->
-    <xacro:asus_camera name="asus_camera" parent="world">
+    <xacro:asus_camera name="asus_camera" parent="asus_camera_base_link">
         <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
     </xacro:asus_camera>
 </robot>
