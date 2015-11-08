@@ -26,6 +26,11 @@ def upsample_waypoints(waypoints, max_dist):
         upsampled_waypoints.append(linspace2d(wp0, wp1, num))
     return np.concatenate(upsampled_waypoints)
 
+def transform_from_pose(pose):
+    pos = np.asarray([pose.position.x, pose.position.y, pose.position.z])
+    quat = np.asarray([pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
+    return (pos, quat)
+
 def create_pose_from_transform(transform):
     pos, quat = transform
     pose = geometry_msgs.msg.Pose()

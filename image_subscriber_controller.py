@@ -9,7 +9,7 @@ from cv_bridge import CvBridge, CvBridgeError
 import h5py
 import util
 
-class ImageSubscriberAndRandomController(object):
+class ImageSubscriberAndController(object):
     def __init__(self, **kwargs):
         self.model_name = kwargs['model_name']
         self.num_trajs = kwargs['num_trajs']
@@ -18,45 +18,57 @@ class ImageSubscriberAndRandomController(object):
         self.pos_min = np.asarray(kwargs['pos_min'])
         self.pos_max = np.asarray(kwargs['pos_max'])
         self.rescale_factor = kwargs['rescale_factor']
-        self.visualize = kwargs['visualize']
         
         if kwargs['output'] is not None:
             self.f = h5py.File(kwargs['output'], "a")
             self.data_iter = 0
         else:
             self.f = None
+
+        self.visualize = kwargs['visualize']
+        if self.visualize:
+            cv2.namedWindow("Image window", 1)
+
         self.traj_iter = 0
         self.step_iter = 0
 
-        if self.visualize:
-            cv2.namedWindow("Image window", 1)
         self.bridge = CvBridge()
         self.image_prev = None
         self.pos_prev = None
         self.vel_prev = None
+        self.vel = np.zeros(3)
         self.pos0 = self.generate_initial_position()
 
         self.image_sub = rospy.Subscriber(self.model_name + '/rgb/image_raw', sensor_msgs.msg.Image, self.callback)
+
+    def shutdown(self, msg):
+        self.image_sub.unregister()
+        print msg
+        rospy.signal_shutdown(msg)
 
     def generate_initial_position(self):
         pos0 = self.pos_min + np.random.random(3) * (self.pos_max - self.pos_min)
         return pos0
 
-    def generate_velocity(self, pos, image):
-        vel = (2*np.random.random(3) - 1) * self.vel_max
+    def apply_velocity(self, vel):
+        assert not np.any(self.vel) # can only apply velocity once per callback
+        pos, quat = util.transform_from_pose(self.pose)
         pos_next = np.clip(pos + vel, self.pos_min, self.pos_max)
-        vel = pos_next - pos # recompute vel because of clipping
+        self.vel = vel = pos_next - pos # recompute vel because of clipping
+        util.set_model_pose(self.model_name, util.create_pose_from_transform((pos + vel, quat)))
         return vel
+
+    def image_callback(self, image, pos, traj_iter, step_iter):
+        pass
     
     def callback(self, data):
         # get position
-        pose = util.get_model_pose(self.model_name)
-        pos = np.asarray([pose.position.x, pose.position.y, pose.position.z])
+        self.pose = util.get_model_pose(self.model_name)
+        pos, quat = util.transform_from_pose(self.pose)
 
         # set initial position
         if self.step_iter == 0 and not np.all(pos == self.pos0):
-            pose.position.x, pose.position.y, pose.position.z = self.pos0
-            util.set_model_pose(self.model_name, pose)
+            util.set_model_pose(self.model_name, util.create_pose_from_transform((self.pos0, quat)))
             self.skip_frames = 5
             return
         # skip frames to ensure that the pose has been set
@@ -70,9 +82,7 @@ class ImageSubscriberAndRandomController(object):
             image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
         except CvBridgeError, e:
             print e
-            self.image_sub.unregister()
-            print "Error in receiving or converting the image, shutting down"
-            rospy.signal_shutdown("Error, shutting down")
+            self.shutdown("Error in receiving or converting the image, shutting down")
             return
         height, width = image.shape[:2]
         image = cv2.resize(image, (int(width/self.rescale_factor), int(height/self.rescale_factor)))
@@ -83,10 +93,9 @@ class ImageSubscriberAndRandomController(object):
         if self.step_iter > 0 and not np.all(pos == (self.pos_prev + self.vel_prev)):
             return
 
-        # generate and apply action
-        vel = self.generate_velocity(pos, image)
-        pose.position.x, pose.position.y, pose.position.z = (pos + vel)
-        util.set_model_pose(self.model_name, pose)
+        self.image_callback(image, pos, self.traj_iter, self.step_iter)
+        vel = self.vel
+        self.vel = np.zeros(3)
 
         # visualization
         if self.visualize:
@@ -103,9 +112,7 @@ class ImageSubscriberAndRandomController(object):
             for data_key, data_shape in zip(data_keys, data_shapes):
                 if data_key in self.f:
                     if self.f[data_key].shape != data_shape:
-                        self.image_sub.unregister()
-                        print "Error, file with different structure exists, shutting down"
-                        rospy.signal_shutdown("Error, shutting down")
+                        self.shutdown("Error, file with different structure exists, shutting down")
                         return
                 else:
                     self.f.create_dataset(data_key, data_shape)
@@ -129,14 +136,21 @@ class ImageSubscriberAndRandomController(object):
             self.traj_iter += 1
             self.step_iter = 0
             if self.traj_iter == self.num_trajs:
-                self.image_sub.unregister()
-                print "Collected all data, shutting down"
-                rospy.signal_shutdown("Collected all data, shutting down")
+                self.shutdown("Collected all data, shutting down")
                 return
             self.image_prev = None
             self.pos_prev = None
             self.vel_prev = None
             self.pos0 = self.generate_initial_position()
+
+class ImageSubscriberAndRandomController(ImageSubscriberAndController):
+    def __init__(self, **kwargs):
+        super(ImageSubscriberAndRandomController, self).__init__(**kwargs)
+
+    def image_callback(self, image, pos, traj_iter, step_iter):
+        # generate and apply action
+        vel = (2*np.random.random(3) - 1) * self.vel_max
+        self.apply_velocity(vel)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -152,7 +166,7 @@ def main():
     
     args = parser.parse_args()
     
-    rospy.init_node('image_subscriber', anonymous=True, log_level=rospy.INFO)
+    rospy.init_node('image_subscriber_controller', anonymous=True, log_level=rospy.INFO)
 
     ImageSubscriberAndRandomController(**vars(args))
     

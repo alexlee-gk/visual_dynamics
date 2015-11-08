@@ -50,7 +50,7 @@ layer {
     decay_mult: 1
   }
   param {
-    lr_mult: 1
+    lr_mult: 0
     decay_mult: 0
   }
   inner_product_param {
@@ -75,7 +75,7 @@ layer {
     decay_mult: 1
   }
   param {
-    lr_mult: 1
+    lr_mult: 0
     decay_mult: 0
   }
   inner_product_param {
@@ -100,7 +100,7 @@ layer {
     decay_mult: 1
   }
   param {
-    lr_mult: 1
+    lr_mult: 0
     decay_mult: 0
   }
   inner_product_param {
