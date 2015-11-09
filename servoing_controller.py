@@ -3,6 +3,7 @@ from __future__ import division
 import argparse
 import numpy as np
 import rospy
+import tf
 import cv2
 import caffe
 import util
@@ -36,9 +37,10 @@ class ImageSubscriberAndServoingController(ImageSubscriberAndController):
         if self.visualize:
             cv2.namedWindow("Image window", 1)
 
-    def generate_initial_position(self):
+    def generate_initial_transform(self):
         pos0 = (self.pos_min + self.pos_max)/2
-        return pos0
+        quat0 = tf.transformations.quaternion_from_euler(0, 0, np.pi/2)
+        return (pos0, quat0)
 
     def image_callback(self, image, pos, traj_iter, step_iter):
         image_target = self.image_targets[traj_iter]

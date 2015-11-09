@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import rospy
 import sensor_msgs
+import tf
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
 import h5py
@@ -32,7 +33,7 @@ class ImageSubscriberAndController(object):
         self.pos_prev = None
         self.vel_prev = None
         self.vel = np.zeros(3)
-        self.pos0 = self.generate_initial_position()
+        self.pos0, self.quat0 = self.generate_initial_transform()
 
         self.image_sub = rospy.Subscriber(self.model_name + '/rgb/image_raw', sensor_msgs.msg.Image, self.callback)
         self.done = False
@@ -42,9 +43,10 @@ class ImageSubscriberAndController(object):
         print msg
         rospy.signal_shutdown(msg)
 
-    def generate_initial_position(self):
+    def generate_initial_transform(self):
         pos0 = self.pos_min + np.random.random(3) * (self.pos_max - self.pos_min)
-        return pos0
+        quat0 = tf.transformations.quaternion_from_euler(0, 0, np.pi/2)
+        return (pos0, quat0)
 
     def apply_velocity(self, vel):
         assert not np.any(self.vel) # can only apply velocity once per callback
@@ -63,8 +65,8 @@ class ImageSubscriberAndController(object):
         pos, quat = util.transform_from_pose(self.pose)
 
         # set initial position
-        if self.step_iter == 0 and not np.all(pos == self.pos0):
-            util.set_model_pose(self.model_name, util.create_pose_from_transform((self.pos0, quat)))
+        if self.step_iter == 0 and (not np.all(pos == self.pos0) or not np.all(quat == self.quat0)):
+            util.set_model_pose(self.model_name, util.create_pose_from_transform((self.pos0, self.quat0)))
             self.skip_frames = 5
             return
         # skip frames to ensure that the pose has been set
@@ -134,7 +136,7 @@ class ImageSubscriberAndController(object):
             self.image_prev = None
             self.pos_prev = None
             self.vel_prev = None
-            self.pos0 = self.generate_initial_position()
+            self.pos0, self.quat0 = self.generate_initial_transform()
 
 class ImageSubscriberAndRandomController(ImageSubscriberAndController):
     def __init__(self, **kwargs):
@@ -152,7 +154,7 @@ class ImageSubscriberAndRandomController(ImageSubscriberAndController):
 
         # visualization
         if self.visualize:
-            vis_image = util.resize_from_scale(vis_image, self.rescale_factor)
+            vis_image = util.resize_from_scale(image, self.rescale_factor)
             cv2.imshow("Image window", vis_image)
             key = cv2.waitKey(1)
             key &= 255
