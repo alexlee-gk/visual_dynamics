@@ -14,7 +14,6 @@ class ImageSubscriberAndController(object):
         self.model_name = kwargs['model_name']
         self.num_trajs = kwargs['num_trajs']
         self.num_steps = kwargs['num_steps']
-        self.vel_max = np.asarray(kwargs['vel_max'])
         self.pos_min = np.asarray(kwargs['pos_min'])
         self.pos_max = np.asarray(kwargs['pos_max'])
         self.rescale_factor = kwargs['rescale_factor']
@@ -101,7 +100,11 @@ class ImageSubscriberAndController(object):
         # visualization
         if self.visualize:
             cv2.imshow("Image window", cv2.resize(image, (width, height), interpolation=cv2.INTER_NEAREST))
-            cv2.waitKey(1)
+            key = cv2.waitKey(1)
+            key &= 255
+            if key == 27 or key == ord('q'):
+                self.shutdown("Pressed ESC or q, shutting down")
+                return
 
         # save data
         if self.f is not None:
@@ -109,7 +112,7 @@ class ImageSubscriberAndController(object):
             data_keys = ["image_curr", "image_next", "image_diff", "vel", "pos"]
             num_data = self.num_trajs * self.num_steps
             image_shape = (num_data, ) + image_std.T.shape
-            data_shapes = [image_shape,  image_shape, image_shape, (num_data,  (self.vel_max != 0).sum()), (num_data, len(pos))]
+            data_shapes = [image_shape,  image_shape, image_shape, (num_data,  len(vel)), (num_data, len(pos))]
             for data_key, data_shape in zip(data_keys, data_shapes):
                 if data_key in self.f:
                     if self.f[data_key].shape != data_shape:
@@ -124,7 +127,7 @@ class ImageSubscriberAndController(object):
                 self.f["image_diff"][self.data_iter-1] = image_std.T - image_prev_std.T
             if self.step_iter != self.num_steps:
                 self.f["image_curr"][self.data_iter] = image_std.T
-                self.f["vel"][self.data_iter] = vel[self.vel_max != 0] # exclude axes with fixed position
+                self.f["vel"][self.data_iter] = vel
                 self.f["pos"][self.data_iter] = pos
                 self.data_iter += 1
         
@@ -149,11 +152,12 @@ class ImageSubscriberAndController(object):
 class ImageSubscriberAndRandomController(ImageSubscriberAndController):
     def __init__(self, **kwargs):
         super(ImageSubscriberAndRandomController, self).__init__(**kwargs)
+        self.vel_max = np.asarray(kwargs['vel_max'])
 
     def image_callback(self, image, pos, traj_iter, step_iter):
         # generate and apply action
         vel = (2*np.random.random(3) - 1) * self.vel_max
-        self.apply_velocity(vel)
+        vel = self.apply_velocity(vel)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -172,7 +176,6 @@ def main():
     rospy.init_node('image_subscriber_controller', anonymous=True, log_level=rospy.INFO)
 
     image_sub_ctrl = ImageSubscriberAndRandomController(**vars(args))
-    
     while not image_sub_ctrl.done:
         try:
             rospy.sleep(1)
