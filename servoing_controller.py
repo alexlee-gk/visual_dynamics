@@ -5,6 +5,7 @@ import numpy as np
 import rospy
 import cv2
 import caffe
+import util
 from image_subscriber_controller import ImageSubscriberAndController
 
 def compute_jacobian(net, output, input):
@@ -31,11 +32,19 @@ class ImageSubscriberAndServoingController(ImageSubscriberAndController):
 
         self.alpha = 1.0
 
+        self.visualize = kwargs['visualize']
+        if self.visualize:
+            cv2.namedWindow("Image window", 1)
+
+    def generate_initial_position(self):
+        pos0 = (self.pos_min + self.pos_max)/2
+        return pos0
+
     def image_callback(self, image, pos, traj_iter, step_iter):
         image_target = self.image_targets[traj_iter]
         y = image.flatten()
         y0 = image_target.flatten()
-        print np.linalg.norm(y0 - y)
+        # print np.linalg.norm(y0 - y)
 
         # use model to optimize for action       
         self.net.blobs['image_curr'].data[...] = y.reshape(self.net.blobs['image_curr'].data.shape)
@@ -58,6 +67,17 @@ class ImageSubscriberAndServoingController(ImageSubscriberAndController):
         # apply action
         vel = np.array([u[0], 0.0, u[1]])
         vel = self.apply_velocity(vel)
+
+        # visualization
+        if self.visualize:
+            vis_image = np.concatenate([image, image_target], axis=1)
+            vis_image = util.resize_from_scale(vis_image, self.rescale_factor)
+            cv2.imshow("Image window", vis_image)
+            key = cv2.waitKey(1)
+            key &= 255
+            if key == 27 or key == ord('q'):
+                self.shutdown("Pressed ESC or q, shutting down")
+                return
 
 class ImagePositionCollector(ImageSubscriberAndController):
     def __init__(self, **kwargs):
@@ -86,7 +106,7 @@ def main():
     
     rospy.init_node('servoing_controller', anonymous=True, log_level=rospy.INFO)
     
-    image_pos_collector = ImagePositionCollector(**dict(vars(args).items() + [('num_steps', 1)])) # override num_steps
+    image_pos_collector = ImagePositionCollector(**dict(vars(args).items() + [('num_steps', 1), ('visualize', 0)])) # override some args
     while not image_pos_collector.done:
         try:
             rospy.sleep(1)

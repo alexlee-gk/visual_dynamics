@@ -24,10 +24,6 @@ class ImageSubscriberAndController(object):
         else:
             self.f = None
 
-        self.visualize = kwargs['visualize']
-        if self.visualize:
-            cv2.namedWindow("Image window", 1)
-
         self.traj_iter = 0
         self.step_iter = 0
 
@@ -97,15 +93,6 @@ class ImageSubscriberAndController(object):
         vel = self.vel
         self.vel = np.zeros(3)
 
-        # visualization
-        if self.visualize:
-            cv2.imshow("Image window", cv2.resize(image, (width, height), interpolation=cv2.INTER_NEAREST))
-            key = cv2.waitKey(1)
-            key &= 255
-            if key == 27 or key == ord('q'):
-                self.shutdown("Pressed ESC or q, shutting down")
-                return
-
         # save data
         if self.f is not None:
             image_std = util.standarize(image)
@@ -154,10 +141,24 @@ class ImageSubscriberAndRandomController(ImageSubscriberAndController):
         super(ImageSubscriberAndRandomController, self).__init__(**kwargs)
         self.vel_max = np.asarray(kwargs['vel_max'])
 
+        self.visualize = kwargs['visualize']
+        if self.visualize:
+            cv2.namedWindow("Image window", 1)
+
     def image_callback(self, image, pos, traj_iter, step_iter):
         # generate and apply action
         vel = (2*np.random.random(3) - 1) * self.vel_max
         vel = self.apply_velocity(vel)
+
+        # visualization
+        if self.visualize:
+            vis_image = util.resize_from_scale(vis_image, self.rescale_factor)
+            cv2.imshow("Image window", vis_image)
+            key = cv2.waitKey(1)
+            key &= 255
+            if key == 27 or key == ord('q'):
+                self.shutdown("Pressed ESC or q, shutting down")
+                return
 
 def main():
     parser = argparse.ArgumentParser()
