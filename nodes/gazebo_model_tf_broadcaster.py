@@ -19,8 +19,8 @@ def pose_callback(model_states, callback_args):
 def main():
     rospy.init_node('gazebo_model_tf_broadcaster', anonymous=True, log_level=rospy.INFO)
     model_name = rospy.get_param('~model_name', 'asus_camera')
-    model_frame = rospy.get_param('~model_frame', 'asus_camera_base_link')
-    parent_frame = rospy.get_param('~parent_frame', 'world')
+    model_frame = rospy.get_param('~model_frame', 'world')
+    parent_frame = rospy.get_param('~parent_frame', 'asus_camera_base_link')
     rospy.sleep(5)
     rospy.Subscriber('/gazebo/model_states', gazebo_msgs.msg.ModelStates, pose_callback, (model_name, model_frame, parent_frame))
     rospy.spin()
