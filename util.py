@@ -111,10 +111,14 @@ def resize_from_height(image, height, ret_factor=False):
     return image
 
 def create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=1, draw_vel=True, rescale_vel=10):
-    image_curr_std = image_curr_data.T
+    image_curr_std = image_curr_data.transpose(1, 2, 0)
+    if image_curr_std.shape[2] == 1:
+        image_curr_std = np.squeeze(image_curr_std, axis=2)
     image_curr = destandarize(image_curr_std).astype(np.uint8)
 
-    image_diff_std = image_diff_data.T
+    image_diff_std = image_diff_data.transpose(1, 2, 0)
+    if image_diff_std.shape[2] == 1:
+        image_diff_std = np.squeeze(image_diff_std, axis=2)
     image_diff = destandarize(image_diff_std, in_min=-2, in_max=2, out_min=0, out_max=255).astype(np.uint8)
 
     image_next_std = np.clip(image_curr_std + image_diff_std, -1, 1)
