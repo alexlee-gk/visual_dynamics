@@ -52,14 +52,22 @@ class BilinearFunction(object):
         return Y_dot
 
     def eval3(self, Y, U):
-        N, I, J, K = Y.shape[0], self.I, self.J, self.K
+        N, I, J = Y.shape[0], self.I, self.J
         assert Y.shape == (N, I)
         assert U.shape == (N, J)
         X = np.einsum("ni,nj->nij", Y, U)
         Z = np.c_[X.reshape((-1, I*J)), U]
         C = np.c_[self.A.reshape((-1, I*J)), self.B]
         return Z.dot(C.T)
-
+    
+    def jac_u(self, Y):
+        ndim = Y.ndim
+        if ndim == 1:
+            jac = np.einsum("kij,i->kj", self.A, Y) + self.B
+            return jac
+        else:
+            return np.asarray([self.jac_u(y) for y in Y])
+    
     def fit(self, Y, U, Y_dot):
         N, I, J, K = Y.shape[0], self.I, self.J, self.K
         assert Y.shape == (N, I)
