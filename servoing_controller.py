@@ -31,7 +31,7 @@ class ImageSubscriberAndServoingController(ImageSubscriberAndController):
                              kwargs['model_file'],
                              caffe.TEST)
 
-        self.alpha = 1.0
+        self.alpha = 0.1
 
         self.visualize = kwargs['visualize']
         if self.visualize:
@@ -44,12 +44,13 @@ class ImageSubscriberAndServoingController(ImageSubscriberAndController):
 
     def image_callback(self, image, pos, traj_iter, step_iter):
         image_target = self.image_targets[traj_iter]
-        y = image.flatten()
-        y0 = image_target.flatten()
+        y = util.standarize(image).flatten()
+        y0 = util.standarize(image_target).flatten()
         # print np.linalg.norm(y0 - y)
 
         # use model to optimize for action       
-        self.net.blobs['image_curr'].data[...] = y.reshape(self.net.blobs['image_curr'].data.shape)
+        image_data = util.standarize(image).T
+        self.net.blobs['image_curr'].data[...] = image_data
         self.net.forward()
         # y_diff_pred = self.net.forward()['y_diff_pred'].flatten()
         J = compute_jacobian(self.net, 'y_diff_pred', 'vel')
@@ -67,8 +68,9 @@ class ImageSubscriberAndServoingController(ImageSubscriberAndController):
         # y += y_diff_pred
         
         # apply action
-        vel = np.array([u[0], 0.0, u[1]])
+        vel = u
         vel = self.apply_velocity(vel)
+        vel = np.clip(vel, -0.1, 0.1)
 
         # visualization
         if self.visualize:
@@ -90,6 +92,14 @@ class ImagePositionCollector(ImageSubscriberAndController):
     def image_callback(self, image, pos, traj_iter, step_iter):
         self.images.append(image)
         self.positions.append(pos)
+
+#         vis_image = util.resize_from_scale(image, self.rescale_factor)
+#         cv2.imshow("Image window", vis_image)
+#         key = cv2.waitKey(1)
+#         key &= 255
+#         if key == 27 or key == ord('q'):
+#             self.shutdown("Pressed ESC or q, shutting down")
+#             return
 
 def main():
     parser = argparse.ArgumentParser()
