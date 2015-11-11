@@ -110,7 +110,7 @@ def resize_from_height(image, height, ret_factor=False):
         return (image, rescale_factor)
     return image
 
-def create_vis_image(image_curr_data, vel_data, image_diff_data, height=480, draw_vel=True, rescale_vel=10):
+def create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=1, draw_vel=True, rescale_vel=10):
     image_curr_std = image_curr_data.T
     image_curr = destandarize(image_curr_std).astype(np.uint8)
 
@@ -120,7 +120,7 @@ def create_vis_image(image_curr_data, vel_data, image_diff_data, height=480, dra
     image_next_std = np.clip(image_curr_std + image_diff_std, -1, 1)
     image_next = destandarize(image_next_std).astype(np.uint8)
     
-    images, rescale_factors = zip(*[resize_from_height(image, height, ret_factor=True) for image in [image_curr, image_diff, image_next]])
+    images = [resize_from_scale(image, rescale_factor) for image in [image_curr, image_diff, image_next]]
     # change from grayscale to bgr format
     images = [np.repeat(image[:, :, None], 3, axis=2) if image.ndim == 2 else image for image in images]
 
@@ -129,24 +129,24 @@ def create_vis_image(image_curr_data, vel_data, image_diff_data, height=480, dra
         # draw coordinate system
         arrowed_line(images[0], 
                      (w/2, h/2), 
-                     (w/2 + rescale_factors[0], h - h/2), 
+                     (w/2 + rescale_factor, h - h/2), 
                      [0, 0, 255],
                      thickness=2,
-                     tip_length=rescale_factors[0]*0.2)
+                     tip_length=rescale_factor*0.2)
         arrowed_line(images[0], 
                      (w/2, h/2), 
-                     (w/2, h - (h/2 + rescale_factors[0])), 
+                     (w/2, h - (h/2 + rescale_factor)), 
                      [0, 255, 0],
                      thickness=2,
-                     tip_length=rescale_factors[0]*0.2)
+                     tip_length=rescale_factor*0.2)
         # draw rescaled velocity
         arrowed_line(images[0], 
                      (w/2, h/2), 
-                     (w/2 + vel_data[0] * rescale_vel * rescale_factors[0], 
-                      h - (h/2 + vel_data[1] * rescale_vel * rescale_factors[0])), 
+                     (w/2 + vel_data[0] * rescale_vel * rescale_factor, 
+                      h - (h/2 + vel_data[1] * rescale_vel * rescale_factor)), 
                      [255, 0, 0],
                      thickness=2,
-                     tip_length=rescale_factors[0]*0.4)
+                     tip_length=rescale_factor*0.4)
     
     vis_image = np.concatenate(images, axis=1)
     return vis_image

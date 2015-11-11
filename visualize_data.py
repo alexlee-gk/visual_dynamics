@@ -8,8 +8,8 @@ import util
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('file', type=str)
-    parser.add_argument('--height', type=float, default=480)
-    parser.add_argument('--draw_vel', type=int, default=1)
+    parser.add_argument('--rescale_factor', type=int, default=10)
+    parser.add_argument('--draw_vel', type=int, default=0)
     
     args = parser.parse_args()
 
@@ -19,7 +19,7 @@ def main():
 
     for image_curr_data, vel_data, image_diff_data, image_next_data in zip(f['image_curr'], f['vel'], f['image_diff'], f['image_next']):
         try:
-            vis_image = util.create_vis_image(image_curr_data, vel_data, image_diff_data, height=args.height, draw_vel=args.draw_vel)
+            vis_image = util.create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=args.rescale_factor, draw_vel=args.draw_vel)
 
             # # debug that image addition is done correctly
             # import numpy as np
