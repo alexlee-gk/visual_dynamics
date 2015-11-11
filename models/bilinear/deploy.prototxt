@@ -8,7 +8,7 @@ input_shape {
 input: "vel"
 input_shape {
   dim: 1
-  dim: 2
+  dim: 3
 }
 force_backward: true
 layer {
