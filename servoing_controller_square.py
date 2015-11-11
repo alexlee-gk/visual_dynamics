@@ -42,15 +42,16 @@ class ImageCollectorAndServoingController(ImageCollectorAndController):
 
     def image_callback(self, image, pos, traj_iter, step_iter):
         image_target = self.image_targets[traj_iter]
-        y = util.standarize(image).flatten()
-        y0 = util.standarize(image_target).flatten()
-        # print np.linalg.norm(y0 - y)
+        image_std = util.standarize(image)
+        image_target_std = util.standarize(image_target)
+
+        y = image_std.flatten()
+        y0 = image_target_std.flatten()
 
         # use model to optimize for action       
-        image_data = util.standarize(image).T
+        image_data = np.expand_dims(image_std, axis=0)
         self.net.blobs['image_curr'].data[...] = image_data
         self.net.forward()
-        # y_diff_pred = self.net.forward()['y_diff_pred'].flatten()
         J = compute_jacobian(self.net, 'y_diff_pred', 'vel')
         
 #         pos0 = self.sim.pos
@@ -83,10 +84,6 @@ class ImageCollectorAndServoingController(ImageCollectorAndController):
             u = np.zeros(self.net.blobs['vel'].data.flatten().shape)
             for _ in range(10):
                 u -= gamma * J.T.dot(J.dot(u) - self.alpha * (y0 - y))
-        # # apply velocity and get new image. replace this with simulation
-        # vel_blob.data[...] = u[None, :]
-        # y_diff_pred = net.forward()['y_diff_pred'].flatten()
-        # y += y_diff_pred
         
         # apply action
         vel = u

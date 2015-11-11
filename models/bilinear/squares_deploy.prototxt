@@ -2,8 +2,9 @@ name: "BilinearRegressionNet"
 input: "image_curr"
 input_shape {
   dim: 1
-  dim: 10
+  dim: 1
   dim: 7
+  dim: 10
 }
 input: "vel"
 input_shape {

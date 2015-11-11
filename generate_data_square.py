@@ -5,7 +5,6 @@ import numpy as np
 import cv2
 import h5py
 import util
-import  IPython as ipy
 
 class ImageCollectorAndController(object):
     def __init__(self, sim, **kwargs):
@@ -48,7 +47,7 @@ class ImageCollectorAndController(object):
                         image_std = util.standarize(image)
                         data_keys = ["image_curr", "image_next", "image_diff", "vel", "pos"]
                         num_data = self.num_trajs * self.num_steps
-                        image_shape = (num_data, ) + image_std.T.shape
+                        image_shape = (num_data, 1) + image_std.shape
                         data_shapes = [image_shape,  image_shape, image_shape, (num_data,  len(vel)), (num_data, len(pos))]
                         for data_key, data_shape in zip(data_keys, data_shapes):
                             if data_key in self.f:
@@ -61,11 +60,10 @@ class ImageCollectorAndController(object):
                         assert data_iter == (traj_iter * self.num_steps + step_iter)
                         if step_iter != 0:
                             image_prev_std = util.standarize(image_prev)
-                            self.f["image_next"][data_iter-1] = image_std.T
-                            self.f["image_diff"][data_iter-1] = image_std.T - image_prev_std.T
-#                             self.f["image_diff"][data_iter-1] = util.standarize(image_std.T - image_prev_std.T, in_min=-2, in_max=2, out_min=0, out_max=1)
+                            self.f["image_next"][data_iter-1] = np.expand_dims(image_std, axis=0)
+                            self.f["image_diff"][data_iter-1] = np.expand_dims(image_std - image_prev_std, axis=0)
                         if step_iter != self.num_steps:
-                            self.f["image_curr"][data_iter] = image_std.T
+                            self.f["image_curr"][data_iter] = np.expand_dims(image_std, axis=0)
                             self.f["vel"][data_iter] = vel
                             self.f["pos"][data_iter] = pos
                             data_iter += 1
