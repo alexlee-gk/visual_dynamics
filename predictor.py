@@ -14,9 +14,11 @@ class FeaturePredictor(object):
     Predicts change in features (y_dot) given the current input (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, x_shape, u_shape, y_shape):
+    def __init__(self, x_shape, u_shape, y_shape=None):
         self.x_shape = x_shape
         self.u_shape = u_shape
+        if y_shape is None:
+            y_shape = self.feature_from_input(np.empty(x_shape)).shape
         self.y_shape = y_shape
 
     def train(self, data):
@@ -30,7 +32,7 @@ class FeaturePredictor(object):
 
     def feature_from_input(self, X):
         """
-        By default, the feture is just the input flattened
+        By default, the feature is just the input flattened
         """
         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
         if X.shape == self.x_shape:
@@ -92,16 +94,13 @@ class BilinearFeaturePredictor(bilinear.BilinearFunction, FeaturePredictor):
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, x_shape, u_shape, y_shape):
+    def __init__(self, x_shape, u_shape, y_shape=None):
         FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
-        self.x_shape = x_shape
-        self.u_shape = u_shape
-        self.y_shape = y_shape
-        y_dim = np.prod(x_shape)
-        assert len(u_shape) == 1 or (len(u_shape) == 2 and u_shape[1] == 1)
-        u_dim = u_shape[0]
-        assert len(y_shape) == 1 or (len(y_shape) == 2 and y_shape[1] == 1)
-        assert y_dim == y_shape[0]
+        y_dim = np.prod(self.x_shape)
+        assert len(self.u_shape) == 1 or (len(self.u_shape) == 2 and self.u_shape[1] == 1)
+        u_dim = self.u_shape[0]
+        assert len(self.y_shape) == 1 or (len(self.y_shape) == 2 and self.y_shape[1] == 1)
+        assert y_dim == self.y_shape[0]
         bilinear.BilinearFunction.__init__(self, y_dim, u_dim)
 
     def train(self, X, U, Y_dot):
@@ -224,7 +223,8 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         snapshot_prefix = os.path.join(snapshot_dir, self.net_name)
         return snapshot_prefix
 
-    def infer_input_shapes(self, inputs, default_input_shapes, hdf5_fname_hint):
+    @staticmethod
+    def infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint):
         input_shapes = []
         if hdf5_fname_hint is None:
             input_shapes = list(default_input_shapes)
