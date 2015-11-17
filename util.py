@@ -111,24 +111,25 @@ def resize_from_height(image, height, ret_factor=False):
     return image
 
 def create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=1, draw_vel=True, rescale_vel=10):
-    image_curr_std = image_curr_data.transpose(1, 2, 0)
-    if image_curr_std.shape[2] == 1:
-        image_curr_std = np.squeeze(image_curr_std, axis=2)
-    image_curr = destandarize(image_curr_std).astype(np.uint8)
+    assert np.all(image_curr_data >= 0)
+    assert np.all(-1 <= image_diff_data) and np.all(image_diff_data <= 1)
+    image_curr = image_curr_data.transpose(1, 2, 0)
+    if image_curr.shape[2] == 1:
+        image_curr = np.squeeze(image_curr, axis=2)
+    image_diff = image_diff_data.transpose(1, 2, 0)
+    if image_diff.shape[2] == 1:
+        image_diff = np.squeeze(image_diff, axis=2)
+    image_next = np.clip(image_curr + image_diff, 0, 1)
 
-    image_diff_std = image_diff_data.transpose(1, 2, 0)
-    if image_diff_std.shape[2] == 1:
-        image_diff_std = np.squeeze(image_diff_std, axis=2)
-    image_diff = destandarize(image_diff_std, in_min=-2, in_max=2, out_min=0, out_max=255).astype(np.uint8)
-
-    image_next_std = np.clip(image_curr_std + image_diff_std, -1, 1)
-    image_next = destandarize(image_next_std).astype(np.uint8)
+    image_curr = (image_curr * 255.0).astype(np.uint8)
+    image_diff = ((image_diff + 1.0) * 255.0 / 2).astype(np.uint8)
+    image_next = (image_next * 255.0).astype(np.uint8)
     
     images = [resize_from_scale(image, rescale_factor) for image in [image_curr, image_diff, image_next]]
-    # change from grayscale to bgr format
-    images = [np.repeat(image[:, :, None], 3, axis=2) if image.ndim == 2 else image for image in images]
 
     if draw_vel:
+        # change from grayscale to bgr format
+        images = [np.repeat(image[:, :, None], 3, axis=2) if image.ndim == 2 else image for image in images]
         h, w = images[0].shape[:2]
         # draw coordinate system
         arrowed_line(images[0], 

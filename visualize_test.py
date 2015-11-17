@@ -8,7 +8,7 @@ import util
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('proto_file', type=str, help='e.g. train_val.prototxt')
+    parser.add_argument('proto_file', type=str, help='e.g. val.prototxt')
     parser.add_argument('model_file', type=str, help='e.g. *.caffemodel')
     parser.add_argument('--rescale_factor', type=int, default=10)
     parser.add_argument('--draw_vel', type=int, default=0)
@@ -34,7 +34,6 @@ def main():
                 blob_dict['image_diff'], 
                 blob_dict['y_diff_pred'].reshape(blob_dict['image_curr'].shape)):
             try:
-                image_diff_pred_data = np.clip(image_diff_pred_data, -2, 2)
                 vis_image_gt = util.create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=args.rescale_factor, draw_vel=args.draw_vel)
                 vis_image_pred = util.create_vis_image(image_curr_data, vel_data, image_diff_pred_data, rescale_factor=args.rescale_factor, draw_vel=args.draw_vel)
                 vis_image = np.r_[vis_image_gt, vis_image_pred]

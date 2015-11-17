@@ -202,10 +202,8 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         if not solver_param.weight_decay:  solver_param.weight_decay = 0.0005
         if not solver_param.snapshot:      solver_param.snapshot = 1000
         if not solver_param.snapshot_prefix:
-            snapshot_dir = os.path.join('models', self.net_name, 'snapshot')
-            if not os.path.exists(snapshot_dir):
-                os.makedirs(snapshot_dir)
-            solver_param.snapshot_prefix = snapshot_dir
+            snapshot_prefix = self.get_snapshot_fname()
+            solver_param.snapshot_prefix = snapshot_prefix
         # don't change solver_param.solver_mode
 
     def get_model_dir(self):
@@ -218,6 +216,13 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         model_dir = self.get_model_dir()
         fname = os.path.join(model_dir, phase + '.prototxt')
         return fname
+
+    def get_snapshot_fname(self):
+        snapshot_dir = os.path.join('models', self.net_name, 'snapshot')
+        if not os.path.exists(snapshot_dir):
+            os.makedirs(snapshot_dir)
+        snapshot_prefix = os.path.join(snapshot_dir, self.net_name)
+        return snapshot_prefix
 
     def infer_input_shapes(self, inputs, default_input_shapes, hdf5_fname_hint):
         input_shapes = []

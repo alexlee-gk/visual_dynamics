@@ -10,7 +10,7 @@ from cv_bridge import CvBridge, CvBridgeError
 import h5py
 import util
 
-class ImageSubscriberAndController(object):
+class ImageCollectorAndController(object):
     def __init__(self, **kwargs):
         self.model_name = kwargs['model_name']
         self.num_trajs = kwargs['num_trajs']
@@ -97,10 +97,9 @@ class ImageSubscriberAndController(object):
 
         # save data
         if self.f is not None:
-            image_std = util.standarize(image)
             data_keys = ["image_curr", "image_next", "image_diff", "vel", "pos"]
             num_data = self.num_trajs * self.num_steps
-            image_shape = (num_data, ) + image_std.T.shape
+            image_shape = (num_data, 1) + image.shape
             data_shapes = [image_shape,  image_shape, image_shape, (num_data,  len(vel)), (num_data, len(pos))]
             for data_key, data_shape in zip(data_keys, data_shapes):
                 if data_key in self.f:
@@ -111,11 +110,10 @@ class ImageSubscriberAndController(object):
                     self.f.create_dataset(data_key, data_shape)
             assert self.data_iter == (self.traj_iter * self.num_steps + self.step_iter)
             if self.step_iter != 0:
-                image_prev_std = util.standarize(self.image_prev)
-                self.f["image_next"][self.data_iter-1] = image_std.T
-                self.f["image_diff"][self.data_iter-1] = image_std.T - image_prev_std.T
+                self.f["image_next"][self.data_iter-1] = np.expand_dims(image.astype(np.float), axis=0) / 255.0
+                self.f["image_diff"][self.data_iter-1] = np.expand_dims(image.astype(np.float) - self.image_prev.astype(np.float), axis=0) / 255.0
             if self.step_iter != self.num_steps:
-                self.f["image_curr"][self.data_iter] = image_std.T
+                self.f["image_curr"][self.data_iter] = np.expand_dims(image.astype(np.float), axis=0) / 255.0
                 self.f["vel"][self.data_iter] = vel
                 self.f["pos"][self.data_iter] = pos
                 self.data_iter += 1
@@ -138,9 +136,9 @@ class ImageSubscriberAndController(object):
             self.vel_prev = None
             self.pos0, self.quat0 = self.generate_initial_transform()
 
-class ImageSubscriberAndRandomController(ImageSubscriberAndController):
+class ImageCollectorAndRandomController(ImageCollectorAndController):
     def __init__(self, **kwargs):
-        super(ImageSubscriberAndRandomController, self).__init__(**kwargs)
+        super(ImageCollectorAndRandomController, self).__init__(**kwargs)
         self.vel_max = np.asarray(kwargs['vel_max'])
 
         self.visualize = kwargs['visualize']
@@ -176,10 +174,10 @@ def main():
     
     args = parser.parse_args()
     
-    rospy.init_node('image_subscriber_controller', anonymous=True, log_level=rospy.INFO)
+    rospy.init_node('image_collector_controller', anonymous=True, log_level=rospy.INFO)
 
-    image_sub_ctrl = ImageSubscriberAndRandomController(**vars(args))
-    while not image_sub_ctrl.done:
+    image_collector_ctrl = ImageCollectorAndRandomController(**vars(args))
+    while not image_collector_ctrl.done:
         try:
             rospy.sleep(1)
         except KeyboardInterrupt:
