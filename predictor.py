@@ -53,40 +53,51 @@ class NetPredictor(caffe.Net):
         else:
             caffe.Net.__init__(self, model_file, pretrained_file, caffe.TEST)
         assert len(self.outputs) == 1
+        self.prediction_name = self.outputs[0]
+        self.prediction_dim = self.blobs[self.prediction_name].shape[1]
 
     def predict(self, *inputs):
         out = self.forward_all(**dict(zip(self.inputs, inputs)))
-        prediction_name = self.outputs[0]
-        predictions = out[prediction_name]
+        predictions = out[self.prediction_name]
         return predictions
 
     def jacobian(self, wrt_input_name, *inputs):
         assert wrt_input_name in self.inputs
-        assert self.blobs[wrt_input_name].data.ndim == 2
-        batch = len(self.blobs[self.inputs[0]].data.shape) == len(inputs[0].shape)
+        batch = len(self.blob(self.inputs[0]).data.shape) == len(inputs[0].shape)
+        wrt_input_shape = self.blob(wrt_input_name).data.shape
         if batch:
             batch_size = len(inputs[0])
             for input_ in inputs[1:]:
+                if input_ is None:
+                    continue
                 assert batch_size == len(input_)
         else:
             batch_size = 1
             inputs = list(inputs)
             for i, input_ in enumerate(inputs):
-                inputs[i] = np.expand_dims(input_, axis=0)
+                if input_ is None:
+                    continue
+                inputs[i] = input_[None, :]
             inputs = tuple(inputs)
-        prediction_name = self.outputs[0]
-        prediction_dim = self.blobs[prediction_name].shape[1]
-        jacs = []
-        for e in np.eye(prediction_dim):
-            _, diffs = self.forward_backward_all(**dict(zip(self.inputs + [prediction_name],
-                                                            inputs + (np.tile(e, (batch_size, 1)),))))
-            jacs.append(diffs[wrt_input_name])
-        jacs = np.asarray(jacs)
-        jacs = jacs.swapaxes(0, 1)
+        _, wrt_input_dim = wrt_input_shape
+        inputs = list(inputs)
+        # use inputs with zeros for the inputs that are not specified
+        for i, (input_name, input_) in enumerate(zip(self.inputs, inputs)):
+            if input_ is None:
+                inputs[i] = np.zeros(self.blob(input_name).shape)
+        jacs = np.empty((batch_size, self.prediction_dim, wrt_input_dim))
+        for k, single_inputs in enumerate(zip(*inputs)):
+            self.forward(**dict(zip(self.inputs, [input_[None, :] for input_ in single_inputs])))
+            for i, e in enumerate(np.eye(self.prediction_dim)):
+                diff = self.backward(**{self.prediction_name: e[None, :]})
+                jacs[k, i:i+1, :] = diff[wrt_input_name].copy()
         if batch:
             return jacs
         else:
             return np.squeeze(jacs, axis=0)
+
+    def blob(self, blob_name):
+        return self._blobs[list(self._blob_names).index(blob_name)]
 
 
 class BilinearFeaturePredictor(bilinear.BilinearFunction, FeaturePredictor):
@@ -122,18 +133,24 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, net_func, inputs, input_shapes, output, pretrained_file=None):
+    def __init__(self, net_func, inputs, input_shapes, output, gt_inputs, gt_input_shapes, gt_output, pretrained_file=None):
         self.net_func = net_func
         self.net_name = self.__class__.__name__.replace('FeaturePredictor', '')
 
-        self.deploy_net = net_func(input_shapes, net_name=self.net_name)
-        self.deploy_net = net.deploy_net(self.deploy_net, inputs, input_shapes, [output])
+        self.deploy_net_param = net_func(input_shapes, net_name=self.net_name)
+        self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, [output])
+        self.gt_deploy_net_param = net_func(input_shapes, net_name='GT' + self.net_name)
+        self.gt_deploy_net_param = net.deploy_net(self.gt_deploy_net_param, gt_inputs, gt_input_shapes, [gt_output])
 
         deploy_fname = self.get_model_fname('deploy')
         with open(deploy_fname, 'w') as f:
-            f.write(str(self.deploy_net))
+            f.write(str(self.deploy_net_param))
+        gt_deploy_fname = self.get_model_fname('gt_deploy')
+        with open(gt_deploy_fname, 'w') as f:
+            f.write(str(self.gt_deploy_net_param))
 
         NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file)
+        self.gt_deploy_net = caffe.Net(gt_deploy_fname, caffe.TEST)
 
         x_shape, u_shape = input_shapes
         _, y_dim = self.blobs[output].shape
@@ -155,14 +172,14 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
                     f.write(hdf5_fname + '\n')
             train_val_net = self.net_func(input_shapes, hdf5_txt_fname, batch_size, self.net_name)
             train_val_nets.append(train_val_net)
-        self.train_net, self.val_net = train_val_nets
+        self.train_net_param, self.val_net_param = train_val_nets
 
         train_fname = self.get_model_fname('train')
         with open(train_fname, 'w') as f:
-            f.write(str(self.train_net))
+            f.write(str(self.train_net_param))
         val_fname = self.get_model_fname('val')
         with open(val_fname, 'w') as f:
-            f.write(str(self.val_net))
+            f.write(str(self.val_net_param))
 
         if solver_param is None:
             solver_param = pb2.SolverParameter()
@@ -177,9 +194,25 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 solver_blob.data[...] = blob.data
         solver.solve()
+        for param_name, param in self.params.items():
+            for blob, solver_blob in zip(param, solver.net.params[param_name]):
+                blob.data[...] = solver_blob.data
 
     def jacobian_control(self, X, U):
         return self.jacobian(self.inputs[1], X, U)
+
+    def feature_from_input(self, X):
+        assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
+        batch = X.shape != self.x_shape
+        if not batch:
+            X = X[None, :]
+        gt_input_name = self.gt_deploy_net.inputs[0]
+        gt_output_name = self.gt_deploy_net.outputs[0]
+        out = self.gt_deploy_net.forward(**dict([(gt_input_name, X)]))
+        Y = out[gt_output_name].copy()
+        if not batch:
+            Y = np.squeeze(Y, axis=0)
+        return Y
 
     def add_default_parameters(self, solver_param):
         if not solver_param.train_net:
@@ -243,7 +276,24 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
-        super(BilinearNetFeaturePredictor, self).__init__(net.bilinear_net, inputs, input_shapes, output, pretrained_file=pretrained_file)
+        gt_inputs = ['image_diff']
+        gt_input_shapes = [input_shapes[0]]
+        gt_output = 'y_diff'
+        super(BilinearNetFeaturePredictor, self).__init__(net.bilinear_net,
+                                                          inputs, input_shapes, output,
+                                                          gt_inputs, gt_input_shapes, gt_output,
+                                                          pretrained_file=pretrained_file)
+
+    def jacobian_control(self, X, U):
+        if X.shape == self.x_shape:
+            y = self.feature_from_input(X)
+            y_dim, = y.shape
+            A = self.params['fc1'][0].data.reshape((y_dim, y_dim, -1))
+            B = self.params['fc2'][0].data
+            jac = np.einsum("kij,i->kj", A, y) + B
+            return jac
+        else:
+            return np.asarray([self.jacobian_control(x, None) for x in X])
 
 
 class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
@@ -252,7 +302,28 @@ class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
-        super(ApproxBilinearNetFeaturePredictor, self).__init__(net.approx_bilinear_net, inputs, input_shapes, output, pretrained_file=pretrained_file)
+        gt_inputs = ['image_diff']
+        gt_input_shapes = [input_shapes[0]]
+        gt_output = 'y_diff'
+        super(ApproxBilinearNetFeaturePredictor, self).__init__(net.approx_bilinear_net,
+                                                                inputs, input_shapes, output,
+                                                                gt_inputs, gt_input_shapes, gt_output,
+                                                                pretrained_file=pretrained_file)
+
+
+class ConvBilinearNetFeaturePredictor(NetFeaturePredictor):
+    def __init__(self, hdf5_fname_hint=None, pretrained_file=None):
+        inputs = ['image_curr', 'vel']
+        default_input_shapes = [(1,7,10), (2,)]
+        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
+        output = 'y_diff_pred'
+        gt_inputs = ['image_diff']
+        gt_input_shapes = [input_shapes[0]]
+        gt_output = 'concat_y_diff'
+        super(ConvBilinearNetFeaturePredictor, self).__init__(net.conv_bilinear_net,
+                                                              inputs, input_shapes, output,
+                                                              gt_inputs, gt_input_shapes, gt_output,
+                                                              pretrained_file=pretrained_file)
 
 
 def main():
@@ -292,20 +363,18 @@ def main():
     X_dot = val_file['image_diff'][:]
     Y_dot = predictor_b.feature_from_input(X_dot)
     N = len(X)
+    # set parameters of bn to the ones of b and check that their methods return the same outputs
     print "bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
     print "abn validation error", (np.linalg.norm(Y_dot - predictor_abn.predict(X, U))**2) / (2*N)
     print "b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
 
-    # set parameters of bn to the ones of b and check that their methods return the same outputs
     predictor_bn.params['fc1'][0].data[...] = predictor_b.A.reshape((predictor_b.A.shape[0], -1))
     predictor_bn.params['fc2'][0].data[...] = predictor_b.B
     Y_dot_bn = predictor_bn.predict(X, U)
     Y_dot_b = predictor_b.predict(X, U)
     print "all close Y_dot_bn, Y_dot_b", np.allclose(Y_dot_bn, Y_dot_b, atol=1e-4)
-    x = X[0, ...]
-    u = U[0, ...]
-    jac_bn = predictor_bn.jacobian_control(x, u)
-    jac_b = predictor_b.jacobian_control(x, u)
+    jac_bn = predictor_bn.jacobian_control(X, U)
+    jac_b = predictor_b.jacobian_control(X, U)
     print "all close jac_bn, jac_b", np.allclose(jac_bn, jac_b)
 
 if __name__ == "__main__":

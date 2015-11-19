@@ -97,3 +97,50 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
     net = n.to_proto()
     net.name = net_name
     return net
+
+def conv_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearNet'):
+    assert len(input_shapes) == 2
+    image_shape, vel_shape = input_shapes
+    assert len(image_shape) == 3
+    assert len(vel_shape) == 1
+    _, height, width = image_shape
+    y_dim = height * width
+    u_dim = vel_shape[0]
+
+    fc_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+                     num_output=y_dim+18,
+                     weight_filler=dict(type='gaussian', std=0.001),
+                     bias_filler=dict(type='constant', value=0))
+    conv_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+                       kernel_size=5,
+                       num_output=1,
+                       weight_filler=dict(type='xavier'),
+                       bias_filler=dict(type='constant', value=0))
+
+    n = caffe.NetSpec()
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    u = n.vel
+
+    n.y = L.Flatten(n.image_curr, name='flatten1')
+    n.conv_image_curr = L.Convolution(n.image_curr, name='conv', **conv_kwargs)
+    n.conv_y = L.Flatten(n.conv_image_curr)
+    n.concat_y = L.Concat(n.y, n.conv_y)
+    n.re_y = L.Reshape(n.concat_y, name='reshape', shape=dict(dim=[-1, y_dim+18, 1]))
+    n.tile_re_y = L.Tile(n.re_y, name='tile1', axis=2, tiles=u_dim)
+    n.flatten_tile_re_y = L.Flatten(n.tile_re_y, name='flatten3')
+    n.tile_u = L.Tile(u, name='tile2', axis=1, tiles=y_dim+18)
+    n.outer_yu = L.Eltwise(n.flatten_tile_re_y, n.tile_u, name='prod', operation=P.Eltwise.PROD)
+    n.fc_outer_yu = L.InnerProduct(n.outer_yu, name='fc1', **fc_kwargs)
+    n.fc_u = L.InnerProduct(u, name='fc2', **fc_kwargs)
+    n.y_diff_pred = L.Eltwise(n.fc_outer_yu, n.fc_u, name='sum', operation=P.Eltwise.SUM)
+
+    n.y_diff = L.Flatten(n.image_diff, name='flatten2')
+    n.conv_image_diff = L.Convolution(n.image_diff, name='conv', **conv_kwargs)
+    n.conv_y_diff = L.Flatten(n.conv_image_diff)
+    n.concat_y_diff = L.Concat(n.y_diff, n.conv_y_diff)
+
+    n.loss = L.EuclideanLoss(n.y_diff_pred, n.concat_y_diff, name='loss')
+
+    net = n.to_proto()
+    net.name = net_name
+    return net
