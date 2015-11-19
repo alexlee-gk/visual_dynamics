@@ -75,6 +75,17 @@ class ImageCollectorAndController(object):
             if self.done:
                 break
 
+        if self.f is not None:
+            inds = None
+            for key, dataset in self.f.iteritems():
+                if inds is None:
+                    inds = np.arange(dataset.shape[0])
+                    np.random.shuffle(inds)
+                else:
+                    assert len(inds) == dataset.shape[0]
+                self.f[key][:] = dataset[()][inds]
+
+
 class ImageCollectorAndRandomController(ImageCollectorAndController):
     def __init__(self, **kwargs):
         super(ImageCollectorAndRandomController, self).__init__(**kwargs)
