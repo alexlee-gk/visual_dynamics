@@ -57,9 +57,27 @@ class NetPredictor(caffe.Net):
         self.prediction_dim = self.blobs[self.prediction_name].shape[1]
 
     def predict(self, *inputs):
+        batch = len(self.blob(self.inputs[0]).data.shape) == len(inputs[0].shape)
+        if batch:
+            batch_size = len(inputs[0])
+            for input_ in inputs[1:]:
+                if input_ is None:
+                    continue
+                assert batch_size == len(input_)
+        else:
+            batch_size = 1
+            inputs = list(inputs)
+            for i, input_ in enumerate(inputs):
+                if input_ is None:
+                    continue
+                inputs[i] = input_[None, :]
+            inputs = tuple(inputs)
         out = self.forward_all(**dict(zip(self.inputs, inputs)))
         predictions = out[self.prediction_name]
-        return predictions
+        if batch:
+            return predictions
+        else:
+            return np.squeeze(predictions, axis=0)
 
     def jacobian(self, wrt_input_name, *inputs):
         assert wrt_input_name in self.inputs
@@ -133,24 +151,18 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, net_func, inputs, input_shapes, output, gt_inputs, gt_input_shapes, gt_output, pretrained_file=None):
+    def __init__(self, net_func, inputs, input_shapes, output, pretrained_file=None):
         self.net_func = net_func
         self.net_name = self.__class__.__name__.replace('FeaturePredictor', '')
 
         self.deploy_net_param = net_func(input_shapes, net_name=self.net_name)
         self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, [output])
-        self.gt_deploy_net_param = net_func(input_shapes, net_name='GT' + self.net_name)
-        self.gt_deploy_net_param = net.deploy_net(self.gt_deploy_net_param, gt_inputs, gt_input_shapes, [gt_output])
 
         deploy_fname = self.get_model_fname('deploy')
         with open(deploy_fname, 'w') as f:
             f.write(str(self.deploy_net_param))
-        gt_deploy_fname = self.get_model_fname('gt_deploy')
-        with open(gt_deploy_fname, 'w') as f:
-            f.write(str(self.gt_deploy_net_param))
 
         NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file)
-        self.gt_deploy_net = caffe.Net(gt_deploy_fname, caffe.TEST)
 
         x_shape, u_shape = input_shapes
         _, y_dim = self.blobs[output].shape
@@ -201,15 +213,19 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     def jacobian_control(self, X, U):
         return self.jacobian(self.inputs[1], X, U)
 
-    def feature_from_input(self, X):
+    def feature_from_input(self, X, input_name='image_curr', output_name='y'):
         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
         batch = X.shape != self.x_shape
         if not batch:
             X = X[None, :]
-        gt_input_name = self.gt_deploy_net.inputs[0]
-        gt_output_name = self.gt_deploy_net.outputs[0]
-        out = self.gt_deploy_net.forward(**dict([(gt_input_name, X)]))
-        Y = out[gt_output_name].copy()
+        kwargs = dict()
+        for input_ in self.inputs:
+            if input_ == input_name:
+                kwargs[input_] = X
+            else:
+                kwargs[input_] = np.zeros_like(self.blobs[input_].data)
+        out = self.forward(blobs=[output_name], **kwargs)
+        Y = out[output_name].copy()
         if not batch:
             Y = np.squeeze(Y, axis=0)
         return Y
@@ -276,12 +292,8 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
-        gt_inputs = ['image_diff']
-        gt_input_shapes = [input_shapes[0]]
-        gt_output = 'y_diff'
         super(BilinearNetFeaturePredictor, self).__init__(net.bilinear_net,
                                                           inputs, input_shapes, output,
-                                                          gt_inputs, gt_input_shapes, gt_output,
                                                           pretrained_file=pretrained_file)
 
     def jacobian_control(self, X, U):
@@ -302,12 +314,8 @@ class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
-        gt_inputs = ['image_diff']
-        gt_input_shapes = [input_shapes[0]]
-        gt_output = 'y_diff'
         super(ApproxBilinearNetFeaturePredictor, self).__init__(net.approx_bilinear_net,
                                                                 inputs, input_shapes, output,
-                                                                gt_inputs, gt_input_shapes, gt_output,
                                                                 pretrained_file=pretrained_file)
 
 
@@ -317,12 +325,19 @@ class ConvBilinearNetFeaturePredictor(NetFeaturePredictor):
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
-        gt_inputs = ['image_diff']
-        gt_input_shapes = [input_shapes[0]]
-        gt_output = 'concat_y_diff'
         super(ConvBilinearNetFeaturePredictor, self).__init__(net.conv_bilinear_net,
                                                               inputs, input_shapes, output,
-                                                              gt_inputs, gt_input_shapes, gt_output,
+                                                              pretrained_file=pretrained_file)
+
+
+class ActionCondEncoderNetFeaturePredictor(NetFeaturePredictor):
+    def __init__(self, hdf5_fname_hint=None, pretrained_file=None):
+        inputs = ['image_curr', 'vel']
+        default_input_shapes = [(1,7,10), (2,)]
+        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
+        output = 'y_diff_pred'
+        super(ActionCondEncoderNetFeaturePredictor, self).__init__(net.action_cond_encoder,
+                                                              inputs, input_shapes, output,
                                                               pretrained_file=pretrained_file)
 
 

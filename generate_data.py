@@ -2,18 +2,51 @@ from __future__ import division
 
 import argparse
 import numpy as np
-import h5py
 import cv2
-import caffe
-import predictor
-import util
+import h5py
 import simulator
 import controller
+import util
+
+class DataCollector(object):
+    def __init__(self, fname, num_datum, auto_shuffle=True):
+        self.fname = fname
+        self.num_datum = num_datum
+        self.auto_shuffle = auto_shuffle
+        self.file = h5py.File(self.fname, 'a')
+        self.datum_iter = 0
+
+    def add(self, **datum):
+        if self.datum_iter < self.num_datum:
+            for key, value in datum.items():
+                shape = (self.num_datum, ) + value.shape
+                if key in self.file:
+                    if self.file[key].shape != shape:
+                        raise RuntimeError("File already exists and shapes don't match")
+                else:
+                    self.file.create_dataset(key, shape)
+                self.file[key][self.datum_iter] = value
+        elif self.datum_iter == self.num_datum:
+            if self.auto_shuffle:
+                self.shuffle()
+            self.file.close()
+        else:
+            raise RuntimeError("Tried to add more data than specified (%d)"%self.num_datum)
+        self.datum_iter += 1
+
+    def shuffle(self):
+        inds = None
+        for key, dataset in self.file.iteritems():
+            if inds is None:
+                inds = np.arange(dataset.shape[0])
+                np.random.shuffle(inds)
+            else:
+                assert len(inds) == dataset.shape[0]
+            self.file[key][:] = dataset[()][inds]
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('train_hdf5_fname', type=str)
-    parser.add_argument('--predictor', '-p', type=str, choices=['bilinear', 'bilinear_net', 'approx_bilinear_net', 'conv_bilinear_net', 'action_cond_encoder_net'], default='bilinear')
+    parser.add_argument('--output', '-o', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -40,27 +73,6 @@ def main():
     args.pos_min = np.asarray(args.pos_min)
     args.pos_max = np.asarray(args.pos_max)
 
-    if args.predictor == 'bilinear':
-        train_file = h5py.File(args.train_hdf5_fname, 'r+')
-        X = train_file['image_curr'][:]
-        U = train_file['vel'][:]
-        feature_predictor = predictor.BilinearFeaturePredictor(X.shape[1:], U.shape[1:])
-        X_dot = train_file['image_diff'][:]
-        Y_dot = feature_predictor.feature_from_input(X_dot)
-        feature_predictor.train(X, U, Y_dot)
-    else:
-        if args.predictor == 'bilinear_net':
-            feature_predictor = predictor.BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
-        elif args.predictor == 'approx_bilinear_net':
-            feature_predictor = predictor.ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
-        elif args.predictor == 'conv_bilinear_net':
-            feature_predictor = predictor.ConvBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
-        elif args.predictor == 'action_cond_encoder_net':
-            feature_predictor = predictor.ActionCondEncoderNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
-        else:
-            raise
-        feature_predictor.train(args.train_hdf5_fname)
-
     if args.simulator == 'square':
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
     elif args.simulator== 'ogre':
@@ -68,27 +80,31 @@ def main():
                                       image_scale=args.image_scale, crop_size=args.image_size)
     else:
         raise
-    ctrl = controller.ServoingController(feature_predictor)
+    ctrl = controller.RandomController(*sim.action_bounds)
+    collector = DataCollector(args.output, args.num_trajs * args.num_steps) if args.output else None
 
     done = False
     for traj_iter in range(args.num_trajs):
         try:
-            pos_target = sim.sample_state()
-            sim.reset(pos_target)
-            image_target = sim.observe()
-            ctrl.set_target_obs(image_target)
-
-            pos_init = (sim.pos_min + sim.pos_max) / 2.0
+            pos_init = sim.sample_state()
             sim.reset(pos_init)
             for step_iter in range(args.num_steps):
+                state = sim.state
                 image = sim.observe()
                 action = ctrl.step(image)
                 action = sim.apply_action(action)
+                image_next = sim.observe()
+
+                if collector:
+                    collector.add(image_curr=image,
+                                  image_next=image_next,
+                                  image_diff=image_next - image,
+                                  pos=state,
+                                  vel=action)
 
                 # visualization
                 if args.visualize:
-                    vis_image = np.concatenate([image.transpose(1, 2, 0), image_target.transpose(1, 2, 0)], axis=1)
-                    vis_image = util.resize_from_scale((vis_image * 255.0).astype(np.uint8), args.vis_scale)
+                    vis_image = util.resize_from_scale((image.transpose(1, 2, 0) * 255.0).astype(np.uint8), args.vis_scale)
                     cv2.imshow("Image window", vis_image)
                     key = cv2.waitKey(100)
                     key &= 255
