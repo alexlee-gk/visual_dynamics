@@ -26,10 +26,10 @@ class DataCollector(object):
                 else:
                     self.file.create_dataset(key, shape)
                 self.file[key][self.datum_iter] = value
-        elif self.datum_iter == self.num_datum:
-            if self.auto_shuffle:
-                self.shuffle()
-            self.file.close()
+            if self.datum_iter == (self.num_datum - 1):
+                if self.auto_shuffle:
+                    self.shuffle()
+                self.file.close()
         else:
             raise RuntimeError("Tried to add more data than specified (%d)"%self.num_datum)
         self.datum_iter += 1
