@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
     parser.add_argument('--predictor', '-p', type=str, choices=['bilinear', 'bilinear_net', 'approx_bilinear_net', 'conv_bilinear_net', 'action_cond_encoder_net'], default='bilinear')
+    parser.add_argument('--pretrained_fname', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -50,13 +51,17 @@ def main():
         feature_predictor.train(X, U, Y_dot)
     else:
         if args.predictor == 'bilinear_net':
-            feature_predictor = predictor.BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
+            feature_predictor = predictor.BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
+                                                                      pretrained_file=args.pretrained_fname)
         elif args.predictor == 'approx_bilinear_net':
-            feature_predictor = predictor.ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
+            feature_predictor = predictor.ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
+                                                                            pretrained_file=args.pretrained_fname)
         elif args.predictor == 'conv_bilinear_net':
-            feature_predictor = predictor.ConvBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
+            feature_predictor = predictor.ConvBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
+                                                                          pretrained_file=args.pretrained_fname)
         elif args.predictor == 'action_cond_encoder_net':
-            feature_predictor = predictor.ActionCondEncoderNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
+            feature_predictor = predictor.ActionCondEncoderNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
+                                                                               pretrained_file=args.pretrained_fname)
         else:
             raise
         feature_predictor.train(args.train_hdf5_fname)
