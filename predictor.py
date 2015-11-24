@@ -151,12 +151,13 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, net_func, inputs, input_shapes, output, pretrained_file=None):
+    def __init__(self, net_func, inputs, input_shapes, output, pretrained_file=None, postfix=''):
         self.net_func = net_func
-        self.net_name = self.__class__.__name__.replace('FeaturePredictor', '')
+        self.postfix = postfix
 
-        self.deploy_net_param = net_func(input_shapes, net_name=self.net_name)
+        self.deploy_net_param = net_func(input_shapes)
         self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, [output])
+        self.net_name = str(self.deploy_net_param.name)
 
         deploy_fname = self.get_model_fname('deploy')
         with open(deploy_fname, 'w') as f:
@@ -169,7 +170,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         y_shape = (y_dim,)
         FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
 
-    def train(self, train_hdf5_fname, val_hdf5_fname=None, solver_param=None, batch_size=100):
+    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=100):
         if val_hdf5_fname is None:
             val_hdf5_fname = train_hdf5_fname.replace('train', 'val')
 
@@ -205,6 +206,8 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 solver_blob.data[...] = blob.data
+        if solverstate_fname is not None:
+            solver.restore(solverstate_fname)
         solver.solve()
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
@@ -255,7 +258,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         # don't change solver_param.solver_mode
 
     def get_model_dir(self):
-        model_dir = os.path.join('models', self.net_name)
+        model_dir = os.path.join('models', self.net_name + self.postfix)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
         return model_dir
@@ -266,10 +269,10 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         return fname
 
     def get_snapshot_fname(self):
-        snapshot_dir = os.path.join('models', self.net_name, 'snapshot')
+        snapshot_dir = os.path.join(self.get_model_dir(), 'snapshot')
         if not os.path.exists(snapshot_dir):
             os.makedirs(snapshot_dir)
-        snapshot_prefix = os.path.join(snapshot_dir, self.net_name)
+        snapshot_prefix = os.path.join(snapshot_dir, '')
         return snapshot_prefix
 
     @staticmethod
@@ -279,22 +282,22 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             input_shapes = list(default_input_shapes)
         else:
             with h5py.File(hdf5_fname_hint, 'r+') as f:
-                for input_, default_input_shape in zip(inputs, default_input_shapes):
+                for input_ in inputs:
                     input_shape = f[input_].shape[1:]
-                    assert len(input_shape) == len(default_input_shape)
                     input_shapes.append(input_shape)
         return input_shapes
 
 
 class BilinearNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None):
+    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
         super(BilinearNetFeaturePredictor, self).__init__(net.bilinear_net,
                                                           inputs, input_shapes, output,
-                                                          pretrained_file=pretrained_file)
+                                                          pretrained_file=pretrained_file,
+                                                          postfix=postfix)
 
     def jacobian_control(self, X, U):
         if X.shape == self.x_shape:
@@ -309,36 +312,39 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
 
 
 class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None):
+    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
         super(ApproxBilinearNetFeaturePredictor, self).__init__(net.approx_bilinear_net,
                                                                 inputs, input_shapes, output,
-                                                                pretrained_file=pretrained_file)
+                                                                pretrained_file=pretrained_file,
+                                                                postfix=postfix)
 
 
 class ConvBilinearNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None):
+    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
         super(ConvBilinearNetFeaturePredictor, self).__init__(net.conv_bilinear_net,
                                                               inputs, input_shapes, output,
-                                                              pretrained_file=pretrained_file)
+                                                              pretrained_file=pretrained_file,
+                                                              postfix=postfix)
 
 
 class ActionCondEncoderNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None):
+    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
         output = 'y_diff_pred'
-        super(ActionCondEncoderNetFeaturePredictor, self).__init__(net.action_cond_encoder,
-                                                              inputs, input_shapes, output,
-                                                              pretrained_file=pretrained_file)
+        super(ActionCondEncoderNetFeaturePredictor, self).__init__(net.action_cond_encoder_net,
+                                                                   inputs, input_shapes, output,
+                                                                   pretrained_file=pretrained_file,
+                                                                   postfix=postfix)
 
 
 def main():

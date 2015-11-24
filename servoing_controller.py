@@ -5,16 +5,19 @@ import numpy as np
 import h5py
 import cv2
 import caffe
+from caffe.proto import caffe_pb2 as pb2
 import predictor
 import util
 import simulator
 import controller
+import net
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
-    parser.add_argument('--predictor', '-p', type=str, choices=['bilinear', 'bilinear_net', 'approx_bilinear_net', 'conv_bilinear_net', 'action_cond_encoder_net'], default='bilinear')
+    parser.add_argument('--predictor', '-p', type=str, default='small_action_cond_encoder_net')
     parser.add_argument('--pretrained_fname', type=str, default=None)
+    parser.add_argument('--solverstate_fname', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -50,6 +53,8 @@ def main():
         Y_dot = feature_predictor.feature_from_input(X_dot)
         feature_predictor.train(X, U, Y_dot)
     else:
+        caffe.set_mode_gpu();
+        caffe.set_device(0);
         if args.predictor == 'bilinear_net':
             feature_predictor = predictor.BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
                                                                       pretrained_file=args.pretrained_fname)
@@ -63,8 +68,19 @@ def main():
             feature_predictor = predictor.ActionCondEncoderNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
                                                                                pretrained_file=args.pretrained_fname)
         else:
-            raise
-        feature_predictor.train(args.train_hdf5_fname)
+            inputs = ['image_curr', 'vel']
+            input_shapes = predictor.NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
+            output = 'y_diff_pred'
+            feature_predictor = predictor.NetFeaturePredictor(getattr(net, args.predictor), inputs, input_shapes, output,
+                                                              pretrained_file=args.pretrained_fname)
+        solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
+                                           base_lr=0.001, gamma=0.99,
+                                           momentum=0.9, momentum2=0.999,
+                                           max_iter=60000)
+        feature_predictor.train(args.train_hdf5_fname,
+                                solverstate_fname=args.solverstate_fname,
+                                solver_param=solver_param,
+                                batch_size=32)
 
     if args.simulator == 'square':
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
