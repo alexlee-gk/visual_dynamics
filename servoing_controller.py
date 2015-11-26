@@ -24,24 +24,22 @@ def main():
     parser.add_argument('--visualize', '-v', type=int, default=1)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
     parser.add_argument('--vel_max', '-m', type=float, default=None)
-    parser.add_argument('--image_size', type=int, nargs=2, default=[84, 84], metavar=('HEIGHT', 'WIDTH'))
-    parser.add_argument('--simulator', '-s', type=str, default='square', choices=('square', 'ogre'))
+    parser.add_argument('--image_size', type=int, nargs=2, default=None, metavar=('HEIGHT', 'WIDTH'))
+    parser.add_argument('--simulator', '-s', type=str, default=None, choices=('square', 'ogre'))
     # square simulator
-    parser.add_argument('--square_length', '-l', type=int, default=1, help='required to be odd')
+    parser.add_argument('--square_length', '-l', type=int, default=None, help='required to be odd')
     # ogre simulator
-    parser.add_argument('--pos_min', type=float, nargs=3, default=[19, 2, -10], metavar=tuple([xyz + '_pos_min' for xyz in 'xyz']))
-    parser.add_argument('--pos_max', type=float, nargs=3, default=[21, 6, -6], metavar=tuple([xyz + '_pos_max' for xyz in 'xyz']))
-    parser.add_argument('--image_scale', '-f', type=float, default=0.25)
+    parser.add_argument('--pos_min', type=float, nargs=3, default=None, metavar=tuple([xyz + '_pos_min' for xyz in 'xyz']))
+    parser.add_argument('--pos_max', type=float, nargs=3, default=None, metavar=tuple([xyz + '_pos_max' for xyz in 'xyz']))
+    parser.add_argument('--image_scale', '-f', type=float, default=None)
 
     args = parser.parse_args()
-    if args.simulator == 'square':
-        if args.vel_max is None:
-            args.vel_max = 1.0
-    elif args.simulator == 'ogre':
-        if args.vel_max is None:
-            args.vel_max = 0.2
-    else:
-        raise
+
+    with h5py.File(args.train_hdf5_fname, 'r') as hdf5_file:
+        if 'sim_args' in hdf5_file:
+            for arg_name, arg in hdf5_file['sim_args'].items():
+                if args.__dict__[arg_name] is None:
+                    args.__dict__[arg_name] = arg[...] if arg.shape else np.asscalar(arg[...])
     args.pos_min = np.asarray(args.pos_min)
     args.pos_max = np.asarray(args.pos_max)
 
@@ -74,11 +72,12 @@ def main():
         solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
                                            base_lr=0.001, gamma=0.99,
                                            momentum=0.9, momentum2=0.999,
-                                           max_iter=60000)
+                                           max_iter=10000)
         feature_predictor.train(args.train_hdf5_fname,
                                 solverstate_fname=args.solverstate_fname,
                                 solver_param=solver_param,
                                 batch_size=32)
+
 
     if args.simulator == 'square':
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)

@@ -9,23 +9,26 @@ import controller
 import util
 
 class DataCollector(object):
-    def __init__(self, fname, num_datum, auto_shuffle=True):
+    def __init__(self, fname, num_datum, auto_shuffle=True, sim_args=None):
         self.fname = fname
         self.num_datum = num_datum
         self.auto_shuffle = auto_shuffle
         self.file = h5py.File(self.fname, 'a')
         self.datum_iter = 0
+        if sim_args is not None:
+            g = self.file.require_group('sim_args')
+            for arg_name, arg in sim_args.items():
+                if arg_name in g:
+                    g[arg_name][...] = arg
+                else:
+                    g[arg_name] = arg
 
     def add(self, **datum):
         if self.datum_iter < self.num_datum:
             for key, value in datum.items():
                 shape = (self.num_datum, ) + value.shape
-                if key in self.file:
-                    if self.file[key].shape != shape:
-                        raise RuntimeError("File already exists and shapes don't match")
-                else:
-                    self.file.create_dataset(key, shape)
-                self.file[key][self.datum_iter] = value
+                dset = self.file.require_dataset(key, shape, value.dtype, exact=True)
+                dset[self.datum_iter] = value
             if self.datum_iter == (self.num_datum - 1):
                 if self.auto_shuffle:
                     self.shuffle()
@@ -37,6 +40,8 @@ class DataCollector(object):
     def shuffle(self):
         inds = None
         for key, dataset in self.file.iteritems():
+            if type(dataset) != h5py.Dataset:
+                continue
             if inds is None:
                 inds = np.arange(dataset.shape[0])
                 np.random.shuffle(inds)
@@ -52,14 +57,14 @@ def main():
     parser.add_argument('--visualize', '-v', type=int, default=1)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
     parser.add_argument('--vel_max', '-m', type=float, default=None)
-    parser.add_argument('--image_size', type=int, nargs=2, default=[84, 84], metavar=('HEIGHT', 'WIDTH'))
+    parser.add_argument('--image_size', type=int, nargs=2, default=[32, 32], metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--simulator', '-s', type=str, default='square', choices=('square', 'ogre'))
     # square simulator
     parser.add_argument('--square_length', '-l', type=int, default=1, help='required to be odd')
     # ogre simulator
     parser.add_argument('--pos_min', type=float, nargs=3, default=[19, 2, -10], metavar=tuple([xyz + '_pos_min' for xyz in 'xyz']))
     parser.add_argument('--pos_max', type=float, nargs=3, default=[21, 6, -6], metavar=tuple([xyz + '_pos_max' for xyz in 'xyz']))
-    parser.add_argument('--image_scale', '-f', type=float, default=0.25)
+    parser.add_argument('--image_scale', '-f', type=float, default=0.125)
 
     args = parser.parse_args()
     if args.simulator == 'square':
@@ -81,7 +86,13 @@ def main():
     else:
         raise
     ctrl = controller.RandomController(*sim.action_bounds)
-    collector = DataCollector(args.output, args.num_trajs * args.num_steps) if args.output else None
+    if args.output:
+        sim_args = dict(vel_max=args.vel_max, image_size=args.image_size, simulator=args.simulator,
+                        square_length=args.square_length,
+                        pos_min=args.pos_min, pos_max=args.pos_max, image_scale=args.image_scale)
+        collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args)
+    else:
+        collector = None
 
     done = False
     for traj_iter in range(args.num_trajs):
