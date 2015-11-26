@@ -4,6 +4,7 @@ import os
 import numpy as np
 import argparse
 import h5py
+import cv2
 import caffe
 from caffe.proto import caffe_pb2 as pb2
 import net
@@ -165,6 +166,8 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
 
         NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file)
 
+        self.add_blur_weights(self.params) # TODO: better way to do this?
+
         x_shape, u_shape = input_shapes
         _, y_dim = self.blobs[output].shape
         y_shape = (y_dim,)
@@ -203,6 +206,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             f.write(str(solver_param))
 
         solver = caffe.get_solver(solver_fname)
+        self.add_blur_weights(solver.net.params)
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 solver_blob.data[...] = blob.data
@@ -257,6 +261,17 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             solver_param.snapshot_prefix = snapshot_prefix
         # don't change solver_param.solver_mode
 
+    @staticmethod
+    def add_blur_weights(params):
+        for param_name, param in params.items():
+            if 'blur' in param_name:
+                assert len(param) == 1
+                blob = param[0]
+                assert blob.data.shape[-1] == blob.data.shape[-2]
+                kernel_size = blob.data.shape[-1]
+                kernel = cv2.getGaussianKernel(kernel_size, -1)
+                blob.data[...] = kernel.dot(kernel.T)
+
     def get_model_dir(self):
         model_dir = os.path.join('models', self.net_name + self.postfix)
         if not os.path.exists(model_dir):
@@ -303,8 +318,8 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
         if X.shape == self.x_shape:
             y = self.feature_from_input(X)
             y_dim, = y.shape
-            A = self.params['fc1'][0].data.reshape((y_dim, y_dim, -1))
-            B = self.params['fc2'][0].data
+            A = self.params.values()[0][0].data.reshape((y_dim, y_dim, -1))
+            B = self.params.values()[1][0].data
             jac = np.einsum("kij,i->kj", A, y) + B
             return jac
         else:
@@ -321,19 +336,6 @@ class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
                                                                 inputs, input_shapes, output,
                                                                 pretrained_file=pretrained_file,
                                                                 postfix=postfix)
-
-
-class ConvBilinearNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
-        inputs = ['image_curr', 'vel']
-        default_input_shapes = [(1,7,10), (2,)]
-        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        output = 'y_diff_pred'
-        super(ConvBilinearNetFeaturePredictor, self).__init__(net.conv_bilinear_net,
-                                                              inputs, input_shapes, output,
-                                                              pretrained_file=pretrained_file,
-                                                              postfix=postfix)
-
 
 class ActionCondEncoderNetFeaturePredictor(NetFeaturePredictor):
     def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):

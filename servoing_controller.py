@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--predictor', '-p', type=str, default='small_action_cond_encoder_net')
     parser.add_argument('--pretrained_fname', type=str, default=None)
     parser.add_argument('--solverstate_fname', type=str, default=None)
+    parser.add_argument('--postfix', type=str, default='')
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -61,9 +62,6 @@ def main():
         elif args.predictor == 'approx_bilinear_net':
             feature_predictor = predictor.ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
                                                                             pretrained_file=args.pretrained_fname)
-        elif args.predictor == 'conv_bilinear_net':
-            feature_predictor = predictor.ConvBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
-                                                                          pretrained_file=args.pretrained_fname)
         elif args.predictor == 'action_cond_encoder_net':
             feature_predictor = predictor.ActionCondEncoderNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
                                                                                pretrained_file=args.pretrained_fname)
@@ -72,7 +70,7 @@ def main():
             input_shapes = predictor.NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
             output = 'y_diff_pred'
             feature_predictor = predictor.NetFeaturePredictor(getattr(net, args.predictor), inputs, input_shapes, output,
-                                                              pretrained_file=args.pretrained_fname)
+                                                              pretrained_file=args.pretrained_fname, postfix=args.postfix)
         solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
                                            base_lr=0.001, gamma=0.99,
                                            momentum=0.9, momentum2=0.999,
