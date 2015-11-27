@@ -55,6 +55,7 @@ class NetPredictor(caffe.Net):
             caffe.Net.__init__(self, model_file, pretrained_file, caffe.TEST)
         self.prediction_name = prediction_name or self.outputs[0]
         self.prediction_dim = self.blobs[self.prediction_name].shape[1]
+        self.jacobian_net = None
 
     def predict(self, *inputs):
         batch = len(self.blob(self.inputs[0]).data.shape) == len(inputs[0].shape)
@@ -103,17 +104,37 @@ class NetPredictor(caffe.Net):
         for i, (input_name, input_) in enumerate(zip(self.inputs, inputs)):
             if input_ is None:
                 inputs[i] = np.zeros(self.blob(input_name).shape)
-        other_outputs = [] # all outputs but the prediction one
-        for output_name in self.outputs:
-            if output_name == self.prediction_name:
-                continue
-            other_outputs.append((output_name, np.zeros(self.blob(output_name).shape)))
         jacs = np.empty((batch_size, self.prediction_dim, wrt_input_dim))
-        for k, single_inputs in enumerate(zip(*inputs)):
-            self.forward(**dict(zip(self.inputs, [input_[None, :] for input_ in single_inputs])))
-            for i, e in enumerate(np.eye(self.prediction_dim)):
-                diff = self.backward(**dict([(self.prediction_name, e[None, :])] + other_outputs))
-                jacs[k, i:i+1, :] = diff[wrt_input_name].copy()
+        if self.jacobian_net is None:
+            start_ind = len(self.layers) - 1
+            end_ind = 0
+            prediction_blob = self.blobs[self.prediction_name]
+            if prediction_blob.num != 1:
+                raise Exception('Diff is not batch sized')
+            wrt_input_blob = self.blobs[wrt_input_name]
+            for k, single_inputs in enumerate(zip(*inputs)):
+                self.forward(**dict(zip(self.inputs, [input_[None, :] for input_ in single_inputs])))
+                for i, e in enumerate(np.eye(self.prediction_dim)):
+                    prediction_blob.diff[...] = e[None, :]
+                    self._backward(start_ind, end_ind)
+                    jacs[k, i:i+1, :] = wrt_input_blob.diff.copy()
+        else:
+            assert self.jacobian_net.inputs == self.inputs
+            assert self.jacobian_net.outputs == self.outputs
+            start_ind = len(self.jacobian_net.layers) - 1
+            end_ind = 0
+            prediction_blob = self.jacobian_net.blobs[self.prediction_name]
+            if prediction_blob.num != self.y_shape[0]:
+                raise Exception('Diff is not batch sized')
+            other_output_blobs = [self.jacobian_net.blobs[output_name] for output_name in self.outputs if output_name != self.prediction_name]
+            wrt_input_blob = self.jacobian_net.blobs[wrt_input_name]
+            for k, single_inputs in enumerate(zip(*inputs)):
+                self.jacobian_net.forward(**dict(zip(self.inputs, [np.repeat(input_[None, :], self.y_shape[0], axis=0) for input_ in single_inputs])))
+                prediction_blob.diff[...] = np.eye(self.prediction_dim)
+                for other_output_blob in other_output_blobs:
+                    other_output_blob.diff[...] *= 0.0
+                self.jacobian_net._backward(start_ind, end_ind)
+                jacs[k, :, :] = wrt_input_blob.diff.copy()
         if batch:
             return jacs
         else:
@@ -180,6 +201,16 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         y_shape = (y_dim,)
         FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
 
+        self.jacobian_deploy_net_param = net_func(input_shapes, batch_size=y_shape[0])
+        self.jacobian_deploy_net_param = net.deploy_net(self.jacobian_deploy_net_param, inputs, input_shapes, outputs, batch_size=y_shape[0])
+        jacobian_deploy_fname = self.get_model_fname('jacobian_deploy')
+        with open(jacobian_deploy_fname, 'w') as f:
+            f.write(str(self.jacobian_deploy_net_param))
+        if pretrained_file is None:
+            self.jacobian_net = caffe.Net(jacobian_deploy_fname, caffe.TEST)
+        else:
+            self.jacobian_net = caffe.Net(jacobian_deploy_fname, pretrained_file, caffe.TEST)
+
     def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=100):
         if val_hdf5_fname is None:
             val_hdf5_fname = train_hdf5_fname.replace('train', 'val')
@@ -222,8 +253,9 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             solver.restore(solverstate_fname)
         solver.solve()
         for param_name, param in self.params.items():
-            for blob, solver_blob in zip(param, solver.net.params[param_name]):
+            for blob, jacobian_blob, solver_blob in zip(param, self.jacobian_net.params[param_name], solver.net.params[param_name]):
                 blob.data[...] = solver_blob.data
+                jacobian_blob.data[...] = blob.data
 
     def jacobian_control(self, X, U):
         return self.jacobian(self.inputs[1], X, U)
