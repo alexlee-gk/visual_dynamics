@@ -43,6 +43,14 @@ def main():
     args.pos_min = np.asarray(args.pos_min)
     args.pos_max = np.asarray(args.pos_max)
 
+    if args.simulator == 'square':
+        sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
+    elif args.simulator== 'ogre':
+        sim = simulator.OgreSimulator(args.pos_min, args.pos_max, args.vel_max,
+                                      image_scale=args.image_scale, crop_size=args.image_size)
+    else:
+        raise
+
     if args.predictor == 'bilinear':
         train_file = h5py.File(args.train_hdf5_fname, 'r+')
         X = train_file['image_curr'][:]
@@ -66,8 +74,8 @@ def main():
         else:
             inputs = ['image_curr', 'vel']
             input_shapes = predictor.NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
-            output = 'y_diff_pred'
-            feature_predictor = predictor.NetFeaturePredictor(getattr(net, args.predictor), inputs, input_shapes, output,
+            outputs = ['y_diff_pred', 'y']
+            feature_predictor = predictor.NetFeaturePredictor(getattr(net, args.predictor), inputs, input_shapes, outputs,
                                                               pretrained_file=args.pretrained_fname, postfix=args.postfix)
         solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
                                            base_lr=0.001, gamma=0.99,
@@ -78,14 +86,6 @@ def main():
                                 solver_param=solver_param,
                                 batch_size=32)
 
-
-    if args.simulator == 'square':
-        sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
-    elif args.simulator== 'ogre':
-        sim = simulator.OgreSimulator(args.pos_min, args.pos_max, args.vel_max,
-                                      image_scale=args.image_scale, crop_size=args.image_size)
-    else:
-        raise
     ctrl = controller.ServoingController(feature_predictor)
 
     done = False

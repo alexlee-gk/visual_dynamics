@@ -48,13 +48,12 @@ class NetPredictor(caffe.Net):
     Predicts output given the current inputs
         inputs -> prediction
     """
-    def __init__(self, model_file, pretrained_file=None):
+    def __init__(self, model_file, pretrained_file=None, prediction_name=None):
         if pretrained_file is None:
             caffe.Net.__init__(self, model_file, caffe.TEST)
         else:
             caffe.Net.__init__(self, model_file, pretrained_file, caffe.TEST)
-        assert len(self.outputs) == 1
-        self.prediction_name = self.outputs[0]
+        self.prediction_name = prediction_name or self.outputs[0]
         self.prediction_dim = self.blobs[self.prediction_name].shape[1]
 
     def predict(self, *inputs):
@@ -104,11 +103,16 @@ class NetPredictor(caffe.Net):
         for i, (input_name, input_) in enumerate(zip(self.inputs, inputs)):
             if input_ is None:
                 inputs[i] = np.zeros(self.blob(input_name).shape)
+        other_outputs = [] # all outputs but the prediction one
+        for output_name in self.outputs:
+            if output_name == self.prediction_name:
+                continue
+            other_outputs.append((output_name, np.zeros(self.blob(output_name).shape)))
         jacs = np.empty((batch_size, self.prediction_dim, wrt_input_dim))
         for k, single_inputs in enumerate(zip(*inputs)):
             self.forward(**dict(zip(self.inputs, [input_[None, :] for input_ in single_inputs])))
             for i, e in enumerate(np.eye(self.prediction_dim)):
-                diff = self.backward(**{self.prediction_name: e[None, :]})
+                diff = self.backward(**dict([(self.prediction_name, e[None, :])] + other_outputs))
                 jacs[k, i:i+1, :] = diff[wrt_input_name].copy()
         if batch:
             return jacs
@@ -152,24 +156,27 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, net_func, inputs, input_shapes, output, pretrained_file=None, postfix=''):
+    def __init__(self, net_func, inputs, input_shapes, outputs, pretrained_file=None, postfix=''):
+        """
+        Assumes that outputs[0] is the prediction_name
+        """
         self.net_func = net_func
         self.postfix = postfix
 
         self.deploy_net_param = net_func(input_shapes)
-        self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, [output])
+        self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, outputs)
         self.net_name = str(self.deploy_net_param.name)
 
         deploy_fname = self.get_model_fname('deploy')
         with open(deploy_fname, 'w') as f:
             f.write(str(self.deploy_net_param))
 
-        NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file)
+        NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=outputs[0])
 
         self.add_blur_weights(self.params) # TODO: better way to do this?
 
         x_shape, u_shape = input_shapes
-        _, y_dim = self.blobs[output].shape
+        _, y_dim = self.blobs[self.prediction_name].shape
         y_shape = (y_dim,)
         FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
 
@@ -187,6 +194,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
                 with open(hdf5_txt_fname, 'w') as f:
                     f.write(hdf5_fname + '\n')
             train_val_net = self.net_func(input_shapes, hdf5_txt_fname, batch_size, self.net_name)
+            train_val_net = net.train_val_net(train_val_net)
             train_val_nets.append(train_val_net)
         self.train_net_param, self.val_net_param = train_val_nets
 
@@ -308,9 +316,9 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        output = 'y_diff_pred'
+        outputs = ['y_diff_pred', 'y']
         super(BilinearNetFeaturePredictor, self).__init__(net.bilinear_net,
-                                                          inputs, input_shapes, output,
+                                                          inputs, input_shapes, outputs,
                                                           pretrained_file=pretrained_file,
                                                           postfix=postfix)
 
@@ -331,9 +339,9 @@ class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        output = 'y_diff_pred'
+        outputs = ['y_diff_pred', 'y']
         super(ApproxBilinearNetFeaturePredictor, self).__init__(net.approx_bilinear_net,
-                                                                inputs, input_shapes, output,
+                                                                inputs, input_shapes, outputs,
                                                                 pretrained_file=pretrained_file,
                                                                 postfix=postfix)
 
@@ -342,9 +350,9 @@ class ActionCondEncoderNetFeaturePredictor(NetFeaturePredictor):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        output = 'y_diff_pred'
+        outputs = ['y_diff_pred', 'y']
         super(ActionCondEncoderNetFeaturePredictor, self).__init__(net.action_cond_encoder_net,
-                                                                   inputs, input_shapes, output,
+                                                                   inputs, input_shapes, outputs,
                                                                    pretrained_file=pretrained_file,
                                                                    postfix=postfix)
 
