@@ -27,19 +27,18 @@ class ServoingController(Controller):
         self.predictor = feature_predictor
         self.alpha = alpha
         self.vel_max = vel_max
-        self.image_target = None
+        self._image_target = None
+        self._y_target = None
 
     def step(self, image):
         if self.image_target is not None:
-            x_target = self.image_target
-            y_target = self.predictor.feature_from_input(x_target)
             x = image
             y = self.predictor.feature_from_input(x)
 
             # use model to optimize for action
             J = self.predictor.jacobian_control(x, None)
             try:
-                u = self.alpha * np.linalg.solve(J.T.dot(J), J.T.dot(y_target - y))
+                u = self.alpha * np.linalg.solve(J.T.dot(J), J.T.dot(self.y_target - y))
             except np.linalg.LinAlgError:
                 u = np.zeros(self.predictor.u_shape)
         else:
@@ -48,6 +47,23 @@ class ServoingController(Controller):
         vel = u
         vel = np.clip(vel, -self.vel_max, self.vel_max)
         return vel
+
+    @property
+    def image_target(self):
+        return self._image_target.copy()
+
+    @image_target.setter
+    def image_target(self, image):
+        self._image_target = image.copy()
+        self._y_target = self.predictor.feature_from_input(self._image_target )
+
+    @property
+    def y_target(self):
+        return self._y_target.copy()
+
+    @y_target.setter
+    def y_target(self, y):
+        raise
 
     def set_target_obs(self, image_target):
         self.image_target = image_target
