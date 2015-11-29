@@ -115,7 +115,7 @@ def main():
 
                 # visualization
                 if args.visualize:
-                    vis_image = util.resize_from_scale((image.transpose(1, 2, 0) * 255.0).astype(np.uint8), args.vis_scale)
+                    vis_image = util.resize_from_scale(((image.transpose(1, 2, 0) + 1.0) * 255./2.0).astype(np.uint8), args.vis_scale)
                     cv2.imshow("Image window", vis_image)
                     key = cv2.waitKey(100)
                     key &= 255

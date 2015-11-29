@@ -73,7 +73,7 @@ class SquareSimulator(object):
 
     def observe(self):
         import cv2
-        return cv2.GaussianBlur(self._image, (5,5), -1).astype(float)[None, :] / 255.0
+        return (cv2.GaussianBlur(self._image, (5,5), -1).astype(float)[None, :] / 255.0) * 2.0 - 1.0
 
     def reset(self, pos):
         self.pos = pos
@@ -142,7 +142,7 @@ class OgreSimulator(Simulator):
     def observe(self):
         image = self.ogre.getScreenshot()
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        image = image.astype(float) / 255.0
+        image = (image.astype(float) / 255.0) * 2.0 - 1.0
         if self.image_scale is not None:
             image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale)
         if self.crop_size is not None:

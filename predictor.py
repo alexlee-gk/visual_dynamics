@@ -57,7 +57,7 @@ class NetPredictor(caffe.Net):
         self.prediction_dim = self.blobs[self.prediction_name].shape[1]
         self.jacobian_net = None
 
-    def predict(self, *inputs):
+    def predict(self, *inputs, **kwargs):
         batch = len(self.blob(self.inputs[0]).data.shape) == len(inputs[0].shape)
         if batch:
             batch_size = len(inputs[0])
@@ -74,7 +74,7 @@ class NetPredictor(caffe.Net):
                 inputs[i] = input_[None, :]
             inputs = tuple(inputs)
         out = self.forward_all(**dict(zip(self.inputs, inputs)))
-        predictions = out[self.prediction_name]
+        predictions = out[kwargs.get('prediction_name') or self.prediction_name]
         if batch:
             return predictions
         else:
@@ -348,7 +348,7 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
         inputs = ['image_curr', 'vel']
         default_input_shapes = [(1,7,10), (2,)]
         input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        outputs = ['y_diff_pred', 'y']
+        outputs = ['y_diff_pred', 'y', 'image_next_pred']
         super(BilinearNetFeaturePredictor, self).__init__(net.bilinear_net,
                                                           inputs, input_shapes, outputs,
                                                           pretrained_file=pretrained_file,
@@ -364,6 +364,18 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
             return jac
         else:
             return np.asarray([self.jacobian_control(x, None) for x in X])
+
+class BilinearConstrainedNetFeaturePredictor(BilinearNetFeaturePredictor):
+    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
+        inputs = ['image_curr', 'vel']
+        default_input_shapes = [(1,7,10), (2,)]
+        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
+        outputs = ['y_diff_pred', 'y', 'image_next_pred']
+        NetFeaturePredictor.__init__(self,
+                                     net.bilinear_constrained_net,
+                                     inputs, input_shapes, outputs,
+                                     pretrained_file=pretrained_file,
+                                     postfix=postfix)
 
 
 class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
