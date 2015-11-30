@@ -216,15 +216,17 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             val_hdf5_fname = train_hdf5_fname.replace('train', 'val')
 
         input_shapes = (self.x_shape, self.u_shape)
+        with h5py.File(val_hdf5_fname, 'r') as val_hdf5_file:
+            val_batch_size = val_hdf5_file[self.inputs[0]].shape[0]
         train_val_nets = []
-        for hdf5_fname in [train_hdf5_fname, val_hdf5_fname]:
+        for hdf5_fname, bs in zip([train_hdf5_fname, val_hdf5_fname], [batch_size, val_batch_size]):
             head, tail = os.path.split(hdf5_fname)
             root, _ = os.path.splitext(tail)
             hdf5_txt_fname = os.path.join(head, '.' + root + '.txt')
             if not os.path.isfile(hdf5_txt_fname):
                 with open(hdf5_txt_fname, 'w') as f:
                     f.write(hdf5_fname + '\n')
-            train_val_net = self.net_func(input_shapes, hdf5_txt_fname, batch_size, self.net_name)
+            train_val_net = self.net_func(input_shapes, hdf5_txt_fname, bs, self.net_name)
             train_val_net = net.train_val_net(train_val_net)
             train_val_nets.append(train_val_net)
         self.train_net_param, self.val_net_param = train_val_nets
@@ -256,6 +258,8 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             for blob, jacobian_blob, solver_blob in zip(param, self.jacobian_net.params[param_name], solver.net.params[param_name]):
                 blob.data[...] = solver_blob.data
                 jacobian_blob.data[...] = blob.data
+        self.train_net = solver.net
+        self.val_net = solver.test_nets[0]
 
     def jacobian_control(self, X, U):
         return self.jacobian(self.inputs[1], X, U)
