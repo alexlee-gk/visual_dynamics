@@ -106,14 +106,14 @@ class NetPredictor(caffe.Net):
                 inputs[i] = np.zeros(self.blob(input_name).shape)
         jacs = np.empty((batch_size, self.prediction_dim, wrt_input_dim))
         if self.jacobian_net is None:
-            start_ind = len(self.layers) - 1
+            start_ind = list(self._layer_names).index(self.prediction_name)
             end_ind = 0
             prediction_blob = self.blobs[self.prediction_name]
             if prediction_blob.num != 1:
                 raise Exception('Diff is not batch sized')
             wrt_input_blob = self.blobs[wrt_input_name]
             for k, single_inputs in enumerate(zip(*inputs)):
-                self.forward(**dict(zip(self.inputs, [input_[None, :] for input_ in single_inputs])))
+                self.forward(end=self.prediction_name, **dict(zip(self.inputs, [input_[None, :] for input_ in single_inputs])))
                 for i, e in enumerate(np.eye(self.prediction_dim)):
                     prediction_blob.diff[...] = e[None, :]
                     self._backward(start_ind, end_ind)
@@ -121,7 +121,7 @@ class NetPredictor(caffe.Net):
         else:
             assert self.jacobian_net.inputs == self.inputs
             assert self.jacobian_net.outputs == self.outputs
-            start_ind = len(self.jacobian_net.layers) - 1
+            start_ind = list(self.jacobian_net._layer_names).index(self.prediction_name)
             end_ind = 0
             prediction_blob = self.jacobian_net.blobs[self.prediction_name]
             if prediction_blob.num != self.y_shape[0]:
@@ -129,7 +129,7 @@ class NetPredictor(caffe.Net):
             other_output_blobs = [self.jacobian_net.blobs[output_name] for output_name in self.outputs if output_name != self.prediction_name]
             wrt_input_blob = self.jacobian_net.blobs[wrt_input_name]
             for k, single_inputs in enumerate(zip(*inputs)):
-                self.jacobian_net.forward(**dict(zip(self.inputs, [np.repeat(input_[None, :], self.y_shape[0], axis=0) for input_ in single_inputs])))
+                self.jacobian_net.forward(end=self.prediction_name, **dict(zip(self.inputs, [np.repeat(input_[None, :], self.y_shape[0], axis=0) for input_ in single_inputs])))
                 prediction_blob.diff[...] = np.eye(self.prediction_dim)
                 for other_output_blob in other_output_blobs:
                     other_output_blob.diff[...] *= 0.0
