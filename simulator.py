@@ -1,7 +1,6 @@
 from __future__ import division
 
 import numpy as np
-import pygre
 import cv2
 
 def axis2quat(axis, angle):
@@ -109,6 +108,7 @@ class OgreSimulator(Simulator):
         self.pos_max = np.asarray(pos_max)
         self.vel_max = vel_max
 
+        import pygre
         self.ogre = pygre.Pygre()
         self.ogre.init()
         self.ogre.addNode("node1", "house.mesh", 0, 0, 0)
@@ -240,7 +240,7 @@ class PR2Head(PR2HeadSimulator):
 
     @angle.setter
     def angle(self, next_angle):
-        super(PR2Head, self).angle(next_angle)
+        self.robot.SetDOFValues(next_angle, self.angle_inds)
         self.pr2.head.set_pan_tilt(*self.angle)
 
     def observe(self):

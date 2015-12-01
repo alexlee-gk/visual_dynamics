@@ -130,8 +130,6 @@ def main():
         pr2.head.set_pan_tilt(0, 1.05)
         pr2.rarm.goto_posture('side')
         pr2.larm.goto_posture('side')
-        pr2.rgrip.set_angle(0.54800022)
-        pr2.lgrip.set_angle(0.54800022)
         pr2.join_all()
         time.sleep(.5)
         pr2.update_rave()
@@ -142,8 +140,8 @@ def main():
         pr2_head = simulator.PR2HeadSimulator(sim.robot, args.vel_max)
     ctrl = controller.RandomController(*pr2_head.action_bounds)
     if args.output:
-        sim_args = dict(vel_max=args.vel_max, simulator=args.simulator)
-        collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args)
+        sim_args = dict(vel_max=args.vel_max)
+        collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args, auto_shuffle=False)
     else:
         collector = None
 
@@ -154,11 +152,13 @@ def main():
             move_gripper(lfd_env, lfd_env_real, gripper_pos, args)
             angle = look_at_angle(sim.robot, gripper_pos, 'base_link', berkeley_pr2.get_kinect_transform(sim.robot))
             pr2_head.reset(angle)
+            time.sleep(1)
             for step_iter in range(args.num_steps):
                 state = pr2_head.state
                 image = pr2_head.observe()
                 action = ctrl.step(image)
                 action = pr2_head.apply_action(action)
+                time.sleep(.6)
                 image_next = pr2_head.observe()
 
                 if collector:
