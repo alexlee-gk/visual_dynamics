@@ -181,3 +181,68 @@ class OgreSimulator(Simulator):
     def state_dim(self):
         dim, = self._pos.shape
         return dim
+
+class PR2HeadSimulator(Simulator):
+    def __init__(self, robot, vel_max):
+        self.robot = robot
+        self.vel_max = vel_max
+        self.angle_inds = [self.robot.GetJointIndex('head_pan_joint'),
+                           self.robot.GetJointIndex('head_tilt_joint')]
+
+    @property
+    def angle(self):
+        return self.robot.GetDOFValues(self.angle_inds)
+
+    @angle.setter
+    def angle(self, next_angle):
+        self.robot.SetDOFValues(next_angle, self.angle_inds)
+
+    def apply_action(self, vel):
+        angle_prev = self.angle.copy()
+        self.angle += vel
+        vel = self.angle - angle_prev
+        return vel
+
+    def observe(self):
+        rgb = (np.random.random((480, 640)) * 255).astype(np.uint8)
+        return rgb
+
+    def reset(self, angle):
+        self.angle = angle
+
+    @property
+    def action_bounds(self):
+        action_min = -self.vel_max * np.ones(self.action_dim)
+        action_max = self.vel_max * np.ones(self.action_dim)
+        return action_min, action_max
+
+    @property
+    def state(self):
+        return self.angle
+
+    @property
+    def action_dim(self):
+        dim, = self.angle.shape
+        return dim
+
+class PR2Head(PR2HeadSimulator):
+    def __init__(self, robot, pr2, vel_max):
+        super(PR2Head, self).__init__(robot, vel_max)
+        self.pr2 = pr2
+
+        import cloudprocpy
+        self.grabber = cloudprocpy.CloudGrabber()
+        self.grabber.startRGBD()
+
+    @property
+    def angle(self):
+        return super(PR2Head, self).angle
+
+    @angle.setter
+    def angle(self, next_angle):
+        super(PR2Head, self).angle(next_angle)
+        self.pr2.head.set_pan_tilt(*self.angle)
+
+    def observe(self):
+        rgb, _ = self.grabber.getRGBD()
+        return rgb
