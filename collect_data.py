@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 import cv2
 import time
+import openravepy
 import simulator
 import controller
 from generate_data import DataCollector
@@ -25,6 +26,9 @@ try:
 except:
     print "Couldn't import libraries for execution"
 import IPython as ipy
+
+def rotation_y(theta):
+    return np.array([[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]])
 
 def rotation_z(theta):
     return np.array([[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
@@ -54,6 +58,8 @@ def parse_input_args():
     parser.add_argument('--vel_max', '-m', type=float, default=np.deg2rad(5))
     parser.add_argument('--gripper_pos_min', type=float, nargs=3, default=[.7, -.3, .7], metavar=tuple([xyz + '_gripper_pos_min' for xyz in 'xyz']))
     parser.add_argument('--gripper_pos_max', type=float, nargs=3, default=[.5, .3, 1.1], metavar=tuple([xyz + '_gripper_pos_max' for xyz in 'xyz']))
+    parser.add_argument('--lr', type=str, default='r')
+    parser.add_argument('--init_move_seq', '-i', type=int, default=0)
 
     args = parser.parse_args()
 
@@ -74,19 +80,36 @@ def plan_full_traj(robot, hmat_start, hmat_end, start_fixed, n_steps=10, lr = 'r
     dof_inds = sim_util.dof_inds_from_name(robot, manip_name)
     return traj, dof_inds
 
-def move_gripper(lfd_env, lfd_env_real, t_end, args, lr='r'):
+def move_gripper(lfd_env, lfd_env_real, t_end, args, R_end=None, gaze=False):
     sim = lfd_env.sim
+    lr = args.lr
     ee_link_name = "%s_gripper_tool_frame"%lr
     hmat_start = sim.robot.GetLink(ee_link_name).GetTransform()
-    if lr == 'r':
-        theta = np.pi/2
-    elif lr == 'l':
-        theta = -np.pi/2
-    else:
-        raise
-    R_end = rotation_z(theta)
+    if R_end is None:
+        if lr == 'r':
+            theta = np.pi/2
+        elif lr == 'l':
+            theta = -np.pi/2
+        else:
+            raise
+        R_end = rotation_z(theta)
     hmat_end = np.r_[np.c_[R_end, t_end], np.c_[0,0,0,1]]
     full_traj = plan_full_traj(sim.robot, hmat_start, hmat_end, True, lr=lr)
+
+    if gaze:
+        robot = sim.robot
+        with openravepy.RobotStateSaver(robot) as saver:
+            traj, dof_inds = full_traj
+            robot.SetActiveDOFs(dof_inds)
+            angles = []
+            for dofs in traj:
+                robot.SetActiveDOFValues(dofs)
+                hmat = sim.robot.GetLink(ee_link_name).GetTransform()
+                angle = look_at_angle(robot, hmat[:3, 3], 'base_link', berkeley_pr2.get_kinect_transform(robot))
+                angles.append(angle)
+            traj = np.c_[traj, angles]
+            dof_inds.extend([robot.GetJointIndex('head_pan_joint'), robot.GetJointIndex('head_tilt_joint')])
+            full_traj = (traj, dof_inds)
 
     if sim.viewer:
         sim_callback = lambda i: sim.viewer.Step()
@@ -97,6 +120,16 @@ def move_gripper(lfd_env, lfd_env_real, t_end, args, lr='r'):
 
     if args.execution:
         lfd_env_real.world.execute_trajectory(full_traj, step_viewer=args.animation, interactive=args.interactive)
+
+def open_close_gripper(lfd_env, lfd_env_real, open_, args):
+    if open_:
+        lfd_env.world.open_gripper(args.lr)
+        if args.execution:
+            lfd_env_real.world.open_gripper(args.lr)
+    else:
+        lfd_env.world.close_gripper(args.lr)
+        if args.execution:
+            lfd_env_real.world.close_gripper(args.lr)
 
 def main():
     args = parse_input_args()
@@ -133,6 +166,15 @@ def main():
         pr2.join_all()
         time.sleep(.5)
         pr2.update_rave()
+
+    if args.init_move_seq:
+        open_close_gripper(lfd_env, lfd_env_real, True, args)
+        move_gripper(lfd_env, lfd_env_real, np.r_[.5, .3, .7+.3], args, R_end=rotation_y(np.pi/2), gaze=True)
+        move_gripper(lfd_env, lfd_env_real, np.r_[.5, .3, .7], args, R_end=rotation_y(np.pi/2), gaze=True)
+        open_close_gripper(lfd_env, lfd_env_real, False, args)
+        move_gripper(lfd_env, lfd_env_real, np.r_[.5, .3, .7+.3], args, R_end=rotation_y(np.pi/2), gaze=True)
+        move_gripper(lfd_env, lfd_env_real, np.r_[.8, -.2, .7+.3], args, R_end=rotation_z(-np.pi/4), gaze=True)
+        return
 
     if args.execution:
         pr2_head = simulator.PR2Head(sim.robot, pr2, args.vel_max)
