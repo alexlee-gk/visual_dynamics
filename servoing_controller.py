@@ -1,5 +1,6 @@
 from __future__ import division
 
+import os
 import argparse
 import numpy as np
 import h5py
@@ -28,6 +29,7 @@ def main():
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
+    parser.add_argument('--output_image_dir', type=str)
     parser.add_argument('--vel_max', '-m', type=float, default=None)
     parser.add_argument('--image_size', type=int, nargs=2, default=None, metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--simulator', '-s', type=str, default=None, choices=('square', 'ogre'))
@@ -118,6 +120,7 @@ def main():
     image_pred_errors = []
     image_errors = []
     pos_errors = []
+    iter_ = 0
     for traj_iter in range(args.num_trajs):
         try:
             pos_target = sim.sample_state()
@@ -134,9 +137,17 @@ def main():
                 action = sim.apply_action(action)
 
                 # visualization
-                if args.visualize:
+                if args.visualize or args.output_image_dir:
                     vis_image = np.concatenate([image.transpose(1, 2, 0), image_next_pred.transpose(1, 2, 0), image_target.transpose(1, 2, 0)], axis=1)
-                    vis_image = util.resize_from_scale(((vis_image + 1.0) * 255.0/2.0).astype(np.uint8), args.vis_scale)
+                    vis_image = ((vis_image + 1.0) * 255.0/2.0).astype(np.uint8)
+                    if args.output_image_dir:
+                        if vis_image.ndim == 2:
+                            output_image = np.concatenate([vis_image]*3, axis=2)
+                        else:
+                            output_image = vis_image
+                        image_fname = feature_predictor.net_name + feature_predictor.postfix + '_%04d.png'%iter_
+                        cv2.imwrite(os.path.join(args.output_image_dir, image_fname), output_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                    vis_image = util.resize_from_scale(vis_image, args.vis_scale)
                     cv2.imshow("Image window", vis_image)
                     key = cv2.waitKey(1)
                     key &= 255
@@ -185,6 +196,7 @@ def main():
                 break
         except KeyboardInterrupt:
             break
+        iter_ += 1
 
     if args.visualize:
         cv2.destroyAllWindows()
