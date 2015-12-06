@@ -18,26 +18,39 @@ def compute_jacobian(net, output, input_):
     doutput_dinput = np.array([net.backward(y_diff_pred=e[None,:])[input_].flatten() for e in np.eye(output_data.shape[1])])
     return doutput_dinput
 
-def traverse_layers_to_keep(layer, layers, layers_to_keep):
+def traverse_layers_to_keep(layer, layers_dict, layers_to_keep):
     if layer in layers_to_keep: # has already been traversed
         return
     layers_to_keep.append(layer)
     for layer_name in layer.bottom:
-        if layer_name in layers:
-            traverse_layers_to_keep(layers[layer_name], layers, layers_to_keep)
+        if layer_name in layers_dict:
+            traverse_layers_to_keep(layers_dict[layer_name], layers_dict, layers_to_keep)
+
+def remove_non_descendants(layers, ancestor_layers, exception_layers=[]):
+    """
+    Remove layers that are not descendants of ancestor_layers except for exception_layers.
+    """
+    layers_dict = {layer.name: layer for layer in layers}
+    layers_to_keep = [layer for layer in exception_layers]
+    for ancestor_layer in ancestor_layers:
+        traverse_layers_to_keep(ancestor_layer, layers_dict, layers_to_keep)
+    layer_names_to_keep = [layer.name for layer in layers_to_keep]
+    for layer_name, layer in layers_dict.items():
+        if layer in layers_to_keep:
+            continue
+        for top_layer in layer.top:
+            if top_layer in layer_names_to_keep:
+                layer_names_to_keep.append(layer_name)
+                layers_to_keep.append(layer)
+                break
+    for layer_name, layer in layers_dict.items():
+        if layer_name not in layer_names_to_keep:
+            layers.remove(layer)
 
 def deploy_net(net, inputs, input_shapes, outputs, batch_size=1, force_backward=True):
     # remove all layers that are not descendants of output layers
-    layers = dict([(layer.name, layer) for layer in net.layer])
-    layers_to_keep = []
-    for output in outputs:
-        if output not in layers:
-            continue
-        traverse_layers_to_keep(layers[output], layers, layers_to_keep)
-    layer_names_to_remove = set(layers.keys()) - set([l.name for l in layers_to_keep])
-    for layer_name in layer_names_to_remove:
-        net.layer.remove(layers[layer_name])
-
+    output_layers = [layer for layer in net.layer if layer.name in outputs]
+    remove_non_descendants(net.layer, output_layers)
     net.input.extend(inputs)
     net.input_shape.extend([pb2.BlobShape(dim=(batch_size,)+shape) for shape in input_shapes])
     net.force_backward = force_backward
@@ -45,14 +58,9 @@ def deploy_net(net, inputs, input_shapes, outputs, batch_size=1, force_backward=
 
 def train_val_net(net):
     # remove all layers that are not descendants of loss layers
-    layers = dict([(layer.name, layer) for layer in net.layer])
-    layers_to_keep = [layers['data']]
-    loss_layers = [layer for layer in layers.values() if layer.name.endswith('loss')]
-    for loss_layer in loss_layers:
-        traverse_layers_to_keep(loss_layer, layers, layers_to_keep)
-    layer_names_to_remove = set(layers.keys()) - set([l.name for l in layers_to_keep])
-    for layer_name in layer_names_to_remove:
-        net.layer.remove(layers[layer_name])
+    loss_layers = [layer for layer in net.layer if layer.name.endswith('loss')]
+    exception_layers = [layer for layer in net.layer if 'data' in layer.name]
+    remove_non_descendants(net.layer, loss_layers, exception_layers)
     return net
 
 def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ApproxBilinearNet'):
@@ -196,89 +204,7 @@ def action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_n
     net.name = net_name
     return net
 
-def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, **kwargs):
-    assert len(input_shapes) == 2
-    image0_shape, vel_shape = input_shapes
-    assert len(image0_shape) == 3
-    assert image0_shape[1] == 32
-    assert image0_shape[2] == 32
-    assert len(vel_shape) == 1
-    image0_num_channel = image0_shape[0]
-    num_channel = kwargs.get('num_channel') or 16
-    image1_num_channel = num_channel
-    image2_num_channel = num_channel
-    image1_shape = (image1_num_channel, 16, 16)
-    image2_shape = (image2_num_channel, 8, 8)
-    y0_dim = image0_shape[1] * image0_shape[2] # 1024
-    y2_dim = kwargs.get('y2_dim') or 64
-    u_dim = vel_shape[0]
-
-    conv1_kwargs = dict(param=[dict(name='conv1', lr_mult=1, decay_mult=1), dict(name='conv1_bias', lr_mult=1, decay_mult=1)],
-                        convolution_param=dict(num_output=image1_num_channel,
-                                               kernel_size=6,
-                                               stride=2,
-                                               pad=2,
-                                               weight_filler=dict(type='gaussian', std=0.01),
-                                               bias_filler=dict(type='constant', value=0)))
-    conv2_kwargs = dict(param=[dict(name='conv2', lr_mult=1, decay_mult=1), dict(name='conv2_bias', lr_mult=1, decay_mult=1)],
-                        convolution_param=dict(num_output=image2_num_channel,
-                                               kernel_size=6,
-                                               stride=2,
-                                               pad=2,
-                                               weight_filler=dict(type='gaussian', std=0.01),
-                                               bias_filler=dict(type='constant', value=0)))
-    deconv0_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
-                          convolution_param=dict(num_output=image0_num_channel,
-                                                 kernel_size=6,
-                                                 stride=2,
-                                                 pad=2,
-                                                 weight_filler=dict(type='gaussian', std=0.01),
-                                                 bias_filler=dict(type='constant', value=0)))
-    deconv1_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
-                          convolution_param=dict(num_output=image1_num_channel,
-                                                 kernel_size=6,
-                                                 stride=2,
-                                                 pad=2,
-                                                 weight_filler=dict(type='gaussian', std=0.01),
-                                                 bias_filler=dict(type='constant', value=0)))
-    fc_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
-                     weight_filler=dict(type='gaussian', std=0.001),
-                     bias_filler=dict(type='constant', value=0))
-
-    n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
-    image0 = n.image_curr
-    u = n.vel
-
-    n.image1 = L.Convolution(image0, **conv1_kwargs)
-    L.ReLU(n.image1, in_place=True)
-    n.image2 = L.Convolution(n.image1, **conv2_kwargs)
-    L.ReLU(n.image2, in_place=True)
-
-    y2 = n.y = L.InnerProduct(n.image2, num_output=y2_dim, weight_filler=dict(type='xavier'))
-    y2_diff_pred = n.y_diff_pred = Bilinear(n, y2, u, y2_dim, u_dim, name='bilinear2', **fc_kwargs)
-    n.y2_next_pred = L.Eltwise(y2, y2_diff_pred, operation=P.Eltwise.SUM)
-    n.image2_next_pred_flat = L.InnerProduct(n.y2_next_pred, num_output=np.prod(image2_shape), weight_filler=dict(type='xavier'))
-    n.image2_next_pred = L.Reshape(n.image2_next_pred_flat, shape=dict(dim=[batch_size]+list(image2_shape)))
-
-    n.image1_next_pred = L.Deconvolution(n.image2_next_pred, **deconv1_kwargs)
-    L.ReLU(n.image1_next_pred, in_place=True)
-    n.image_next_pred = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
-    image0_next_pred = L.ReLU(n.image_next_pred, in_place=True)
-
-    image0_next = n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
-
-    n.image0_next_loss = L.EuclideanLoss(image0_next, image0_next_pred)
-
-    net = n.to_proto()
-    if net_name is None:
-        net_name = 'SmallActionCondEncoderNet'
-        net_name +='_num_channel' + str(num_channel)
-        net_name += '_y2_dim' + str(y2_dim)
-    net.name = net_name
-    return net
-
-def small_action_cond_encoder_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, **kwargs):
+def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, constrained=True, **kwargs):
     assert len(input_shapes) == 2
     image0_shape, vel_shape = input_shapes
     assert len(image0_shape) == 3
@@ -345,9 +271,11 @@ def small_action_cond_encoder_constrained_net(input_shapes, hdf5_txt_fname='', b
 
     n.image1_next_pred = L.Deconvolution(n.image2_next_pred, **deconv1_kwargs)
     n.image1_next_pred = L.ReLU(n.image1_next_pred, in_place=True)
-    n.image_next_pred_unconstrained = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
-    n.image_next_pred_unconstrained = L.ReLU(n.image_next_pred_unconstrained, in_place=True)
-    image0_next_pred = n.image_next_pred = L.TanH(n.image_next_pred_unconstrained)
+    if constrained:
+        n.image_next_pred_unconstrained = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
+        image0_next_pred = n.image_next_pred = L.TanH(n.image_next_pred_unconstrained)
+    else:
+        n.image_next_pred = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
 
     image0_next = n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
 
@@ -355,7 +283,9 @@ def small_action_cond_encoder_constrained_net(input_shapes, hdf5_txt_fname='', b
 
     net = n.to_proto()
     if net_name is None:
-        net_name = 'SmallActionCondEncoderConstrainedNet'
+        net_name = 'SmallActionCondEncoderNet'
+        if constrained:
+            net_name += '_constrained'
         net_name +='_num_channel' + str(num_channel)
         net_name += '_y2_dim' + str(y2_dim)
     net.name = net_name
@@ -427,7 +357,7 @@ def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', b
     net.name = net_name
     return net
 
-def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, **kwargs):
+def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, constrained=True, **kwargs):
     assert len(input_shapes) == 2
     image0_shape, vel_shape = input_shapes
     assert len(image0_shape) == 3
@@ -507,8 +437,11 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
     n.y0_next_pred = L.Eltwise(n.y0, n.y0_diff_pred, operation=P.Eltwise.SUM)
     n.image0_next_pred0 = L.Reshape(n.y0_next_pred, shape=dict(dim=[batch_size]+list(image0_shape)))
     n.image0_next_pred1 = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
-    n.image0_next_pred1 = L.ReLU(n.image0_next_pred1, in_place=True)
-    image0_next_pred = n.image_next_pred = L.Eltwise(n.image0_next_pred0, n.image0_next_pred1, operation=P.Eltwise.SUM)
+    if constrained:
+        n.image_next_pred_unconstrained = L.Eltwise(n.image0_next_pred0, n.image0_next_pred1, operation=P.Eltwise.SUM)
+        image0_next_pred = n.image_next_pred = L.TanH(n.image_next_pred_unconstrained)
+    else:
+        image0_next_pred = n.image_next_pred = L.Eltwise(n.image0_next_pred0, n.image0_next_pred1, operation=P.Eltwise.SUM)
 
     image0_next = n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
 
@@ -529,115 +462,8 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
     net = n.to_proto()
     if net_name is None:
         net_name = 'LadderActionCondEncoderNet'
-        net_name +='_num_channel' + str(num_channel)
-        net_name += '_y1_dim' + str(y1_dim)
-        net_name += '_y2_dim' + str(y2_dim)
-    net.name = net_name
-    return net
-
-def ladder_action_cond_encoder_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, **kwargs):
-    assert len(input_shapes) == 2
-    image0_shape, vel_shape = input_shapes
-    assert len(image0_shape) == 3
-    assert image0_shape[1] == 32
-    assert image0_shape[2] == 32
-    assert len(vel_shape) == 1
-    image0_num_channel = image0_shape[0]
-    num_channel = kwargs.get('num_channel') or 16
-    image1_num_channel = num_channel
-    image2_num_channel = num_channel
-    image1_shape = (image1_num_channel, 16, 16)
-    image2_shape = (image2_num_channel, 8, 8)
-    y0_dim = image0_shape[1] * image0_shape[2] # 1024
-    y1_dim = kwargs.get('y1_dim') or 128
-    y2_dim = kwargs.get('y2_dim') or 32
-    u_dim = vel_shape[0]
-
-    conv1_kwargs = dict(param=[dict(name='conv1', lr_mult=1, decay_mult=1), dict(name='conv1_bias', lr_mult=1, decay_mult=1)],
-                        convolution_param=dict(num_output=image1_num_channel,
-                                               kernel_size=6,
-                                               stride=2,
-                                               pad=2,
-                                               weight_filler=dict(type='gaussian', std=0.01),
-                                               bias_filler=dict(type='constant', value=0)))
-    conv2_kwargs = dict(param=[dict(name='conv2', lr_mult=1, decay_mult=1), dict(name='conv2_bias', lr_mult=1, decay_mult=1)],
-                        convolution_param=dict(num_output=image2_num_channel,
-                                               kernel_size=6,
-                                               stride=2,
-                                               pad=2,
-                                               weight_filler=dict(type='gaussian', std=0.01),
-                                               bias_filler=dict(type='constant', value=0)))
-    deconv0_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
-                          convolution_param=dict(num_output=image0_num_channel,
-                                                 kernel_size=6,
-                                                 stride=2,
-                                                 pad=2,
-                                                 weight_filler=dict(type='gaussian', std=0.01),
-                                                 bias_filler=dict(type='constant', value=0)))
-    deconv1_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
-                          convolution_param=dict(num_output=image1_num_channel,
-                                                 kernel_size=6,
-                                                 stride=2,
-                                                 pad=2,
-                                                 weight_filler=dict(type='gaussian', std=0.01),
-                                                 bias_filler=dict(type='constant', value=0)))
-    fc_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
-                     weight_filler=dict(type='gaussian', std=0.001),
-                     bias_filler=dict(type='constant', value=0))
-
-    n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
-    image0 = n.image_curr
-    u = n.vel
-
-    n.image1 = L.Convolution(image0, **conv1_kwargs)
-    n.image1 = L.ReLU(n.image1, in_place=True)
-    n.image2 = L.Convolution(n.image1, **conv2_kwargs)
-    n.image2 = L.ReLU(n.image2, in_place=True)
-
-    n.y2 = L.InnerProduct(n.image2, num_output=y2_dim, weight_filler=dict(type='xavier'))
-    n.y2_diff_pred = Bilinear(n, n.y2, u, y2_dim, u_dim, name='bilinear2', **fc_kwargs)
-    n.y2_next_pred = L.Eltwise(n.y2, n.y2_diff_pred, operation=P.Eltwise.SUM)
-    n.image2_next_pred_flat = L.InnerProduct(n.y2_next_pred, num_output=np.prod(image2_shape), weight_filler=dict(type='xavier'))
-    n.image2_next_pred = L.Reshape(n.image2_next_pred_flat, shape=dict(dim=[batch_size]+list(image2_shape)))
-
-    n.y1 = L.InnerProduct(n.image1, num_output=y1_dim, weight_filler=dict(type='xavier'))
-    n.y1_diff_pred = Bilinear(n, n.y1, u, y1_dim, u_dim, name='bilinear1', **fc_kwargs)
-    n.y1_next_pred = L.Eltwise(n.y1, n.y1_diff_pred, operation=P.Eltwise.SUM)
-    n.image1_next_pred1_flat = L.InnerProduct(n.y1_next_pred, num_output=np.prod(image1_shape), weight_filler=dict(type='xavier'))
-    n.image1_next_pred1 = L.Reshape(n.image1_next_pred1_flat, shape=dict(dim=[batch_size]+list(image1_shape)))
-    n.image1_next_pred2 = L.Deconvolution(n.image2_next_pred, **deconv1_kwargs)
-    n.image1_next_pred2 = L.ReLU(n.image1_next_pred2, in_place=True)
-    n.image1_next_pred = L.Eltwise(n.image1_next_pred1, n.image1_next_pred2, operation=P.Eltwise.SUM)
-
-    n.y0 = L.Flatten(image0)
-    n.y0_diff_pred = Bilinear(n, n.y0, u, y0_dim, u_dim, name='bilinear0', **fc_kwargs)
-    n.y0_next_pred = L.Eltwise(n.y0, n.y0_diff_pred, operation=P.Eltwise.SUM)
-    n.image0_next_pred0 = L.Reshape(n.y0_next_pred, shape=dict(dim=[batch_size]+list(image0_shape)))
-    n.image0_next_pred1 = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
-    n.image0_next_pred1 = L.ReLU(n.image0_next_pred1, in_place=True)
-    n.image0_next_pred_unconstrained = L.Eltwise(n.image0_next_pred0, n.image0_next_pred1, operation=P.Eltwise.SUM)
-    image0_next_pred = n.image_next_pred = L.TanH(n.image0_next_pred_unconstrained)
-
-    image0_next = n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
-
-    n.image1_next = L.Convolution(image0_next, **conv1_kwargs)
-    n.image1_next = L.ReLU(n.image1_next, in_place=True)
-    n.image2_next = L.Convolution(n.image1_next, **conv2_kwargs)
-    n.image2_next = L.ReLU(n.image2_next, in_place=True)
-
-    n.image0_next_loss = L.EuclideanLoss(image0_next, image0_next_pred)
-    n.image1_next_loss = L.EuclideanLoss(n.image1_next, n.image1_next_pred)
-    n.image2_next_loss = L.EuclideanLoss(n.image2_next, n.image2_next_pred)
-
-    n.y01 = L.Concat(n.y0, n.y1, axis=1)
-    n.y = L.Concat(n.y01, n.y2, axis=1)
-    n.y01_diff_pred = L.Concat(n.y0_diff_pred, n.y1_diff_pred, axis=1)
-    n.y_diff_pred = L.Concat(n.y01_diff_pred, n.y2_diff_pred, axis=1)
-
-    net = n.to_proto()
-    if net_name is None:
-        net_name = 'LadderActionCondEncoderConstrainedNet'
+        if constrained:
+            net_name += '_constrained'
         net_name +='_num_channel' + str(num_channel)
         net_name += '_y1_dim' + str(y1_dim)
         net_name += '_y2_dim' + str(y2_dim)
