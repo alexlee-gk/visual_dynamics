@@ -54,8 +54,8 @@ class NetPredictor(caffe.Net):
         else:
             caffe.Net.__init__(self, model_file, pretrained_file, caffe.TEST)
         self.prediction_name = prediction_name or self.outputs[0]
-        self.prediction_dim = self.blobs[self.prediction_name].shape[1]
-        self.jacobian_net = None
+        self.prediction_dim = self.blob(self.prediction_name).shape[1]
+        self.bs1_net = None
 
     def predict(self, *inputs, **kwargs):
         batch = len(self.blob(self.inputs[0]).data.shape) == len(inputs[0].shape)
@@ -73,8 +73,10 @@ class NetPredictor(caffe.Net):
                     continue
                 inputs[i] = input_[None, :]
             inputs = tuple(inputs)
-        out = self.forward_all(**dict(zip(self.inputs, inputs)))
-        predictions = out[kwargs.get('prediction_name') or self.prediction_name]
+        prediction_name = kwargs.get('prediction_name') or self.prediction_name
+        net = self.bs1_net or self
+        outs = net.forward_all(blobs=[prediction_name], end=prediction_name, **dict(zip(self.inputs, inputs)))
+        predictions = outs[prediction_name]
         if batch:
             return predictions
         else:
@@ -104,37 +106,19 @@ class NetPredictor(caffe.Net):
         for i, (input_name, input_) in enumerate(zip(self.inputs, inputs)):
             if input_ is None:
                 inputs[i] = np.zeros(self.blob(input_name).shape)
+        # use outputs with zeros for the outpus that doesn't affect the backward computation
+        output_diffs = dict()
+        for output_name in self.outputs:
+            if output_name == self.prediction_name:
+                output_diffs[output_name] = np.eye(self.prediction_dim)
+            else:
+                output_diffs[output_name] = np.zeros((self.prediction_dim,) + self.blob(output_name).diff.shape[1:])
         jacs = np.empty((batch_size, self.prediction_dim, wrt_input_dim))
-        if self.jacobian_net is None:
-            start_ind = list(self._layer_names).index(self.prediction_name)
-            end_ind = 0
-            prediction_blob = self.blobs[self.prediction_name]
-            if prediction_blob.num != 1:
-                raise Exception('Diff is not batch sized')
-            wrt_input_blob = self.blobs[wrt_input_name]
-            for k, single_inputs in enumerate(zip(*inputs)):
-                self.forward(end=self.prediction_name, **dict(zip(self.inputs, [input_[None, :] for input_ in single_inputs])))
-                for i, e in enumerate(np.eye(self.prediction_dim)):
-                    prediction_blob.diff[...] = e[None, :]
-                    self._backward(start_ind, end_ind)
-                    jacs[k, i:i+1, :] = wrt_input_blob.diff.copy()
-        else:
-            assert self.jacobian_net.inputs == self.inputs
-            assert self.jacobian_net.outputs == self.outputs
-            start_ind = list(self.jacobian_net._layer_names).index(self.prediction_name)
-            end_ind = 0
-            prediction_blob = self.jacobian_net.blobs[self.prediction_name]
-            if prediction_blob.num != self.y_shape[0]:
-                raise Exception('Diff is not batch sized')
-            other_output_blobs = [self.jacobian_net.blobs[output_name] for output_name in self.outputs if output_name != self.prediction_name]
-            wrt_input_blob = self.jacobian_net.blobs[wrt_input_name]
-            for k, single_inputs in enumerate(zip(*inputs)):
-                self.jacobian_net.forward(end=self.prediction_name, **dict(zip(self.inputs, [np.repeat(input_[None, :], self.y_shape[0], axis=0) for input_ in single_inputs])))
-                prediction_blob.diff[...] = np.eye(self.prediction_dim)
-                for other_output_blob in other_output_blobs:
-                    other_output_blob.diff[...] *= 0.0
-                self.jacobian_net._backward(start_ind, end_ind)
-                jacs[k, :, :] = wrt_input_blob.diff.copy()
+        for k, input_ in enumerate(zip(*inputs)):
+            input_blobs = dict(zip(self.inputs, [np.repeat(in_[None, :], self.batch_size, axis=0) for in_ in input_]))
+            self.forward_all(blobs=[self.prediction_name], end=self.prediction_name, **input_blobs)
+            diffs = self.backward_all(diffs=[self.prediction_name], start=self.prediction_name, **output_diffs)
+            jacs[k, :, :] = diffs[wrt_input_name]
         if batch:
             return jacs
         else:
@@ -177,39 +161,47 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, net_func, inputs, input_shapes, outputs, pretrained_file=None, postfix=''):
+    def __init__(self, net_func, inputs, input_shapes, outputs, pretrained_file=None, postfix='', batch_size=128, batch_size_1=False):
         """
         Assumes that outputs[0] is the prediction_name
+        batch_size_1: if True, another net of batch_size of 1 is created, and this net is used for computing forward in the predict method
         """
         self.net_func = net_func
         self.postfix = postfix
+        self.batch_size = batch_size
 
-        self.deploy_net_param = net_func(input_shapes)
-        self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, outputs)
+        self.deploy_net_param = net_func(input_shapes, batch_size=batch_size)
+        self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, outputs, batch_size=batch_size)
         self.net_name = str(self.deploy_net_param.name)
-
         deploy_fname = self.get_model_fname('deploy')
         with open(deploy_fname, 'w') as f:
             f.write(str(self.deploy_net_param))
 
+        if pretrained_file is not None and not pretrained_file.endswith('.caffemodel'):
+            pretrained_file = self.get_snapshot_fname() + '_iter_' + pretrained_file + '.caffemodel'
         NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=outputs[0])
 
         self.add_blur_weights(self.params) # TODO: better way to do this?
 
         x_shape, u_shape = input_shapes
-        _, y_dim = self.blobs[self.prediction_name].shape
+        _, y_dim = self.blob(self.prediction_name).shape
         y_shape = (y_dim,)
         FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
 
-        self.jacobian_deploy_net_param = net_func(input_shapes, batch_size=y_shape[0])
-        self.jacobian_deploy_net_param = net.deploy_net(self.jacobian_deploy_net_param, inputs, input_shapes, outputs, batch_size=y_shape[0])
-        jacobian_deploy_fname = self.get_model_fname('jacobian_deploy')
-        with open(jacobian_deploy_fname, 'w') as f:
-            f.write(str(self.jacobian_deploy_net_param))
-        if pretrained_file is None:
-            self.jacobian_net = caffe.Net(jacobian_deploy_fname, caffe.TEST)
-        else:
-            self.jacobian_net = caffe.Net(jacobian_deploy_fname, pretrained_file, caffe.TEST)
+        if batch_size_1:
+            self.bs1_deploy_net_param = net_func(input_shapes, batch_size=1)
+            self.bs1_deploy_net_param = net.deploy_net(self.bs1_deploy_net_param, inputs, input_shapes, outputs, batch_size=1)
+            bs1_deploy_fname = self.get_model_fname('bs1_deploy')
+            with open(bs1_deploy_fname, 'w') as f:
+                f.write(str(self.bs1_deploy_net_param))
+
+            self.bs1_net = NetPredictor(bs1_deploy_fname, pretrained_file=pretrained_file, prediction_name=outputs[0])
+            for bs1_param_name, bs1_param in self.bs1_net.params.items():
+                for bs1_blob, blob in zip(bs1_param, self.params[bs1_param_name]):
+                    bs1_blob.data[...] = blob.data.copy()
+
+        self.train_net = None
+        self.val_net = None
 
     def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=100):
         if val_hdf5_fname is None:
@@ -252,12 +244,18 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 solver_blob.data[...] = blob.data
         if solverstate_fname is not None:
+            if not solverstate_fname.endswith('.solverstate'):
+                solverstate_fname = self.get_snapshot_fname() + '_iter_' + solverstate_fname + '.solverstate'
             solver.restore(solverstate_fname)
         solver.solve()
         for param_name, param in self.params.items():
-            for blob, jacobian_blob, solver_blob in zip(param, self.jacobian_net.params[param_name], solver.net.params[param_name]):
+            for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 blob.data[...] = solver_blob.data
-                jacobian_blob.data[...] = blob.data
+        if self.bs1_net:
+            for bs1_param_name, bs1_param in self.bs1_net.params.items():
+                for bs1_blob, blob in zip(bs1_param, self.params[bs1_param_name]):
+                    bs1_blob.data[...] = blob.data.copy()
+
         self.train_net = solver.net
         self.val_net = solver.test_nets[0]
 
@@ -269,14 +267,15 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         batch = X.shape != self.x_shape
         if not batch:
             X = X[None, :]
-        kwargs = dict()
+        batch_size = len(X)
+        input_blobs = dict()
         for input_ in self.inputs:
             if input_ == input_name:
-                kwargs[input_] = X
+                input_blobs[input_] = X
             else:
-                kwargs[input_] = np.zeros_like(self.blobs[input_].data)
-        out = self.forward(blobs=[output_name], **kwargs)
-        Y = out[output_name].copy()
+                input_blobs[input_] = np.zeros((batch_size,) + self.blob(input_).data.shape[1:])
+        outs = self.forward_all(blobs=[output_name], end=output_name, **input_blobs)
+        Y = outs[output_name]
         if not batch:
             Y = np.squeeze(Y, axis=0)
         return Y
