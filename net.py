@@ -418,13 +418,21 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
     n.image2 = L.ReLU(n.image2, in_place=True)
 
     n.y2 = L.InnerProduct(n.image2, num_output=y2_dim, weight_filler=dict(type='xavier'))
+    n.y1 = L.InnerProduct(n.image1, num_output=y1_dim, weight_filler=dict(type='xavier'))
+    n.y0 = L.Flatten(image0)
+    n.y01 = L.Concat(n.y0, n.y1, axis=1)
+    n.y = L.Concat(n.y01, n.y2, axis=1)
+
     n.y2_diff_pred = Bilinear(n, n.y2, u, y2_dim, u_dim, name='bilinear2', **fc_kwargs)
+    n.y1_diff_pred = Bilinear(n, n.y1, u, y1_dim, u_dim, name='bilinear1', **fc_kwargs)
+    n.y0_diff_pred = Bilinear(n, n.y0, u, y0_dim, u_dim, name='bilinear0', **fc_kwargs)
+    n.y01_diff_pred = L.Concat(n.y0_diff_pred, n.y1_diff_pred, axis=1)
+    n.y_diff_pred = L.Concat(n.y01_diff_pred, n.y2_diff_pred, axis=1)
+
     n.y2_next_pred = L.Eltwise(n.y2, n.y2_diff_pred, operation=P.Eltwise.SUM)
     n.image2_next_pred_flat = L.InnerProduct(n.y2_next_pred, num_output=np.prod(image2_shape), weight_filler=dict(type='xavier'))
     n.image2_next_pred = L.Reshape(n.image2_next_pred_flat, shape=dict(dim=[batch_size]+list(image2_shape)))
 
-    n.y1 = L.InnerProduct(n.image1, num_output=y1_dim, weight_filler=dict(type='xavier'))
-    n.y1_diff_pred = Bilinear(n, n.y1, u, y1_dim, u_dim, name='bilinear1', **fc_kwargs)
     n.y1_next_pred = L.Eltwise(n.y1, n.y1_diff_pred, operation=P.Eltwise.SUM)
     n.image1_next_pred1_flat = L.InnerProduct(n.y1_next_pred, num_output=np.prod(image1_shape), weight_filler=dict(type='xavier'))
     n.image1_next_pred1 = L.Reshape(n.image1_next_pred1_flat, shape=dict(dim=[batch_size]+list(image1_shape)))
@@ -432,8 +440,6 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
     n.image1_next_pred2 = L.ReLU(n.image1_next_pred2, in_place=True)
     n.image1_next_pred = L.Eltwise(n.image1_next_pred1, n.image1_next_pred2, operation=P.Eltwise.SUM)
 
-    n.y0 = L.Flatten(image0)
-    n.y0_diff_pred = Bilinear(n, n.y0, u, y0_dim, u_dim, name='bilinear0', **fc_kwargs)
     n.y0_next_pred = L.Eltwise(n.y0, n.y0_diff_pred, operation=P.Eltwise.SUM)
     n.image0_next_pred0 = L.Reshape(n.y0_next_pred, shape=dict(dim=[batch_size]+list(image0_shape)))
     n.image0_next_pred1 = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
@@ -453,11 +459,6 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
     n.image0_next_loss = L.EuclideanLoss(image0_next, image0_next_pred)
     n.image1_next_loss = L.EuclideanLoss(n.image1_next, n.image1_next_pred)
     n.image2_next_loss = L.EuclideanLoss(n.image2_next, n.image2_next_pred)
-
-    n.y01 = L.Concat(n.y0, n.y1, axis=1)
-    n.y = L.Concat(n.y01, n.y2, axis=1)
-    n.y01_diff_pred = L.Concat(n.y0_diff_pred, n.y1_diff_pred, axis=1)
-    n.y_diff_pred = L.Concat(n.y01_diff_pred, n.y2_diff_pred, axis=1)
 
     net = n.to_proto()
     if net_name is None:
