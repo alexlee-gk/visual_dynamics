@@ -207,28 +207,35 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         if val_hdf5_fname is None:
             val_hdf5_fname = train_hdf5_fname.replace('train', 'val')
 
-        input_shapes = (self.x_shape, self.u_shape)
-        with h5py.File(val_hdf5_fname, 'r') as val_hdf5_file:
-            val_batch_size = val_hdf5_file[self.inputs[0]].shape[0]
-        train_val_nets = []
-        for hdf5_fname, bs in zip([train_hdf5_fname, val_hdf5_fname], [batch_size, val_batch_size]):
+        hdf5_txt_fnames = []
+        for hdf5_fname in [train_hdf5_fname, val_hdf5_fname]:
             head, tail = os.path.split(hdf5_fname)
             root, _ = os.path.splitext(tail)
             hdf5_txt_fname = os.path.join(head, '.' + root + '.txt')
             if not os.path.isfile(hdf5_txt_fname):
                 with open(hdf5_txt_fname, 'w') as f:
                     f.write(hdf5_fname + '\n')
-            train_val_net = self.net_func(input_shapes, hdf5_txt_fname, bs, self.net_name)
-            train_val_net = net.train_val_net(train_val_net)
-            train_val_nets.append(train_val_net)
-        self.train_net_param, self.val_net_param = train_val_nets
+            hdf5_txt_fnames.append(hdf5_txt_fname)
+        train_hdf5_txt_fname, val_hdf5_txt_fname = hdf5_txt_fnames
 
-        train_fname = self.get_model_fname('train')
-        with open(train_fname, 'w') as f:
-            f.write(str(self.train_net_param))
-        val_fname = self.get_model_fname('val')
-        with open(val_fname, 'w') as f:
-            f.write(str(self.val_net_param))
+        input_shapes = (self.x_shape, self.u_shape)
+        train_net_param = self.net_func(input_shapes, train_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TRAIN)
+        val_net_param = self.net_func(input_shapes, val_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TEST)
+
+        self.train_val_net_param = train_net_param
+        layers = [layer for layer in self.train_val_net_param.layer]
+        # remove layers except for data layers
+        for layer in layers:
+            if 'Data' not in layer.type:
+                self.train_val_net_param.layer.remove(layer)
+        # add data layers from validation net
+        self.train_val_net_param.layer.extend([layer for layer in val_net_param.layer if 'Data' in layer.type])
+        # add back the layers that are not data layers
+        self.train_val_net_param.layer.extend([layer for layer in layers if 'Data' not in layer.type])
+        self.train_val_net_param = net.train_val_net(self.train_val_net_param)
+        train_val_fname = self.get_model_fname('train_val')
+        with open(train_val_fname, 'w') as f:
+            f.write(str(self.train_val_net_param))
 
         if solver_param is None:
             solver_param = pb2.SolverParameter()

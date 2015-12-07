@@ -63,7 +63,7 @@ def train_val_net(net):
     remove_non_descendants(net.layer, loss_layers, exception_layers)
     return net
 
-def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ApproxBilinearNet'):
+def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ApproxBilinearNet', phase=None):
     assert len(input_shapes) == 2
     image_shape, vel_shape = input_shapes
     assert len(image_shape) == 3
@@ -77,7 +77,10 @@ def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=
                      bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     u = n.vel
     n.y = L.Flatten(n.image_curr, name='flatten1')
     n.y_diff = L.Flatten(n.image_diff, name='flatten2')
@@ -102,7 +105,7 @@ def Bilinear(n, y, u, y_dim, u_dim, name='bilinear', **fc_kwargs):
     fc_u = n.tops[name+'_fc_u'] = L.InnerProduct(u, num_output=y_dim, **fc_kwargs)
     return L.Eltwise(fc_outer_yu, fc_u, operation=P.Eltwise.SUM)
 
-def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearNet', **kwargs):
+def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearNet', phase=None, **kwargs):
     assert len(input_shapes) == 2
     image_shape, vel_shape = input_shapes
     assert len(image_shape) == 3
@@ -116,7 +119,10 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
                      bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     u = n.vel
     n.y = L.Flatten(n.image_curr)
     n.y_diff_pred = Bilinear(n, n.y, u, y_dim, u_dim, **fc_kwargs)
@@ -130,7 +136,7 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
     net.name = net_name
     return net
 
-def bilinear_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearConstrainedNet', **kwargs):
+def bilinear_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearConstrainedNet', phase=None, **kwargs):
     assert len(input_shapes) == 2
     image_shape, vel_shape = input_shapes
     assert len(image_shape) == 3
@@ -144,7 +150,10 @@ def bilinear_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_
                      bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     u = n.vel
     n.y = L.Flatten(n.image_curr)
     n.y_diff_pred = Bilinear(n, n.y, u, y_dim, u_dim, **fc_kwargs)
@@ -158,7 +167,7 @@ def bilinear_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_
     net.name = net_name
     return net
 
-def action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ActionCondEncoderNet'):
+def action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ActionCondEncoderNet', phase=None):
     assert len(input_shapes) == 2
     image_shape, vel_shape = input_shapes
     assert len(image_shape) == 3
@@ -173,7 +182,10 @@ def action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_n
                      bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
 
     n.conv1 = L.Convolution(n.image_curr, name='conv1', **conv_kwargs)
     n.relu1 = L.ReLU(n.conv1, name='relu1', in_place=True)
@@ -204,7 +216,7 @@ def action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_n
     net.name = net_name
     return net
 
-def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, constrained=True, **kwargs):
+def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, constrained=True, **kwargs):
     assert len(input_shapes) == 2
     image0_shape, vel_shape = input_shapes
     assert len(image0_shape) == 3
@@ -254,7 +266,10 @@ def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1,
                      bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     image0 = n.image_curr
     u = n.vel
 
@@ -291,7 +306,7 @@ def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1,
     net.name = net_name
     return net
 
-def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='DownsampledSmallActionCondEncoderNet'):
+def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='DownsampledSmallActionCondEncoderNet', phase=None):
     assert len(input_shapes) == 2
     image_shape, vel_shape = input_shapes
     assert len(image_shape) == 3
@@ -327,7 +342,10 @@ def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', b
                      bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
 
     n.image_curr_ds = L.Convolution(n.image_curr, name='blur_conv1', **blur_conv_kwargs)
     n.image_diff_ds = L.Convolution(n.image_diff, name='blur_conv2', **blur_conv_kwargs)
@@ -357,7 +375,7 @@ def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', b
     net.name = net_name
     return net
 
-def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, constrained=True, **kwargs):
+def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, constrained=True, **kwargs):
     assert len(input_shapes) == 2
     image0_shape, vel_shape = input_shapes
     assert len(image0_shape) == 3
@@ -408,7 +426,10 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
                      bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
-    n.image_curr, n.image_diff, n.vel = L.HDF5Data(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     image0 = n.image_curr
     u = n.vel
 
