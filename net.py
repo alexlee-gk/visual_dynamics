@@ -458,8 +458,8 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
     n.image1_next_pred1_flat = L.InnerProduct(n.y1_next_pred, num_output=np.prod(image1_shape), weight_filler=dict(type='xavier'))
     n.image1_next_pred1 = L.Reshape(n.image1_next_pred1_flat, shape=dict(dim=[batch_size]+list(image1_shape)))
     n.image1_next_pred2 = L.Deconvolution(n.image2_next_pred, **deconv1_kwargs)
-    n.image1_next_pred2 = L.ReLU(n.image1_next_pred2, in_place=True)
     n.image1_next_pred = L.Eltwise(n.image1_next_pred1, n.image1_next_pred2, operation=P.Eltwise.SUM)
+    n.image1_next_pred = L.ReLU(n.image1_next_pred, in_place=True)
 
     n.y0_next_pred = L.Eltwise(n.y0, n.y0_diff_pred, operation=P.Eltwise.SUM)
     n.image0_next_pred0 = L.Reshape(n.y0_next_pred, shape=dict(dim=[batch_size]+list(image0_shape)))
