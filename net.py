@@ -491,3 +491,137 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
         net_name += '_y2_dim' + str(y2_dim)
     net.name = net_name
     return net
+
+def ladder_conv_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, constrained=True, **kwargs):
+    assert len(input_shapes) == 2
+    image0_shape, vel_shape = input_shapes
+    assert len(image0_shape) == 3
+    assert image0_shape[1] == 32
+    assert image0_shape[2] == 32
+    assert len(vel_shape) == 1
+    image0_num_channel = image0_shape[0]
+    num_channel = kwargs.get('num_channel') or 16
+    image1_num_channel = num_channel
+    image2_num_channel = num_channel
+    image1_shape = (image1_num_channel, 16, 16)
+    image2_shape = (image2_num_channel, 8, 8)
+    y0_dim = image0_shape[1] * image0_shape[2] # 1024
+    y1_dim = kwargs.get('y1_dim') or 128
+    y2_dim = kwargs.get('y2_dim') or 32
+    u_dim = vel_shape[0]
+
+    conv1_kwargs = dict(param=[dict(name='conv1', lr_mult=1, decay_mult=1), dict(name='conv1_bias', lr_mult=1, decay_mult=1)],
+                        convolution_param=dict(num_output=image1_num_channel,
+                                               kernel_size=6,
+                                               stride=2,
+                                               pad=2,
+                                               weight_filler=dict(type='gaussian', std=0.01),
+                                               bias_filler=dict(type='constant', value=0)))
+    conv2_kwargs = dict(param=[dict(name='conv2', lr_mult=1, decay_mult=1), dict(name='conv2_bias', lr_mult=1, decay_mult=1)],
+                        convolution_param=dict(num_output=image2_num_channel,
+                                               kernel_size=6,
+                                               stride=2,
+                                               pad=2,
+                                               weight_filler=dict(type='gaussian', std=0.01),
+                                               bias_filler=dict(type='constant', value=0)))
+    deconv0_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
+                          convolution_param=dict(num_output=image0_num_channel,
+                                                 kernel_size=6,
+                                                 stride=2,
+                                                 pad=2,
+                                                 weight_filler=dict(type='gaussian', std=0.01),
+                                                 bias_filler=dict(type='constant', value=0)))
+    deconv1_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
+                          convolution_param=dict(num_output=image1_num_channel,
+                                                 kernel_size=6,
+                                                 stride=2,
+                                                 pad=2,
+                                                 weight_filler=dict(type='gaussian', std=0.01),
+                                                 bias_filler=dict(type='constant', value=0)))
+    conv0_merge_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
+                              convolution_param=dict(num_output=image0_num_channel,
+                                                     kernel_size=1,
+                                                     stride=1,
+                                                     pad=0,
+                                                     weight_filler=dict(type='gaussian', std=0.01),
+                                                     bias_filler=dict(type='constant', value=0)))
+    conv1_merge_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
+                              convolution_param=dict(num_output=image1_num_channel,
+                                                     kernel_size=1,
+                                                     stride=1,
+                                                     pad=0,
+                                                     weight_filler=dict(type='gaussian', std=0.01),
+                                                     bias_filler=dict(type='constant', value=0)))
+    fc_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+                     weight_filler=dict(type='gaussian', std=0.001),
+                     bias_filler=dict(type='constant', value=0))
+
+    n = caffe.NetSpec()
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
+    image0 = n.image_curr
+    u = n.vel
+
+    n.image1 = L.Convolution(image0, **conv1_kwargs)
+    n.image1 = L.ReLU(n.image1, in_place=True)
+    n.image2 = L.Convolution(n.image1, **conv2_kwargs)
+    n.image2 = L.ReLU(n.image2, in_place=True)
+
+    n.y2 = L.InnerProduct(n.image2, num_output=y2_dim, weight_filler=dict(type='xavier'))
+    n.y1 = L.InnerProduct(n.image1, num_output=y1_dim, weight_filler=dict(type='xavier'))
+    n.y0 = L.Flatten(image0)
+    n.y01 = L.Concat(n.y0, n.y1, axis=1)
+    n.y = L.Concat(n.y01, n.y2, axis=1)
+
+    n.y2_diff_pred = Bilinear(n, n.y2, u, y2_dim, u_dim, name='bilinear2', **fc_kwargs)
+    n.y1_diff_pred = Bilinear(n, n.y1, u, y1_dim, u_dim, name='bilinear1', **fc_kwargs)
+    n.y0_diff_pred = Bilinear(n, n.y0, u, y0_dim, u_dim, name='bilinear0', **fc_kwargs)
+    n.y01_diff_pred = L.Concat(n.y0_diff_pred, n.y1_diff_pred, axis=1)
+    n.y_diff_pred = L.Concat(n.y01_diff_pred, n.y2_diff_pred, axis=1)
+
+    n.y2_next_pred = L.Eltwise(n.y2, n.y2_diff_pred, operation=P.Eltwise.SUM)
+    n.image2_next_pred_flat = L.InnerProduct(n.y2_next_pred, num_output=np.prod(image2_shape), weight_filler=dict(type='xavier'))
+    n.image2_next_pred = L.Reshape(n.image2_next_pred_flat, shape=dict(dim=[batch_size]+list(image2_shape)))
+
+    n.y1_next_pred = L.Eltwise(n.y1, n.y1_diff_pred, operation=P.Eltwise.SUM)
+    n.image1_next_pred1_flat = L.InnerProduct(n.y1_next_pred, num_output=np.prod(image1_shape), weight_filler=dict(type='xavier'))
+    n.image1_next_pred1 = L.Reshape(n.image1_next_pred1_flat, shape=dict(dim=[batch_size]+list(image1_shape)))
+    n.image1_next_pred2 = L.Deconvolution(n.image2_next_pred, **deconv1_kwargs)
+    n.image1_next_pred12 = L.Concat(n.image1_next_pred1, n.image1_next_pred2, concat_param=dict(axis=1))
+    n.image1_next_pred = L.Convolution(n.image1_next_pred12, **conv1_merge_kwargs)
+    n.image1_next_pred = L.ReLU(n.image1_next_pred, in_place=True)
+
+    n.y0_next_pred = L.Eltwise(n.y0, n.y0_diff_pred, operation=P.Eltwise.SUM)
+    n.image0_next_pred0 = L.Reshape(n.y0_next_pred, shape=dict(dim=[batch_size]+list(image0_shape)))
+    n.image0_next_pred1 = L.Deconvolution(n.image1_next_pred, **deconv0_kwargs)
+    n.image0_next_pred01 = L.Concat(n.image0_next_pred0, n.image0_next_pred1, concat_param=dict(axis=1))
+
+    if constrained:
+        n.image_next_pred_unconstrained = L.Convolution(n.image0_next_pred01, **conv0_merge_kwargs)
+        image0_next_pred = n.image_next_pred = L.TanH(n.image_next_pred_unconstrained)
+    else:
+        image0_next_pred = n.image_next_pred = L.Convolution(n.image0_next_pred01, **conv0_merge_kwargs)
+
+    image0_next = n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
+
+    n.image1_next = L.Convolution(image0_next, **conv1_kwargs)
+    n.image1_next = L.ReLU(n.image1_next, in_place=True)
+    n.image2_next = L.Convolution(n.image1_next, **conv2_kwargs)
+    n.image2_next = L.ReLU(n.image2_next, in_place=True)
+
+    n.image0_next_loss = L.EuclideanLoss(image0_next, image0_next_pred)
+    n.image1_next_loss = L.EuclideanLoss(n.image1_next, n.image1_next_pred)
+    n.image2_next_loss = L.EuclideanLoss(n.image2_next, n.image2_next_pred)
+
+    net = n.to_proto()
+    if net_name is None:
+        net_name = 'LadderConvActionCondEncoderNet'
+        if constrained:
+            net_name += '_constrained'
+        net_name +='_num_channel' + str(num_channel)
+        net_name += '_y1_dim' + str(y1_dim)
+        net_name += '_y2_dim' + str(y2_dim)
+    net.name = net_name
+    return net
