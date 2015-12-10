@@ -1,6 +1,7 @@
 from __future__ import division
 
 import numpy as np
+import copy
 import caffe
 from caffe import layers as L
 from caffe import params as P
@@ -623,5 +624,169 @@ def ladder_conv_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_s
         net_name +='_num_channel' + str(num_channel)
         net_name += '_y1_dim' + str(y1_dim)
         net_name += '_y2_dim' + str(y2_dim)
+    net.name = net_name
+    return net
+
+def ConvolutionPooling(n, image, conv_kwargs, pool_kwargs, name=''):
+    conv_1_kwargs = copy.deepcopy(conv_kwargs)
+    for param in conv_1_kwargs['param']:
+        if 'name' in param:
+            param['name'] += '_1'
+    conv_2_kwargs = copy.deepcopy(conv_kwargs)
+    for param in conv_2_kwargs['param']:
+        if 'name' in param:
+            param['name'] += '_2'
+    conv_1 = n.tops['conv'+name+'_1'] = L.Convolution(image, **conv_1_kwargs)
+    n.tops['relu'+name+'_1'] = L.ReLU(conv_1, in_place=True)
+    conv_2 = n.tops['conv'+name+'_2'] = L.Convolution(conv_1, **conv_2_kwargs)
+    n.tops['relu'+name+'_2'] = L.ReLU(conv_2, in_place=True)
+    return L.Pooling(conv_2, name='pool'+name, **pool_kwargs)
+
+def DeconvolutionUpsample(n, image, deconv_kwargs, upsample_kwargs, name=''):
+    for param in deconv_kwargs['param']:
+        assert 'name' not in param
+    deconv_1 = n.tops['deconv'+name+'_1'] = L.Deconvolution(image, **deconv_kwargs)
+    n.tops['derelu'+name+'_1'] = L.ReLU(deconv_1, in_place=True)
+    deconv_2 = n.tops['deconv'+name+'_2'] = L.Deconvolution(deconv_1, **deconv_kwargs)
+    n.tops['derelu'+name+'_2'] = L.ReLU(deconv_2, in_place=True)
+    return L.Deconvolution(deconv_2, **upsample_kwargs)
+
+def conv_kwargs_(num_output, kernel_size, stride, pad,
+                 lr_mult=1, lr_mult_bias=1,
+                 name=None, name_bias=None,
+                 weight_filler_type='gaussian'):
+    param = [dict(lr_mult=lr_mult, decay_mult=1), dict(lr_mult=lr_mult_bias, decay_mult=1)]
+    if name is not None:
+        param[0]['name'] = name
+    if name_bias is not None:
+        param[1]['name'] = name_bias
+    if weight_filler_type == 'gaussian':
+        weight_filler = dict(type='gaussian', std=0.01)
+    elif weight_filler_type == 'constant':
+        weight_filler = dict(type='constant', value=0)
+    elif weight_filler_type == 'bilinear':
+        weight_filler = dict(type='bilinear')
+    else:
+        raise
+    convolution_param = dict(num_output=num_output,
+                             kernel_size=kernel_size,
+                             stride=stride,
+                             pad=pad,
+                             weight_filler=weight_filler,
+                             bias_filler=dict(type='constant', value=0))
+    if weight_filler_type == 'bilinear':
+        convolution_param['group'] = num_output
+        convolution_param['bias_term'] = False
+        param.pop()
+    conv_kwargs = dict(param=param, convolution_param=convolution_param)
+    return conv_kwargs
+
+def ImageBilinear(n, image, u, image_shape, u_dim, fc_kwargs, name='', init=False):
+    y_c = 1
+    y_shape = [y_c] + list(image_shape[1:])
+    y_dim = np.prod(y_shape)
+    y = n.tops['y'+name] = L.Convolution(image, **conv_kwargs_(y_c, 1, 1, 0))
+    y_flat = n.tops['y'+name+'_flat'] = L.Reshape(y, shape=dict(dim=[0, -1]))
+    y_diff_pred_flat = n.tops['y'+name+'_diff_pred_flat'] = Bilinear(n, y_flat, u, y_dim, u_dim, name='bilinear'+name, **fc_kwargs)
+    y_diff_pred = n.tops['y'+name+'_diff_pred'] = L.Reshape(y_diff_pred_flat, shape=dict(dim=[0]+list(y_shape)))
+    y_next_pred = n.tops['y'+name+'_next_pred'] = L.Eltwise(y, y_diff_pred, operation=P.Eltwise.SUM)
+    if init:
+        return L.Convolution(y_next_pred, **conv_kwargs_(image_shape[0], 1, 1, 0, weight_filler_type='constant'))
+    else:
+        return L.Convolution(y_next_pred, **conv_kwargs_(image_shape[0], 1, 1, 0))
+
+def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, finest_level=3, **kwargs):
+    assert len(input_shapes) == 2
+    image0_shape, vel_shape = input_shapes
+    assert len(image0_shape) == 3
+    assert len(vel_shape) == 1
+    image1_shape = (64,  image0_shape[1]//2, image0_shape[2]//2)
+    image2_shape = (128, image1_shape[1]//2, image1_shape[2]//2)
+    image3_shape = (256, image2_shape[1]//2, image2_shape[2]//2)
+    u_dim = vel_shape[0]
+
+    fc_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+                     weight_filler=dict(type='gaussian', std=0.001),
+                     bias_filler=dict(type='constant', value=0))
+
+    image0_c = image0_shape[0]
+    image1_c = image1_shape[0]
+    image2_c = image2_shape[0]
+    image3_c = image3_shape[0]
+    conv1_kwargs = conv_kwargs_(image1_c, 3, 1, 1, name='conv1', name_bias='conv1_bias')
+    conv2_kwargs = conv_kwargs_(image2_c, 3, 1, 1, name='conv2', name_bias='conv2_bias')
+    conv3_kwargs = conv_kwargs_(image3_c, 3, 1, 1, name='conv3', name_bias='conv3_bias')
+    pool_kwargs = dict(pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
+    deconv3_kwargs = conv_kwargs_(image2_c, 3, 1, 1)
+    deconv2_kwargs = conv_kwargs_(image1_c, 3, 1, 1)
+    deconv1_kwargs = conv_kwargs_(image0_c, 3, 1, 1)
+    upsample3_kwargs = conv_kwargs_(image2_c, 2, 2, 0)
+    upsample2_kwargs = conv_kwargs_(image1_c, 2, 2, 0)
+    upsample1_kwargs = conv_kwargs_(image0_c, 2, 2, 0)
+
+    n = caffe.NetSpec()
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname, shuffle=True)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
+    image0 = n.image_curr
+    u = n.vel
+
+    image1 = n.pool1 = ConvolutionPooling(n, image0, conv1_kwargs, pool_kwargs, name='1')
+    image2 = n.pool2 = ConvolutionPooling(n, image1, conv2_kwargs, pool_kwargs, name='2')
+    image3 = n.pool3 = ConvolutionPooling(n, image2, conv3_kwargs, pool_kwargs, name='3')
+
+    if finest_level < 0 or finest_level > 3:
+        raise
+    y_flat_list = []
+    y_diff_pred_flat_list = []
+    # image3_next_pred
+    n.image3_next_pred = ImageBilinear(n, image3, u, image3_shape, u_dim, fc_kwargs, name='3')
+    y_flat_list.append(n.y3_flat)
+    y_diff_pred_flat_list.append(n.y3_diff_pred_flat)
+    # image2_next_pred
+    n.image2_next_pred_3 = DeconvolutionUpsample(n, n.image3_next_pred, deconv3_kwargs, upsample3_kwargs, name='3')
+    if finest_level < 3:
+        n.image2_next_pred_2 = ImageBilinear(n, image2, u, image2_shape, u_dim, fc_kwargs, name='2', init=True)
+        image2_next_pred = n.image2_next_pred = n.image2_next_pred = L.Eltwise(n.image2_next_pred_3, n.image2_next_pred_2, operation=P.Eltwise.SUM)
+        y_flat_list.append(n.y2_flat)
+        y_diff_pred_flat_list.append(n.y2_diff_pred_flat)
+    else:
+        image2_next_pred = n.image2_next_pred_3
+    # image1_next_pred
+    n.image1_next_pred_2 = DeconvolutionUpsample(n, image2_next_pred, deconv2_kwargs, upsample2_kwargs, name='2')
+    if finest_level < 2:
+        n.image1_next_pred_1 = ImageBilinear(n, image1, u, image1_shape, u_dim, fc_kwargs, name='1', init=True)
+        image1_next_pred = n.image1_next_pred = L.Eltwise(n.image1_next_pred_2, n.image1_next_pred_1, operation=P.Eltwise.SUM)
+        y_flat_list.append(n.y1_flat)
+        y_diff_pred_flat_list.append(n.y1_diff_pred_flat)
+    else:
+        image1_next_pred = n.image1_next_pred_2
+    # image0_next_pred
+    n.image0_next_pred_1 = DeconvolutionUpsample(n, image1_next_pred, deconv1_kwargs, upsample1_kwargs, name='1')
+    if finest_level < 1:
+        n.image0_next_pred_0 = ImageBilinear(n, image0, u, image0_shape, u_dim, fc_kwargs, name='0', init=True)
+        image0_next_pred = n.image0_next_pred = L.Eltwise(n.image0_next_pred_1, n.image0_next_pred_0, operation=P.Eltwise.SUM)
+        y_flat_list.append(n.y0_flat)
+        y_diff_pred_flat_list.append(n.y0_diff_pred_flat)
+    else:
+        image0_next_pred = n.image0_next_pred_1
+    n.y = L.Concat(*y_flat_list, concat_param=dict(axis=1))
+    n.y_diff_pred = L.Concat(*y_diff_pred_flat_list, concat_param=dict(axis=1))
+
+    n.image_next_pred = L.TanH(image0_next_pred)
+
+    n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
+#     n.image1_next = ConvolutionPooling(n, image0_next, conv1_kwargs, pool_kwargs, name='conv1_next')
+#     n.image2_next = ConvolutionPooling(n, n.image1_next, conv2_kwargs, pool_kwargs, name='conv2_next')
+#     n.image3_next = ConvolutionPooling(n, n.image2_next, conv3_kwargs, pool_kwargs, name='conv3_next')
+
+    n.image0_next_loss = L.EuclideanLoss(n.image_next, n.image_next_pred)
+#     n.image3_next_loss = L.EuclideanLoss(n.image3_next, n.image3_next_pred)
+
+    net = n.to_proto()
+    if net_name is None:
+        net_name = 'FcnActionCondEncoderNet'
+        net_name +='_finest_level' + str(finest_level)
     net.name = net_name
     return net
