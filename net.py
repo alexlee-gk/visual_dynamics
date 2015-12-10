@@ -96,11 +96,11 @@ def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=
     return net
 
 def Bilinear(n, y, u, y_dim, u_dim, name='bilinear', **fc_kwargs):
-    re_y = n.tops[name+'_re_y'] = L.Reshape(y, shape=dict(dim=[-1, y_dim, 1]))
-    tile_re_y = n.tops[name+'_tile_re_y'] = L.Tile(re_y, axis=2, tiles=u_dim)
-    flatten_tile_re_y = n.tops[name+'_flatten_tile_re_y'] = L.Flatten(tile_re_y)
-    tile_u = n.tops[name+'_tile_u'] = L.Tile(u, axis=1, tiles=y_dim)
-    outer_yu = n.tops[name+'_outer_yu'] = L.Eltwise(flatten_tile_re_y, tile_u, operation=P.Eltwise.PROD)
+    re_y = n.tops[name+'_re_y'] = L.Reshape(y, shape=dict(dim=[0, 1, -1]))
+    tile_re_y = n.tops[name+'_tile_re_y'] = L.Tile(re_y, axis=1, tiles=u_dim)
+    re_u = n.tops[name+'_re_u'] = L.Reshape(u, shape=dict(dim=[0, -1, 1]))
+    tile_re_u = n.tops[name+'_tile_re_u'] = L.Tile(re_u, axis=2, tiles=y_dim)
+    outer_yu = n.tops[name+'_outer_yu'] = L.Eltwise(tile_re_y, tile_re_u, operation=P.Eltwise.PROD)
     fc_outer_yu = n.tops[name+'_fc_outer_yu'] = L.InnerProduct(outer_yu, num_output=y_dim, **fc_kwargs)
     fc_u = n.tops[name+'_fc_u'] = L.InnerProduct(u, num_output=y_dim, **fc_kwargs)
     return L.Eltwise(fc_outer_yu, fc_u, operation=P.Eltwise.SUM)
