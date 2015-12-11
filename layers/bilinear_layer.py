@@ -61,8 +61,8 @@ class BilinearLayer(caffe.Layer):
             # Gradient with respect to y
             # bottom[0].diff[...] = np.einsum("nk,kij,nj->ni", top[0].diff, self.blobs[0].data, u)
             for n in range(N):
-                for j in range(J):
-                    bottom[0].diff[n, :] += u[n, j] * top[0].diff[n, :].dot(self.blobs[0].data[:, :, j])
+                for k in range(K):
+                    bottom[0].diff[n, :] += top[0].diff[n, k] * self.blobs[0].data[k, :, :].dot(u[n, :])
 
         if propagate_down[1]:
             # Gradient with respect to u
@@ -115,7 +115,7 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
     net.name = net_name
     return net
 
-def python_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearNet', phase=None, **kwargs):
+def python_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='PythonBilinearNet', phase=None, **kwargs):
     assert len(input_shapes) == 2
     image_shape, vel_shape = input_shapes
     assert len(image_shape) == 3
@@ -139,6 +139,36 @@ def python_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=
     net.name = net_name
     return net
 
+def cpu_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='CpuBilinearNet', phase=None, **kwargs):
+    assert len(input_shapes) == 2
+    image_shape, vel_shape = input_shapes
+    assert len(image_shape) == 3
+    assert len(vel_shape) == 1
+
+    bilinear_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+                           bilinear_filler=dict(type='gaussian', std=0.001),
+                           linear_filler=dict(type='constant', value=0))
+
+    n = caffe.NetSpec()
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
+    u = n.vel
+    n.image_diff_pred = L.Bilinear(n.image_curr, u, **bilinear_kwargs)
+
+    n.y = L.Flatten(n.image_curr)
+    n.y_diff_pred = L.Flatten(n.image_diff_pred)
+    n.y_diff = L.Flatten(n.image_diff)
+
+    n.loss = L.EuclideanLoss(n.y_diff_pred, n.y_diff, name='loss')
+
+    n.image_next_pred = L.Eltwise(n.image_curr, n.image_diff_pred, operation=P.Eltwise.SUM)
+
+    net = n.to_proto()
+    net.name = net_name
+    return net
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
@@ -151,8 +181,11 @@ def main():
     outputs = ['y_diff_pred', 'y', 'image_next_pred']
     net = NetFeaturePredictor(bilinear_net, inputs, input_shapes, outputs)
     net_p = NetFeaturePredictor(python_bilinear_net, inputs, input_shapes, outputs)
+    net_c = NetFeaturePredictor(cpu_bilinear_net, inputs, input_shapes, outputs)
     net_p.params['y_diff_pred'][0].data[...] = net.params['bilinear_fc_outer_yu'][0].data.reshape(net_p.params['y_diff_pred'][0].data.shape)
     net_p.params['y_diff_pred'][1].data[...] = net.params['bilinear_fc_u'][0].data
+    net_c.params['image_diff_pred'][0].data[...] = net.params['bilinear_fc_outer_yu'][0].data.reshape(net_c.params['image_diff_pred'][0].data.shape)
+    net_c.params['image_diff_pred'][1].data[...] = net.params['bilinear_fc_u'][0].data
     assert not np.any(net.params['bilinear_fc_outer_yu'][1].data)
     assert not np.any(net.params['bilinear_fc_u'][1].data)
 
@@ -163,16 +196,23 @@ def main():
 
     y_diff_pred = net.forward_all(blobs=['y_diff_pred'], **forward_kwargs)['y_diff_pred']
     y_diff_pred_p = net_p.forward_all(blobs=['y_diff_pred'], **forward_kwargs)['y_diff_pred']
-    print np.linalg.norm(y_diff_pred - y_diff_pred_p)
+    y_diff_pred_c = net_c.forward_all(blobs=['y_diff_pred'], **forward_kwargs)['y_diff_pred']
+    print "forward python", np.linalg.norm(y_diff_pred - y_diff_pred_p)
+    print "forward cpu", np.linalg.norm(y_diff_pred - y_diff_pred_c)
 
     backward_kwargs = dict(y_diff_pred=y_diff_pred)
     diffs = net.backward_all(start='y_diff_pred', **backward_kwargs)
     image_curr_diff, vel_diff = diffs['image_curr'], diffs['vel']
     diffs_p = net_p.backward_all(start='y_diff_pred', **backward_kwargs)
     image_curr_diff_p, vel_diff_p = diffs_p['image_curr'], diffs_p['vel']
-    print np.linalg.norm(image_curr_diff - image_curr_diff_p), np.linalg.norm(vel_diff - vel_diff_p)
-    print np.linalg.norm(net_p.params['y_diff_pred'][0].diff - net.params['bilinear_fc_outer_yu'][0].diff.reshape(net_p.params['y_diff_pred'][0].diff.shape))
-    print np.linalg.norm(net_p.params['y_diff_pred'][1].diff - net.params['bilinear_fc_u'][0].diff)
+    diffs_c = net_c.backward_all(start='y_diff_pred', **backward_kwargs)
+    image_curr_diff_c, vel_diff_c = diffs_c['image_curr'], diffs_c['vel']
+    print "backward python", np.linalg.norm(image_curr_diff - image_curr_diff_p), np.linalg.norm(vel_diff - vel_diff_p)
+    print "backward python", np.linalg.norm(net_p.params['y_diff_pred'][0].diff - net.params['bilinear_fc_outer_yu'][0].diff.reshape(net_p.params['y_diff_pred'][0].diff.shape))
+    print "backward python", np.linalg.norm(net_p.params['y_diff_pred'][1].diff - net.params['bilinear_fc_u'][0].diff)
+    print "backward cpu", np.linalg.norm(image_curr_diff - image_curr_diff_c), np.linalg.norm(vel_diff - vel_diff_c)
+    print "backward cpu", np.linalg.norm(net_c.params['image_diff_pred'][0].diff - net.params['bilinear_fc_outer_yu'][0].diff.reshape(net_c.params['image_diff_pred'][0].diff.shape))
+    print "backward cpu", np.linalg.norm(net_c.params['image_diff_pred'][1].diff - net.params['bilinear_fc_u'][0].diff)
 
 if __name__ == "__main__":
     main()
