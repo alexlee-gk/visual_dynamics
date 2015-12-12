@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import time
 import caffe
 from caffe import layers as L
 from caffe import params as P
@@ -145,7 +146,7 @@ def cpu_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Cp
     assert len(image_shape) == 3
     assert len(vel_shape) == 1
 
-    bilinear_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+    bilinear_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
                            bilinear_filler=dict(type='gaussian', std=0.001),
                            linear_filler=dict(type='constant', value=0))
 
@@ -213,6 +214,19 @@ def main():
     print "backward cpu", np.linalg.norm(image_curr_diff - image_curr_diff_c), np.linalg.norm(vel_diff - vel_diff_c)
     print "backward cpu", np.linalg.norm(net_c.params['image_diff_pred'][0].diff - net.params['bilinear_fc_outer_yu'][0].diff.reshape(net_c.params['image_diff_pred'][0].diff.shape))
     print "backward cpu", np.linalg.norm(net_c.params['image_diff_pred'][1].diff - net.params['bilinear_fc_u'][0].diff)
+
+    import time
+    n_iter = 1
+
+    start_time = time.time()
+    for _ in range(n_iter):
+        net_c.forward_all(blobs=['y_diff_pred'], **forward_kwargs)
+    print "forward duration", (time.time() - start_time) / n_iter
+
+    start_time = time.time()
+    for _ in range(n_iter):
+        net_c.backward_all(start='y_diff_pred', **backward_kwargs)
+    print "backward duration", (time.time() - start_time) / n_iter
 
 if __name__ == "__main__":
     main()
