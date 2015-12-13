@@ -19,8 +19,10 @@ class BilinearLayer(caffe.Layer):
         assert u.ndim == 2
         self.blobs.add_blob(y.shape[1], y.shape[1], u.shape[1])
         self.blobs.add_blob(y.shape[1], u.shape[1])
+        self.blobs.add_blob(y.shape[1])
         self.blobs[0].data[...] *= 0
         self.blobs[1].data[...] *= 0
+        self.blobs[2].data[...] *= 0
 
     def reshape(self, bottom, top):
         y, u = bottom[0].data, bottom[1].data
@@ -39,7 +41,7 @@ class BilinearLayer(caffe.Layer):
             self.outer_yu[n, :] = y[n, :][:, None].dot(u[n, :][:, None].T).reshape((1, I*J))
 
         self.blobs[0].reshape(K, I*J)
-        y_dot = self.outer_yu.dot(self.blobs[0].data.T) + u.dot(self.blobs[1].data.T)
+        y_dot = self.outer_yu.dot(self.blobs[0].data.T) + u.dot(self.blobs[1].data.T) + self.blobs[2].data
         self.blobs[0].reshape(K, I, J)
         top[0].data[...] = y_dot
 
@@ -50,41 +52,37 @@ class BilinearLayer(caffe.Layer):
         N = y.shape[0]
 
         if self.param_propagate_down:
-            # Gradient with respect to first weights
+            # Gradient with respect to bilinear weight
             self.blobs[0].reshape(K, I*J)
             self.blobs[0].diff[...] += top[0].diff.T.dot(self.outer_yu)
             self.blobs[0].reshape(K, I, J)
 
-            # Gradient with respect to second weights
+            # Gradient with respect to linear weight
             self.blobs[1].diff[...] += top[0].diff.T.dot(u)
+
+            # Gradient with respect to bias
+            self.blobs[2].diff[...] += top[0].diff.sum(axis=0) # TODO bias multiplier
+
+        if propagate_down[0] or propagate_down[1]:
+            outer_yu_diff = top[0].diff.dot(self.blobs[0].data.reshape((K, I*J))).reshape((N, I, J))
 
         if propagate_down[0]:
             # Gradient with respect to y
-            # bottom[0].diff[...] = np.einsum("nk,kij,nj->ni", top[0].diff, self.blobs[0].data, u)
-            bottom[0].diff[...] *= 0
-            for n in range(N):
-                for k in range(K):
-                    bottom[0].diff[n, :] += top[0].diff[n, k] * self.blobs[0].data[k, :, :].dot(u[n, :])
+            bottom[0].diff[...] = np.einsum("nij,nj->ni", outer_yu_diff, u)
 
         if propagate_down[1]:
             # Gradient with respect to u
-            # bottom[1].diff[...] = np.einsum("nk,kij,ni->nj", top[0].diff, self.blobs[0].data, y) + top[0].diff.dot(self.blobs[1].data)
-            outer_dy = np.empty((N, K*I)) # (top[0].diff[:, :, None] * y[:, None, :]).reshape((N, K*I))
-            for n in range(N):
-                outer_dy[n, :] = top[0].diff[n, :][:, None].dot(y[n, :][:, None].T).reshape((1, K*I))
-            self.blobs[0].reshape(K*I, J)
-            bottom[1].diff[...] = outer_dy.dot(self.blobs[0].data) + top[0].diff.dot(self.blobs[1].data)
-            self.blobs[0].reshape(K, I, J)
+            bottom[1].diff[...] = np.einsum("nij,ni->nj", outer_yu_diff, y) + top[0].diff.dot(self.blobs[1].data)
 
 
-def Bilinear(n, y, u, y_dim, u_dim, name='bilinear', **fc_kwargs):
+def Bilinear(n, y, u, y_dim, u_dim, fc_outer_kwargs, fc_u_kwargs, name='bilinear'):
     re_y = n.tops[name+'_re_y'] = L.Reshape(y, shape=dict(dim=[0, -1, 1]))
     tile_re_y = n.tops[name+'_tile_re_y'] = L.Tile(re_y, axis=2, tiles=u_dim)
     re_u = n.tops[name+'_re_u'] = L.Reshape(u, shape=dict(dim=[0, 1, -1]))
     tile_re_u = n.tops[name+'_tile_re_u'] = L.Tile(re_u, axis=1, tiles=y_dim)
     outer_yu = n.tops[name+'_outer_yu'] = L.Eltwise(tile_re_y, tile_re_u, operation=P.Eltwise.PROD)
-    fc_outer_yu = n.tops[name+'_fc_outer_yu'] = L.InnerProduct(outer_yu, num_output=y_dim, **fc_kwargs)
-    fc_u = n.tops[name+'_fc_u'] = L.InnerProduct(u, num_output=y_dim, **fc_kwargs)
+    fc_outer_yu = n.tops[name+'_fc_outer_yu'] = L.InnerProduct(outer_yu, num_output=y_dim, **fc_outer_kwargs)
+    fc_u = n.tops[name+'_fc_u'] = L.InnerProduct(u, num_output=y_dim, **fc_u_kwargs)
     return L.Eltwise(fc_outer_yu, fc_u, operation=P.Eltwise.SUM)
 
 def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearNet', phase=None, **kwargs):
@@ -95,9 +93,12 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
     y_dim = np.prod(image_shape)
     u_dim = vel_shape[0]
 
-    fc_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+    fc_outer_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
                      weight_filler=dict(type='gaussian', std=0.001),
                      bias_filler=dict(type='constant', value=0))
+    fc_u_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=1, decay_mult=1)],
+                     weight_filler=dict(type='gaussian', std=0.001),
+                     bias_filler=dict(type='gaussian', std=0.001))
 
     n = caffe.NetSpec()
     data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
@@ -106,7 +107,7 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
     n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     u = n.vel
     n.y = L.Flatten(n.image_curr)
-    n.y_diff_pred = Bilinear(n, n.y, u, y_dim, u_dim, **fc_kwargs)
+    n.y_diff_pred = Bilinear(n, n.y, u, y_dim, u_dim, fc_outer_kwargs, fc_u_kwargs)
     n.y_diff = L.Flatten(n.image_diff)
     n.loss = L.EuclideanLoss(n.y_diff_pred, n.y_diff, name='loss')
 
@@ -188,6 +189,7 @@ def main():
     bilinear_param_shape = (np.prod(image_shape), np.prod(image_shape), np.prod(vel_shape))
     bilinear_param = net.params['bilinear_fc_outer_yu'][0]
     linear_param = net.params['bilinear_fc_u'][0]
+    bias_param = net.params['bilinear_fc_u'][1]
     assert np.any(bilinear_param)
     assert np.any(linear_param)
     def make_diff_1(net):
@@ -214,6 +216,7 @@ def main():
     ### python bilinear net
     net_p.params['y_diff_pred'][0].data[...] = bilinear_param.data.reshape(bilinear_param_shape)
     net_p.params['y_diff_pred'][1].data[...] = linear_param.data
+    net_p.params['y_diff_pred'][2].data[...] = bias_param.data
     make_diff_1(net_p)
     y_diff_pred_p = net_p.forward_all(blobs=['y_diff_pred'], **forward_kwargs)['y_diff_pred']
     print "forward python", np.linalg.norm(y_diff_pred - y_diff_pred_p)
@@ -227,6 +230,7 @@ def main():
     caffe.set_mode_cpu()
     net_c.params['y_diff_pred'][0].data[...] = bilinear_param.data.reshape(bilinear_param_shape)
     net_c.params['y_diff_pred'][1].data[...] = linear_param.data
+    net_c.params['y_diff_pred'][2].data[...] = bias_param.data
     make_diff_1(net_c)
     y_diff_pred_c = net_c.forward_all(blobs=['y_diff_pred'], **forward_kwargs)['y_diff_pred']
     print "forward cpu", np.linalg.norm(y_diff_pred - y_diff_pred_c)
@@ -240,6 +244,7 @@ def main():
     caffe.set_mode_gpu()
     net_c.params['y_diff_pred'][0].data[...] = bilinear_param.data.reshape(bilinear_param_shape)
     net_c.params['y_diff_pred'][1].data[...] = linear_param.data
+    net_c.params['y_diff_pred'][2].data[...] = bias_param.data
     make_diff_1(net_c)
     y_diff_pred_c = net_c.forward_all(blobs=['y_diff_pred'], **forward_kwargs)['y_diff_pred']
     print "forward gpu", np.linalg.norm(y_diff_pred - y_diff_pred_c)
