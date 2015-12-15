@@ -4,8 +4,19 @@ import numpy as np
 import cv2
 
 def axis2quat(axis, angle):
+    axis = np.asarray(axis)
     axis = 1.0*axis/axis.sum();
     return np.append(np.cos(angle/2.0), axis*np.sin(angle/2.0))
+
+def quaternion_multiply(*qs):
+    if len(qs) == 2:
+        q0, q1 = qs
+        return np.array([-q1[1]*q0[1] - q1[2]*q0[2] - q1[3]*q0[3] + q1[0]*q0[0],
+                          q1[1]*q0[0] + q1[2]*q0[3] - q1[3]*q0[2] + q1[0]*q0[1],
+                         -q1[1]*q0[3] + q1[2]*q0[0] + q1[3]*q0[1] + q1[0]*q0[2],
+                          q1[1]*q0[2] - q1[2]*q0[1] + q1[3]*q0[0] + q1[0]*q0[3]])
+    else:
+        return quaternion_multiply(qs[0], quaternion_multiply(*qs[1:]))
 
 class Simulator(object):
     def apply_action(self, action):
@@ -101,47 +112,56 @@ class SquareSimulator(object):
         dim, = self._pos.shape
         return dim
 
-
 class OgreSimulator(Simulator):
-    def __init__(self, pos_min, pos_max, vel_max, pos_init=None, image_scale=None, crop_size=None):
-        self.pos_min = np.asarray(pos_min)
-        self.pos_max = np.asarray(pos_max)
-        self.vel_max = vel_max
+    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None):
+        """
+        DOFs are x, y, z, angle_x, angle_y, angle_z
+        """
+        dof_min, dof_max = dof_limits
+        vel_min, vel_max = dof_vel_limits
+        assert len(dof_min) == len(dof_max)
+        assert len(vel_min) == len(vel_max)
+        self.dof_limits = dof_limits
+        self.dof_vel_limits = dof_vel_limits
+
+        self._dof_values = None
+        self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
 
         import pygre
         self.ogre = pygre.Pygre()
         self.ogre.init()
         self.ogre.addNode("node1", "house.mesh", 0, 0, 0)
-        self.ogre.setCameraOrientation(axis2quat(np.array([0, 1, 0]), np.pi/2))
+        self.ogre.setCameraOrientation(self._q0)
 
         self.image_scale = image_scale
         self.crop_size = crop_size
 
-        self._pos = None
-        if pos_init is None:
-            self.pos = (self.pos_min + self.pos_max) / 2.0
-        else:
-            self.pos = np.asarray(pos_init)
+        self.dof_values = np.mean(self.dof_limits, axis=0)
 
     @property
-    def pos(self):
-        return self._pos.copy()
+    def dof_values(self):
+        return self._dof_values.copy()
 
-    @pos.setter
-    def pos(self, next_pos):
-        self._pos = np.clip(next_pos, self.pos_min, self.pos_max)
-        self.ogre.setCameraPosition(self._pos)
-#         self.ogre.update()
+    @dof_values.setter
+    def dof_values(self, next_dof_values):
+        assert self._dof_values is None or self._dof_values.shape == next_dof_values.shape
+        self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
+        pos_angle = np.zeros(6)
+        pos_angle[:min(6, self.state_dim)] += self._dof_values[:min(6, self.state_dim)]
+        pos, angle = pos_angle[:3], pos_angle[3:]
+        quat = quaternion_multiply(*[axis2quat(axis, theta) for axis, theta in zip(np.eye(3), angle)] + [self._q0])
+        self.ogre.setCameraPosition(pos)
+        self.ogre.setCameraOrientation(quat)
 
     def apply_action(self, vel):
-        pos_prev = self.pos.copy()
-        self.pos += vel
-        vel = self.pos - pos_prev # recompute vel because of clipping
+        dof_values_prev = self.dof_values.copy()
+        self.dof_values += vel
+        vel = self.dof_values - dof_values_prev # recompute vel because of clipping
         return vel
 
     def observe(self):
         image = self.ogre.getScreenshot()
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+#         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         image = (image.astype(float) / 255.0) * 2.0 - 1.0
         if self.image_scale is not None:
             image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale)
@@ -155,31 +175,29 @@ class OgreSimulator(Simulator):
             image = image.transpose(2, 0, 1)
         return image
 
-    def reset(self, pos):
-        self.pos = pos
+    def reset(self, dof_values):
+        self.dof_values = dof_values
 
     @property
     def action_bounds(self):
-        action_min = -self.vel_max * np.ones(self.action_dim)
-        action_max = self.vel_max * np.ones(self.action_dim)
-        return action_min, action_max
+        return self.dof_vel_limits
 
     @property
     def state(self):
-        return self.pos
+        return self.dof_values
 
     def sample_state(self):
-        pos = self.pos_min + np.random.random_sample(self.pos_min.shape) * (self.pos_max - self.pos_min)
-        return pos
+        dof_values = self.dof_limits[0] + np.random.random_sample(self.dof_limits[0].shape) * (self.dof_limits[1] - self.dof_limits[0])
+        return dof_values
 
     @property
     def action_dim(self):
-        dim, = self._pos.shape
+        dim, = self._dof_values.shape
         return dim
 
     @property
     def state_dim(self):
-        dim, = self._pos.shape
+        dim, = self._dof_values.shape
         return dim
 
 class PR2HeadSimulator(Simulator):
