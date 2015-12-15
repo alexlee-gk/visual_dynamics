@@ -55,10 +55,9 @@ class NetPredictor(caffe.Net):
             caffe.Net.__init__(self, model_file, pretrained_file, caffe.TEST)
         self.prediction_name = prediction_name or self.outputs[0]
         self.prediction_dim = self.blob(self.prediction_name).shape[1]
-        self.bs1_net = None
 
     def predict(self, *inputs, **kwargs):
-        batch = len(self.blob(self.inputs[0]).data.shape) == len(inputs[0].shape)
+        batch = self.blob(self.inputs[0]).data.ndim == inputs[0].ndim
         if batch:
             batch_size = len(inputs[0])
             for input_ in inputs[1:]:
@@ -74,8 +73,17 @@ class NetPredictor(caffe.Net):
                 inputs[i] = input_[None, :]
             inputs = tuple(inputs)
         prediction_name = kwargs.get('prediction_name') or self.prediction_name
-        net = self.bs1_net or self
-        outs = net.forward_all(blobs=[prediction_name], end=prediction_name, **dict(zip(self.inputs, inputs)))
+        if self.batch_size != 1 and batch_size == 1:
+            for input_ in self.inputs:
+                blob = self.blob(input_)
+                blob.reshape(1, *blob.shape[1:])
+            self.reshape()
+        outs = self.forward_all(blobs=[prediction_name], end=prediction_name, **dict(zip(self.inputs, inputs)))
+        if self.batch_size != 1 and batch_size == 1:
+            for input_ in self.inputs:
+                blob = self.blob(input_)
+                blob.reshape(self.batch_size, *blob.shape[1:])
+            self.reshape()
         predictions = outs[prediction_name]
         if batch:
             return predictions
@@ -161,7 +169,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, net_func, inputs, input_shapes, outputs, pretrained_file=None, postfix='', batch_size=128, batch_size_1=False):
+    def __init__(self, net_func, inputs, input_shapes, outputs, pretrained_file=None, postfix='', batch_size=32):
         """
         Assumes that outputs[0] is the prediction_name
         batch_size_1: if True, another net of batch_size of 1 is created, and this net is used for computing forward in the predict method
@@ -187,18 +195,6 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         _, y_dim = self.blob(self.prediction_name).shape
         y_shape = (y_dim,)
         FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
-
-        if batch_size_1:
-            self.bs1_deploy_net_param = net_func(input_shapes, batch_size=1)
-            self.bs1_deploy_net_param = net.deploy_net(self.bs1_deploy_net_param, inputs, input_shapes, outputs, batch_size=1)
-            bs1_deploy_fname = self.get_model_fname('bs1_deploy')
-            with open(bs1_deploy_fname, 'w') as f:
-                f.write(str(self.bs1_deploy_net_param))
-
-            self.bs1_net = NetPredictor(bs1_deploy_fname, pretrained_file=pretrained_file, prediction_name=outputs[0])
-            for bs1_param_name, bs1_param in self.bs1_net.params.items():
-                for bs1_blob, blob in zip(bs1_param, self.params[bs1_param_name]):
-                    bs1_blob.data[...] = blob.data.copy()
 
         self.train_net = None
         self.val_net = None
@@ -258,10 +254,6 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 blob.data[...] = solver_blob.data
-        if self.bs1_net:
-            for bs1_param_name, bs1_param in self.bs1_net.params.items():
-                for bs1_blob, blob in zip(bs1_param, self.params[bs1_param_name]):
-                    bs1_blob.data[...] = blob.data.copy()
 
         self.train_net = solver.net
         self.val_net = solver.test_nets[0]
