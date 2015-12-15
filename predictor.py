@@ -199,10 +199,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         self.train_net = None
         self.val_net = None
 
-    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=100):
-        if val_hdf5_fname is None:
-            val_hdf5_fname = train_hdf5_fname.replace('train', 'val')
-
+    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=32):
         hdf5_txt_fnames = []
         for hdf5_fname in [train_hdf5_fname, val_hdf5_fname]:
             head, tail = os.path.split(hdf5_fname)
@@ -281,11 +278,11 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
 
     def add_default_parameters(self, solver_param):
         if not solver_param.train_net:
-            train_fname = self.get_model_fname('train')
-            solver_param.train_net = train_fname
+            train_val_fname = self.get_model_fname('train_val')
+            solver_param.train_net = train_val_fname
         if not solver_param.test_net:
-            val_fname = self.get_model_fname('val')
-            solver_param.test_net.append(val_fname)
+            train_val_fname = self.get_model_fname('train_val')
+            solver_param.test_net.append(train_val_fname)
         if not solver_param.solver_type:   solver_param.solver_type = pb2.SolverParameter.SGD
         if not solver_param.test_iter:     solver_param.test_iter.append(1000)
         if not solver_param.test_interval: solver_param.test_interval = 2500
