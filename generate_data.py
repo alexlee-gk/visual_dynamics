@@ -52,50 +52,57 @@ class DataCollector(object):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', '-o', type=str, default=None)
+    parser.add_argument('--shuffle', type=int, default=0)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
-    parser.add_argument('--visualize', '-v', type=int, default=1)
+    parser.add_argument('--visualize', '-v', type=int, default=0)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
-    parser.add_argument('--vel_max', '-m', type=float, default=None)
-    parser.add_argument('--image_size', type=int, nargs=2, default=[32, 32], metavar=('HEIGHT', 'WIDTH'))
-    parser.add_argument('--simulator', '-s', type=str, default='square', choices=('square', 'ogre'))
+    parser.add_argument('--image_size', type=int, nargs=2, default=[64, 64], metavar=('HEIGHT', 'WIDTH'))
+    parser.add_argument('--simulator', '-s', type=str, default='ogre', choices=('square', 'ogre'))
     # square simulator
+    parser.add_argument('--abs_vel_max', type=float, default=1.0)
     parser.add_argument('--square_length', '-l', type=int, default=1, help='required to be odd')
     # ogre simulator
-    parser.add_argument('--pos_min', type=float, nargs=3, default=[19, 2, -10], metavar=tuple([xyz + '_pos_min' for xyz in 'xyz']))
-    parser.add_argument('--pos_max', type=float, nargs=3, default=[21, 6, -6], metavar=tuple([xyz + '_pos_max' for xyz in 'xyz']))
-    parser.add_argument('--image_scale', '-f', type=float, default=0.125)
+    parser.add_argument('--dof_min', type=float, nargs='+', default=[18, 2, -6, np.deg2rad(-20), np.deg2rad(-20)])
+    parser.add_argument('--dof_max', type=float, nargs='+', default=[24, 6, -2, np.deg2rad(20), np.deg2rad(20)])
+    parser.add_argument('--vel_min', type=float, nargs='+', default=[-0.8]*3 + [np.deg2rad(-7.5)]*2)
+    parser.add_argument('--vel_max', type=float, nargs='+', default=[0.8]*3 + [np.deg2rad(7.5)]*2)
+    parser.add_argument('--dof', type=int, default=5)
+    parser.add_argument('--image_scale', '-f', type=float, default=0.15)
 
     args = parser.parse_args()
-    if args.simulator == 'square':
-        if args.vel_max is None:
-            args.vel_max = 1.0
-    elif args.simulator == 'ogre':
-        if args.vel_max is None:
-            args.vel_max = 0.2
-    else:
-        raise
-    args.pos_min = np.asarray(args.pos_min)
-    args.pos_max = np.asarray(args.pos_max)
+    args.dof_min = np.asarray(args.dof_min[:args.dof])
+    args.dof_max = np.asarray(args.dof_max[:args.dof])
+    args.vel_min = np.asarray(args.vel_min[:args.dof])
+    args.vel_max = np.asarray(args.vel_max[:args.dof])
+
 
     if args.simulator == 'square':
-        sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
+        sim = simulator.SquareSimulator(args.image_size, args.square_length, args.abs_vel_max)
     elif args.simulator== 'ogre':
-        sim = simulator.OgreSimulator(args.pos_min, args.pos_max, args.vel_max,
-                                      image_scale=args.image_scale, crop_size=args.image_size)
+        sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                       image_scale=args.image_scale, crop_size=args.image_size)
     else:
         raise
     ctrl = controller.RandomController(*sim.action_bounds)
     if args.output:
-        sim_args = dict(vel_max=args.vel_max, image_size=args.image_size, simulator=args.simulator,
-                        square_length=args.square_length,
-                        pos_min=args.pos_min, pos_max=args.pos_max, image_scale=args.image_scale)
-        collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args)
+        sim_args = dict(image_size=args.image_size, simulator=args.simulator)
+        if args.simulator == 'square':
+            sim_args.update(dict(abs_vel_max=args.abs_vel_max, square_length=args.square_length))
+        elif args.simulator== 'ogre':
+            sim_args.update(dict(dof_min=args.dof_min, dof_max=args.dof_max,
+                                 vel_min=args.vel_min, vel_max=args.vel_max,
+                                 image_scale=args.image_scale))
+        else:
+            raise
+        collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args, auto_shuffle=args.shuffle)
     else:
         collector = None
 
     done = False
     for traj_iter in range(args.num_trajs):
+        if traj_iter%10 == 0:
+            print traj_iter, traj_iter
         try:
             pos_init = sim.sample_state()
             sim.reset(pos_init)
@@ -108,7 +115,6 @@ def main():
 
                 if collector:
                     collector.add(image_curr=image,
-                                  image_next=image_next,
                                   image_diff=image_next - image,
                                   pos=state,
                                   vel=action)
