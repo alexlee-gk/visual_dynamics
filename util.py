@@ -98,9 +98,7 @@ def arrowed_line(img, pt1, pt2, color, thickness=1, shift=0, tip_length=0.1):
     cv2.line(img, tuple(pt), tuple(pt2), color, thickness=thickness, shift=shift)
 
 def resize_from_scale(image, rescale_factor):
-    h, w = image.shape[:2]
-    image = cv2.resize(image, (int(w*rescale_factor), int(h*rescale_factor)), interpolation=cv2.INTER_NEAREST)
-    return image
+    return cv2.resize(image, (0, 0), fx=rescale_factor, fy=rescale_factor, interpolation=cv2.INTER_NEAREST)
 
 def resize_from_height(image, height, ret_factor=False):
     h, w = image.shape[:2]
