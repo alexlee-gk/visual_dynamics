@@ -23,9 +23,10 @@ class RandomController(Controller):
 
 
 class ServoingController(Controller):
-    def __init__(self, feature_predictor, alpha=1.0, vel_max=1.0):
+    def __init__(self, feature_predictor, alpha=1.0, vel_max=1.0, lambda_=0.0):
         self.predictor = feature_predictor
         self.alpha = alpha
+        self.lambda_ = lambda_
         self.vel_max = vel_max
         self._image_target = None
         self._y_target = None
@@ -38,7 +39,7 @@ class ServoingController(Controller):
             # use model to optimize for action
             J = self.predictor.jacobian_control(x, None)
             try:
-                u = self.alpha * np.linalg.solve(J.T.dot(J), J.T.dot(self.y_target - y))
+                u = self.alpha * np.linalg.solve(J.T.dot(J) + self.lambda_*np.eye(J.shape[1]), J.T.dot(self.y_target - y))
             except np.linalg.LinAlgError:
                 u = np.zeros(self.predictor.u_shape)
         else:
