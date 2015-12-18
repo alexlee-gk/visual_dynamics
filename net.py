@@ -111,13 +111,12 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
     image_shape, vel_shape = input_shapes
     assert len(image_shape) == 3
     assert len(vel_shape) == 1
+    y_dim = np.prod(image_shape)
+    u_dim, = vel_shape
 
-    bilinear_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1),
-                                  dict(lr_mult=1, decay_mult=1),
-                                  dict(lr_mult=0, decay_mult=0)],
-                           bilinear_filler=dict(type='gaussian', std=0.001),
-                           linear_filler=dict(type='gaussian', std=0.001),
-                           bias_filler=dict(type='constant', value=0))
+    fc_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1), dict(lr_mult=0, decay_mult=0)],
+                     weight_filler=dict(type='gaussian', std=0.001),
+                     bias_filler=dict(type='constant', value=0))
 
     n = caffe.NetSpec()
     data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
