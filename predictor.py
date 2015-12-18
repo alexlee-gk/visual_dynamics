@@ -303,7 +303,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         if not solver_param.stepsize:      solver_param.stepsize = 1000
         if not solver_param.display:       solver_param.display = 20
         if not solver_param.max_iter:      solver_param.max_iter = 10000
-        if not solver_param.max_iter:      solver_param.max_iter = 0.9
+        if not solver_param.momentum:      solver_param.momentum = 0.9
         if not solver_param.weight_decay:  solver_param.weight_decay = 0.0005
         if not solver_param.snapshot:      solver_param.snapshot = 1000
         if not solver_param.snapshot_prefix:
