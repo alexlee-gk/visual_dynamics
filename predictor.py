@@ -202,29 +202,34 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
     def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=32):
         hdf5_txt_fnames = []
         for hdf5_fname in [train_hdf5_fname, val_hdf5_fname]:
-            head, tail = os.path.split(hdf5_fname)
-            root, _ = os.path.splitext(tail)
-            hdf5_txt_fname = os.path.join(head, '.' + root + '.txt')
-            if not os.path.isfile(hdf5_txt_fname):
-                with open(hdf5_txt_fname, 'w') as f:
-                    f.write(hdf5_fname + '\n')
-            hdf5_txt_fnames.append(hdf5_txt_fname)
+            if hdf5_fname is not None:
+                head, tail = os.path.split(hdf5_fname)
+                root, _ = os.path.splitext(tail)
+                hdf5_txt_fname = os.path.join(head, '.' + root + '.txt')
+                if not os.path.isfile(hdf5_txt_fname):
+                    with open(hdf5_txt_fname, 'w') as f:
+                        f.write(hdf5_fname + '\n')
+                hdf5_txt_fnames.append(hdf5_txt_fname)
+            else:
+                hdf5_txt_fnames.append(None)
         train_hdf5_txt_fname, val_hdf5_txt_fname = hdf5_txt_fnames
 
         input_shapes = (self.x_shape, self.u_shape)
         train_net_param = self.net_func(input_shapes, train_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TRAIN)
-        val_net_param = self.net_func(input_shapes, val_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TEST)
+        if val_hdf5_fname is not None:
+            val_net_param = self.net_func(input_shapes, val_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TEST)
 
         self.train_val_net_param = train_net_param
-        layers = [layer for layer in self.train_val_net_param.layer]
-        # remove layers except for data layers
-        for layer in layers:
-            if 'Data' not in layer.type:
-                self.train_val_net_param.layer.remove(layer)
-        # add data layers from validation net
-        self.train_val_net_param.layer.extend([layer for layer in val_net_param.layer if 'Data' in layer.type])
-        # add back the layers that are not data layers
-        self.train_val_net_param.layer.extend([layer for layer in layers if 'Data' not in layer.type])
+        if val_hdf5_fname is not None:
+            layers = [layer for layer in self.train_val_net_param.layer]
+            # remove layers except for data layers
+            for layer in layers:
+                if 'Data' not in layer.type:
+                    self.train_val_net_param.layer.remove(layer)
+            # add data layers from validation net
+            self.train_val_net_param.layer.extend([layer for layer in val_net_param.layer if 'Data' in layer.type])
+            # add back the layers that are not data layers
+            self.train_val_net_param.layer.extend([layer for layer in layers if 'Data' not in layer.type])
         self.train_val_net_param = net.train_val_net(self.train_val_net_param)
         train_val_fname = self.get_model_fname('train_val')
         with open(train_val_fname, 'w') as f:
@@ -232,7 +237,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
 
         if solver_param is None:
             solver_param = pb2.SolverParameter()
-        self.add_default_parameters(solver_param)
+        self.add_default_parameters(solver_param, val_net=val_hdf5_fname is not None)
 
         solver_fname = self.get_model_fname('solver')
         with open(solver_fname, 'w') as f:
@@ -253,7 +258,8 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
                 blob.data[...] = solver_blob.data
 
         self.train_net = solver.net
-        self.val_net = solver.test_nets[0]
+        if val_hdf5_fname is not None:
+            self.val_net = solver.test_nets[0]
 
     def jacobian_control(self, X, U):
         return self.jacobian(self.inputs[1], X, U)
@@ -276,15 +282,20 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             Y = np.squeeze(Y, axis=0)
         return Y
 
-    def add_default_parameters(self, solver_param):
+    def add_default_parameters(self, solver_param, val_net=True):
         if not solver_param.train_net:
             train_val_fname = self.get_model_fname('train_val')
             solver_param.train_net = train_val_fname
-        if not solver_param.test_net:
-            train_val_fname = self.get_model_fname('train_val')
-            solver_param.test_net.append(train_val_fname)
+        if val_net:
+            if not solver_param.test_net:
+                train_val_fname = self.get_model_fname('train_val')
+                solver_param.test_net.append(train_val_fname)
+            if not solver_param.test_iter:
+                solver_param.test_iter.append(1000)
+        else:
+            del solver_param.test_net[:]
+            del solver_param.test_iter[:]
         if not solver_param.solver_type:   solver_param.solver_type = pb2.SolverParameter.SGD
-        if not solver_param.test_iter:     solver_param.test_iter.append(1000)
         if not solver_param.test_interval: solver_param.test_interval = 2500
         if not solver_param.base_lr:       solver_param.base_lr = 0.05
         if not solver_param.lr_policy:     solver_param.lr_policy = "step"
