@@ -9,6 +9,7 @@ import caffe
 from caffe.proto import caffe_pb2 as pb2
 import net
 import bilinear
+import predictor_theano
 
 class FeaturePredictor(object):
     """
@@ -410,7 +411,6 @@ class ActionCondEncoderNetFeaturePredictor(NetFeaturePredictor):
                                                                    pretrained_file=pretrained_file,
                                                                    postfix=postfix)
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
@@ -418,11 +418,15 @@ def main():
 
     args = parser.parse_args()
 
+    inputs = ['image_curr', 'vel']
+    input_shapes = NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
+    x_shape, u_shape = input_shapes
+
     predictor_bn = BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
     predictor_abn = ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
-    predictor_b = BilinearFeaturePredictor(predictor_bn.x_shape,
-                                           predictor_bn.u_shape,
-                                           predictor_bn.y_shape)
+    predictor_b = BilinearFeaturePredictor(x_shape, u_shape, None)
+    network = predictor_theano.build_bilinear_net(input_shapes)
+    predictor_tbn = predictor_theano.NetPredictor(network)
 
     # train
     train_file = h5py.File(args.train_hdf5_fname, 'r+')
@@ -433,9 +437,11 @@ def main():
     N = len(X)
     predictor_bn.train(args.train_hdf5_fname, args.val_hdf5_fname)
     predictor_abn.train(args.train_hdf5_fname, args.val_hdf5_fname)
+    predictor_tbn.train(args.train_hdf5_fname, args.val_hdf5_fname)
     predictor_b.train(X, U, Y_dot)
     print "bn train error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
     print "abn train error", (np.linalg.norm(Y_dot - predictor_abn.predict(X, U))**2) / (2*N)
+    print "tbn train error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
     print "b train error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
 
     # validation
@@ -451,16 +457,23 @@ def main():
     # set parameters of bn to the ones of b and check that their methods return the same outputs
     print "bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
     print "abn validation error", (np.linalg.norm(Y_dot - predictor_abn.predict(X, U))**2) / (2*N)
+    print "tbn validation error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
     print "b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
+    predictor_bn.params['bilinear_fc_outer_yu'][0].data[...] = predictor_b.A.reshape((predictor_b.A.shape[0], -1))
+    predictor_bn.params['bilinear_fc_u'][0].data[...] = predictor_b.B
+    predictor_tbn.network.params.keys()[0].set_value(predictor_b.A)
+    predictor_tbn.network.params.keys()[1].set_value(predictor_b.B)
 
-    predictor_bn.params['fc1'][0].data[...] = predictor_b.A.reshape((predictor_b.A.shape[0], -1))
-    predictor_bn.params['fc2'][0].data[...] = predictor_b.B
     Y_dot_bn = predictor_bn.predict(X, U)
+    Y_dot_tbn = predictor_tbn.predict(X, U)
     Y_dot_b = predictor_b.predict(X, U)
     print "all close Y_dot_bn, Y_dot_b", np.allclose(Y_dot_bn, Y_dot_b, atol=1e-4)
+    print "all close Y_dot_tbn, Y_dot_b", np.allclose(Y_dot_tbn, Y_dot_b)
     jac_bn = predictor_bn.jacobian_control(X, U)
+    jac_tbn = predictor_tbn.jacobian_control(X, U)
     jac_b = predictor_b.jacobian_control(X, U)
     print "all close jac_bn, jac_b", np.allclose(jac_bn, jac_b)
+    print "all close jac_tbn, jac_b", np.allclose(jac_tbn, jac_b)
 
 if __name__ == "__main__":
     main()
