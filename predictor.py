@@ -187,7 +187,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             f.write(str(self.deploy_net_param))
 
         if pretrained_file is not None and not pretrained_file.endswith('.caffemodel'):
-            pretrained_file = self.get_snapshot_fname() + '_iter_' + pretrained_file + '.caffemodel'
+            pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.caffemodel'
         NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=outputs[0])
 
         self.add_blur_weights(self.params) # TODO: better way to do this?
@@ -251,7 +251,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
                 solver_blob.data[...] = blob.data
         if solverstate_fname is not None:
             if not solverstate_fname.endswith('.solverstate'):
-                solverstate_fname = self.get_snapshot_fname() + '_iter_' + solverstate_fname + '.solverstate'
+                solverstate_fname = self.get_snapshot_prefix() + '_iter_' + solverstate_fname + '.solverstate'
             solver.restore(solverstate_fname)
         solver.solve()
         for param_name, param in self.params.items():
@@ -308,7 +308,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         if not solver_param.weight_decay:  solver_param.weight_decay = 0.0005
         if not solver_param.snapshot:      solver_param.snapshot = 1000
         if not solver_param.snapshot_prefix:
-            snapshot_prefix = self.get_snapshot_fname()
+            snapshot_prefix = self.get_snapshot_prefix()
             solver_param.snapshot_prefix = snapshot_prefix
         # don't change solver_param.solver_mode
 
@@ -334,7 +334,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         fname = os.path.join(model_dir, phase + '.prototxt')
         return fname
 
-    def get_snapshot_fname(self):
+    def get_snapshot_prefix(self):
         snapshot_dir = os.path.join(self.get_model_dir(), 'snapshot')
         if not os.path.exists(snapshot_dir):
             os.makedirs(snapshot_dir)

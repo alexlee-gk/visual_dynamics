@@ -1,6 +1,8 @@
 from collections import OrderedDict
+import os
 import numpy as np
 import h5py
+import cPickle
 import theano
 import theano.tensor as T
 import lasagne
@@ -119,8 +121,10 @@ class BilinearLayer(L.MergeLayer):
             activation = activation + self.b.dimshuffle('x', 0)
         return activation
 
-class NetPredictor(predictor.FeaturePredictor):
-    def __init__(self, input_vars, pred_layers, loss, loss_deterministic=None, prediction_name=None):
+class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn't be derived directly from NetFeaturePredictor
+    def __init__(self, net_name, input_vars, pred_layers, loss, loss_deterministic=None, prediction_name=None, postfix=''):
+        self.net_name = net_name
+        self.postfix = postfix
         self.input_vars = input_vars
         self.pred_layers = pred_layers
         self.l_x_next_pred = pred_layers['X_next_pred']
@@ -147,7 +151,11 @@ class NetPredictor(predictor.FeaturePredictor):
               max_iter=10000,
               momentum = 0.9,
               momentum2 = 0.999,
-              weight_decay=0.0005):
+              weight_decay=0.0005,
+              snapshot=1000,
+              snapshot_prefix=None):
+        if snapshot_prefix is None:
+            snapshot_prefix = self.get_snapshot_prefix()
 
         # training data
         with h5py.File(train_hdf5_fname, 'r+') as f:
@@ -192,6 +200,13 @@ class NetPredictor(predictor.FeaturePredictor):
             if display and iter_%display == 0:
                 print("Iteration {} of {}, lr {}".format(iter_, max_iter, learning_rate.get_value()))
                 print("  training loss:\t\t{:.6f}".format(float(train_err)))
+
+            if snapshot and iter_ > 0 and iter_%snapshot == 0:
+                snapshot_fname = snapshot_prefix + '_iter_%d.pkl'%iter_
+                snapshot_file = file(snapshot_fname, 'wb')
+                all_params = lasagne.layers.get_all_params(self.l_x_next_pred)
+                cPickle.dump(all_params, snapshot_file, protocol=cPickle.HIGHEST_PROTOCOL)
+                snapshot_file.close()
 
             if validate and iter_%test_interval == 0:
                 val_err = 0
@@ -258,6 +273,19 @@ class NetPredictor(predictor.FeaturePredictor):
     def feature_from_input(self, X):
         return self.predict(X, None, 'Y')
 
+    def get_model_dir(self):
+        model_dir = os.path.join('theano_models', self.net_name + self.postfix)
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+        return model_dir
+
+    def get_snapshot_prefix(self):
+        snapshot_dir = os.path.join(self.get_model_dir(), 'snapshot')
+        if not os.path.exists(snapshot_dir):
+            os.makedirs(snapshot_dir)
+        snapshot_prefix = os.path.join(snapshot_dir, '')
+        return snapshot_prefix
+
 def build_bilinear_net(input_shapes):
     x_shape, u_shape = input_shapes
     X_var = T.dtensor4('X')
@@ -276,9 +304,10 @@ def build_bilinear_net(input_shapes):
     X_next_var = X_var + X_diff_var
     loss = ((X_next_var - X_next_pred_var) ** 2).mean()
 
+    net_name = 'BilinearNet'
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
     pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
-    return input_vars, pred_layers, loss
+    return net_name, input_vars, pred_layers, loss
 
 def build_small_action_cond_encoder_net(input_shapes):
     x_shape, u_shape = input_shapes
@@ -316,6 +345,7 @@ def build_small_action_cond_encoder_net(input_shapes):
     X_next_var = X_var + X_diff_var
     loss = ((X_next_var - X_next_pred_var) ** 2).mean()
 
+    net_name = 'SmallActionCondEncoderNet'
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
     pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
-    return input_vars, pred_layers, loss
+    return net_name, input_vars, pred_layers, loss
