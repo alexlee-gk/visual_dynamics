@@ -5,6 +5,7 @@ import numpy as np
 import argparse
 import h5py
 import cv2
+import lasagne
 import caffe
 from caffe.proto import caffe_pb2 as pb2
 import net
@@ -425,8 +426,7 @@ def main():
     predictor_bn = BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
     predictor_abn = ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
     predictor_b = BilinearFeaturePredictor(x_shape, u_shape, None)
-    network = predictor_theano.build_bilinear_net(input_shapes)
-    predictor_tbn = predictor_theano.NetPredictor(network)
+    predictor_tbn = predictor_theano.NetPredictor(*predictor_theano.build_bilinear_net(input_shapes))
 
     # train
     train_file = h5py.File(args.train_hdf5_fname, 'r+')
@@ -461,8 +461,9 @@ def main():
     print "b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
     predictor_bn.params['bilinear_fc_outer_yu'][0].data[...] = predictor_b.A.reshape((predictor_b.A.shape[0], -1))
     predictor_bn.params['bilinear_fc_u'][0].data[...] = predictor_b.B
-    predictor_tbn.network.params.keys()[0].set_value(predictor_b.A)
-    predictor_tbn.network.params.keys()[1].set_value(predictor_b.B)
+    predictor_tbn_params = {param.name: param for param in lasagne.layers.get_all_params(predictor_tbn.l_x_next_pred)}
+    predictor_tbn_params['M'].set_value(predictor_b.A)
+    predictor_tbn_params['N'].set_value(predictor_b.B)
 
     Y_dot_bn = predictor_bn.predict(X, U)
     Y_dot_tbn = predictor_tbn.predict(X, U)
