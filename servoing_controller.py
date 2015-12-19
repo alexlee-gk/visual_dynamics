@@ -73,6 +73,14 @@ def main():
         Y_dot = feature_predictor.feature_from_input(X_dot)
         if not args.no_train:
             feature_predictor.train(X, U, Y_dot)
+    elif args.predictor.startswith('build_'):
+        import predictor_theano
+        inputs = ['image_curr', 'vel']
+        input_shapes = predictor.NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
+        build_net = getattr(predictor_theano, args.predictor)
+        feature_predictor = predictor_theano.NetPredictor(*build_net(input_shapes))
+        if not args.no_train:
+            feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname)
     else:
         if args.pretrained_fname == 'auto':
             args.pretrained_fname = str(args.max_iter)

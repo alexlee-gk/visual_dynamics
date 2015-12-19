@@ -129,23 +129,24 @@ class NetPredictor(predictor.FeaturePredictor):
         self.loss_deterministic = loss_deterministic or loss
         input_layers = {layer.input_var.name: layer for layer in lasagne.layers.get_all_layers(self.l_x_next_pred) if type(layer) == lasagne.layers.InputLayer}
         x_shape, u_shape = input_layers['X'].shape[1:], input_layers['U'].shape[1:]
-        predictor.FeaturePredictor.__init__(self, x_shape, u_shape)
         self.X_var, self.U_var, self.X_diff_var = input_vars.values()
         self.prediction_name = prediction_name or pred_layers.keys()[0]
         self.pred_vars = {}
         self.pred_fns = {}
         self.jacobian_var = self.jacobian_fn = None
+        predictor.FeaturePredictor.__init__(self, x_shape, u_shape)
 
     def train(self, train_hdf5_fname, val_hdf5_fname=None,
               batch_size=32,
               test_iter = 1000,
               test_interval = 1000,
-              base_lr = 0.05,
+              base_lr = 0.001,
               gamma = 0.9,
               stepsize = 1000,
               display = 20,
               max_iter=10000,
               momentum = 0.9,
+              momentum2 = 0.999,
               weight_decay=0.0005):
 
         # training data
@@ -161,7 +162,7 @@ class NetPredictor(predictor.FeaturePredictor):
         # training function
         params = lasagne.layers.get_all_params(self.l_x_next_pred, trainable=True)
         learning_rate = theano.shared(base_lr)
-        updates = lasagne.updates.momentum(loss, params, learning_rate=learning_rate, momentum=momentum)
+        updates = lasagne.updates.adam(loss, params, learning_rate=learning_rate, beta1=momentum, beta2=momentum2)
         train_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], loss, updates=updates)
 
         validate = val_hdf5_fname is not None
@@ -209,14 +210,29 @@ class NetPredictor(predictor.FeaturePredictor):
 
     def predict(self, X, U, prediction_name=None):
         prediction_name = prediction_name or self.prediction_name
+        if prediction_name == 'image_next_pred':
+            prediction_name = 'X_next_pred'
         if prediction_name in self.pred_fns:
             pred_fn = self.pred_fns[prediction_name]
         else:
             if prediction_name not in self.pred_vars:
                 self.pred_vars[prediction_name] = lasagne.layers.get_output(self.pred_layers[prediction_name], deterministic=True)
-            pred_fn = theano.function([self.X_var, self.U_var], self.pred_vars[prediction_name])
+            input_vars = [self.X_var, self.U_var] if U is not None else [self.X_var]
+            pred_fn = theano.function(input_vars, self.pred_vars[prediction_name])
             self.pred_fns[prediction_name] = pred_fn
-        return pred_fn(X, U)
+        assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
+        batch = X.shape == self.x_shape
+        if batch:
+            X = X[None, ...]
+            if U is not None:
+                U = U[None, :]
+        if U is None:
+            pred = pred_fn(X)
+        else:
+            pred = pred_fn(X, U)
+        if batch:
+            pred = np.squeeze(pred, 0)
+        return pred
 
     def jacobian_control(self, X, U):
         if self.jacobian_fn is None:
@@ -228,12 +244,19 @@ class NetPredictor(predictor.FeaturePredictor):
                 self.pred_vars[prediction_name] = Y_diff_pred_var
             self.jacobian_var = theano.gradient.jacobian(Y_diff_pred_var[0, :], self.U_var)
             self.jacobian_fn = theano.function([self.X_var, self.U_var], self.jacobian_var)
-        if U.ndim == 1:
+        if X.shape == self.x_shape:
+            if U is None:
+                U = np.zeros(self.u_shape)
             X, U = X[None, ...], U[None, :]
             jac = self.jacobian_fn(X, U)
             return np.squeeze(jac, 1)
         else:
+            if U is None:
+                U = np.zeros((len(X),) + self.u_shape)
             return np.asarray([self.jacobian_control(x, u) for x, u in zip(X, U)])
+
+    def feature_from_input(self, X):
+        return self.predict(X, None, 'Y')
 
 def build_bilinear_net(input_shapes):
     x_shape, u_shape = input_shapes
@@ -254,7 +277,7 @@ def build_bilinear_net(input_shapes):
     loss = ((X_next_var - X_next_pred_var) ** 2).mean()
 
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
-    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('X_next_pred', l_x_next_pred)])
+    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
     return input_vars, pred_layers, loss
 
 def build_small_action_cond_encoder_net(input_shapes):
@@ -285,6 +308,7 @@ def build_small_action_cond_encoder_net(input_shapes):
     l_x_next_pred = Deconv2DLayer(l_x1_next_pred, x1_c_dim, filter_size=6, stride=2, pad=2,
                                   nonlinearity=lasagne.nonlinearities.tanh)
 
+    l_y = l_y2
     l_y_diff_pred = l_y2_diff_pred
 
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
@@ -293,5 +317,5 @@ def build_small_action_cond_encoder_net(input_shapes):
     loss = ((X_next_var - X_next_pred_var) ** 2).mean()
 
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
-    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('X_next_pred', l_x_next_pred)])
+    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
     return input_vars, pred_layers, loss

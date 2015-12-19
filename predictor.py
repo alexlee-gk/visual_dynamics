@@ -10,7 +10,6 @@ import caffe
 from caffe.proto import caffe_pb2 as pb2
 import net
 import bilinear
-import predictor_theano
 
 class FeaturePredictor(object):
     """
@@ -426,6 +425,7 @@ def main():
     predictor_bn = BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
     predictor_abn = ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
     predictor_b = BilinearFeaturePredictor(x_shape, u_shape, None)
+    import predictor_theano
     predictor_tbn = predictor_theano.NetPredictor(*predictor_theano.build_bilinear_net(input_shapes))
 
     # train
