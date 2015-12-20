@@ -80,7 +80,11 @@ def main():
         build_net = getattr(predictor_theano, args.predictor)
         feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes))
         if not args.no_train:
-            feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=args.max_iter)
+            feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname,
+                                    solver_type='ADAM',
+                                    base_lr=0.001, gamma=0.99,
+                                    momentum=0.9, momentum2=0.999,
+                                    max_iter=args.max_iter)
     else:
         if args.pretrained_fname == 'auto':
             args.pretrained_fname = str(args.max_iter)

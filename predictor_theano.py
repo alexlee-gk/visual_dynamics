@@ -166,7 +166,7 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
 
         # training loss
         param_l2_penalty = lasagne.regularization.regularize_network_params(self.l_x_next_pred, lasagne.regularization.l2)
-        loss = self.loss + weight_decay * param_l2_penalty
+        loss = self.loss + weight_decay * param_l2_penalty / 2.
 
         # training function
         params = lasagne.layers.get_all_params(self.l_x_next_pred, trainable=True)
@@ -191,7 +191,7 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
                 X_diff_val = f['image_diff'][:]
 
             # validation loss
-            test_loss = self.loss_deterministic + weight_decay * param_l2_penalty
+            test_loss = self.loss_deterministic + weight_decay * param_l2_penalty / 2.
 
             # validation function
             val_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], test_loss)
@@ -323,7 +323,7 @@ def build_bilinear_net(input_shapes):
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
     X_diff_var = T.dtensor4('X_diff')
     X_next_var = X_var + X_diff_var
-    loss = ((X_next_var - X_next_pred_var) ** 2).mean()
+    loss = ((X_next_var - X_next_pred_var) ** 2).mean(axis=0).sum() / 2.
 
     net_name = 'BilinearNet'
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
@@ -364,7 +364,7 @@ def build_small_action_cond_encoder_net(input_shapes):
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
     X_diff_var = T.dtensor4('X_diff')
     X_next_var = X_var + X_diff_var
-    loss = ((X_next_var - X_next_pred_var) ** 2).mean()
+    loss = ((X_next_var - X_next_pred_var) ** 2).mean(axis=0).sum() / 2.
 
     net_name = 'SmallActionCondEncoderNet'
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
