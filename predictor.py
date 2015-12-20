@@ -419,6 +419,11 @@ def main():
 
     args = parser.parse_args()
 
+    if args.val_hdf5_fname is None:
+        val_file = h5py.File(args.train_hdf5_fname.replace('train', 'val'), 'r+')
+    else:
+        val_file = h5py.File(args.val_hdf5_fname, 'r+')
+
     inputs = ['image_curr', 'vel']
     input_shapes = NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
     x_shape, u_shape = input_shapes
@@ -446,10 +451,6 @@ def main():
     print "b train error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
 
     # validation
-    if args.val_hdf5_fname is None:
-        val_file = h5py.File(args.train_hdf5_fname.replace('train', 'val'), 'r+')
-    else:
-        val_file = h5py.File(args.val_hdf5_fname, 'r+')
     X = val_file['image_curr'][:]
     U = val_file['vel'][:]
     X_dot = val_file['image_diff'][:]
