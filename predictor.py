@@ -292,12 +292,12 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
                 train_val_fname = self.get_model_fname('train_val')
                 solver_param.test_net.append(train_val_fname)
             if not solver_param.test_iter:
-                solver_param.test_iter.append(1000)
+                solver_param.test_iter.append(10)
         else:
             del solver_param.test_net[:]
             del solver_param.test_iter[:]
         if not solver_param.solver_type:   solver_param.solver_type = pb2.SolverParameter.SGD
-        if not solver_param.test_interval: solver_param.test_interval = 2500
+        if not solver_param.test_interval: solver_param.test_interval = 1000
         if not solver_param.base_lr:       solver_param.base_lr = 0.05
         if not solver_param.lr_policy:     solver_param.lr_policy = "step"
         if not solver_param.gamma:         solver_param.gamma = 0.9
@@ -305,6 +305,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         if not solver_param.display:       solver_param.display = 20
         if not solver_param.max_iter:      solver_param.max_iter = 10000
         if not solver_param.momentum:      solver_param.momentum = 0.9
+        if not solver_param.momentum2:      solver_param.momentum2 = 0.999
         if not solver_param.weight_decay:  solver_param.weight_decay = 0.0005
         if not solver_param.snapshot:      solver_param.snapshot = 1000
         if not solver_param.snapshot_prefix:
@@ -426,7 +427,7 @@ def main():
     predictor_abn = ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
     predictor_b = BilinearFeaturePredictor(x_shape, u_shape, None)
     import predictor_theano
-    predictor_tbn = predictor_theano.NetPredictor(*predictor_theano.build_bilinear_net(input_shapes))
+    predictor_tbn = predictor_theano.TheanoNetFeaturePredictor(*predictor_theano.build_bilinear_net(input_shapes))
 
     # train
     train_file = h5py.File(args.train_hdf5_fname, 'r+')

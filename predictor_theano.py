@@ -89,8 +89,8 @@ class Deconv2DLayer(L.Conv2DLayer):
         return t
 
 class BilinearLayer(L.MergeLayer):
-    def __init__(self, incomings, M=init.GlorotUniform(),
-                 N=init.GlorotUniform(), b=init.Constant(0.), **kwargs):
+    def __init__(self, incomings, M=init.Normal(std=0.001),
+                 N=init.Normal(std=0.001), b=init.Constant(0.), **kwargs):
         super(BilinearLayer, self).__init__(incomings, **kwargs)
 
         self.y_shape, self.u_shape = [input_shape[1:] for input_shape in self.input_shapes]
@@ -142,9 +142,10 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
 
     def train(self, train_hdf5_fname, val_hdf5_fname=None,
               batch_size=32,
-              test_iter = 1000,
+              test_iter = 10,
+              solver_type = 'SGD',
               test_interval = 1000,
-              base_lr = 0.001,
+              base_lr = 0.05,
               gamma = 0.9,
               stepsize = 1000,
               display = 20,
@@ -170,10 +171,18 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
         # training function
         params = lasagne.layers.get_all_params(self.l_x_next_pred, trainable=True)
         learning_rate = theano.shared(base_lr)
-        updates = lasagne.updates.adam(loss, params, learning_rate=learning_rate, beta1=momentum, beta2=momentum2)
+        if solver_type == 'SGD':
+            if momentum:
+                updates = lasagne.updates.momentum(loss, params, learning_rate=learning_rate, momentum=momentum)
+            else:
+                updates = lasagne.updates.sgd(loss, params, learning_rate=learning_rate)
+        elif solver_type == 'ADAM':
+            updates = lasagne.updates.adam(loss, params, learning_rate=learning_rate, beta1=momentum, beta2=momentum2)
+        else:
+            raise
         train_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], loss, updates=updates)
 
-        validate = val_hdf5_fname is not None
+        validate = test_interval and val_hdf5_fname is not None
         if validate:
             # validation data
             with h5py.File(val_hdf5_fname, 'r+') as f:
@@ -189,39 +198,51 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
             val_fn = train_fn
 
         print("Starting training...")
-        for iter_, batch in enumerate(iterate_minibatches_indefinitely(X_train, U_train, X_diff_train,
-                                                                      batch_size=batch_size, shuffle=True)):
-            if iter_ < max_iter:
-                if iter != 0 and iter_%stepsize == 0:
-                    learning_rate.set_value(learning_rate.get_value() * gamma)
-                X, U, X_next = batch
-                train_err = train_fn(X, U, X_next)
+        minibatches = iterate_minibatches_indefinitely(X_train, U_train, X_diff_train,
+                                                       batch_size=batch_size, shuffle=True)
+        iter_ = 0
+        while iter_ < max_iter:
+            if validate and iter_ % test_interval == 0:
+                self.test_all(val_fn, X_val, U_val, X_diff_val, batch_size, test_iter)
 
-            if display and iter_%display == 0:
-                print("Iteration {} of {}, lr {}".format(iter_, max_iter, learning_rate.get_value()))
-                print("  training loss:\t\t{:.6f}".format(float(train_err)))
+            current_step = iter_ / stepsize
+            rate = base_lr * gamma ** current_step
+            learning_rate.set_value(rate)
 
-            if snapshot and iter_ > 0 and iter_%snapshot == 0:
-                snapshot_fname = snapshot_prefix + '_iter_%d.pkl'%iter_
-                snapshot_file = file(snapshot_fname, 'wb')
-                all_params = lasagne.layers.get_all_params(self.l_x_next_pred)
-                cPickle.dump(all_params, snapshot_file, protocol=cPickle.HIGHEST_PROTOCOL)
-                snapshot_file.close()
+            X, U, X_next = next(minibatches)
+            loss = train_fn(X, U, X_next)
 
-            if validate and iter_%test_interval == 0:
-                val_err = 0
-                val_batches = 0
-                for val_iter, batch in enumerate(iterate_minibatches(X_val, U_val, X_diff_val,
-                                                                     batch_size=batch_size, shuffle=False)):
-                    if val_iter >= test_iter:
-                        break
-                    X, U, X_next = batch
-                    val_err += val_fn(X, U, X_next)
-                    val_batches += 1
-                print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
+            if display and iter_ % display == 0:
+                print("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate.get_value()))
+                print("    training loss = {:.6f}".format(float(loss)))
+            iter_ += 1
+            if snapshot and iter_ % snapshot == 0 and iter_ > 0:
+                self.snapshot(iter_, snapshot_prefix)
 
-            if iter_ >= max_iter: # break after printing information
-                break
+        if snapshot and not (snapshot and iter_ % snapshot == 0 and iter_ > 0):
+            self.snapshot(iter_, snapshot_prefix)
+        if display and iter_ % display == 0:
+            print("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate.get_value()))
+            print("    training loss = {:.6f}".format(float(loss)))
+        if validate and iter_ % test_interval == 0:
+            self.test_all(val_fn, X_val, U_val, X_diff_val, batch_size, test_iter)
+
+    def test_all(self, val_fn, X_val, U_val, X_diff_val, batch_size, test_iter):
+        loss = 0
+        minibatches = iterate_minibatches_indefinitely(X_val, U_val, X_diff_val,
+                                                       batch_size=batch_size, shuffle=False)
+        for _ in range(test_iter):
+            X, U, X_next = next(minibatches)
+            loss += val_fn(X, U, X_next)
+        print("    validation loss = {:.6f}".format(loss / test_iter))
+
+    def snapshot(self, iter_, snapshot_prefix):
+        snapshot_fname = snapshot_prefix + '_iter_%d.pkl'%iter_
+        snapshot_file = file(snapshot_fname, 'wb')
+        all_params = lasagne.layers.get_all_params(self.l_x_next_pred)
+        print "Snapshotting to pickle file", snapshot_fname
+        cPickle.dump(all_params, snapshot_file, protocol=cPickle.HIGHEST_PROTOCOL)
+        snapshot_file.close()
 
     def predict(self, X, U, prediction_name=None):
         prediction_name = prediction_name or self.prediction_name
@@ -312,8 +333,8 @@ def build_bilinear_net(input_shapes):
 def build_small_action_cond_encoder_net(input_shapes):
     x_shape, u_shape = input_shapes
     x2_c_dim = x1_c_dim = x_shape[0]
-    x1_shape = (x1_c_dim, x_shape[1]/2, x_shape[2]/2)
-    x2_shape = (x2_c_dim, x1_shape[1]/2, x1_shape[2]/2)
+    x1_shape = (x1_c_dim, x_shape[1]//2, x_shape[2]//2)
+    x2_shape = (x2_c_dim, x1_shape[1]//2, x1_shape[2]//2)
     y2_dim = 64
     X_var = T.dtensor4('X')
     U_var = T.dmatrix('U')
