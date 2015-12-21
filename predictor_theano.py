@@ -27,23 +27,35 @@ def iterate_minibatches(*data, **kwargs):
             excerpt = slice(start_idx, start_idx + batch_size)
         yield tuple(datum[excerpt] for datum in data)
 
-def iterate_minibatches_indefinitely(*data, **kwargs):
+def iterate_minibatches_indefinitely(hdf5_fname, *data_names, **kwargs):
     batch_size = kwargs.get('batch_size') or 1
     shuffle = kwargs.get('shuffle') or False
-    N = len(data[0])
-    for datum in data[1:]:
-        assert len(datum) == N
-    indices = []
-    while True:
-        if len(indices) < batch_size:
-            new_indices = np.arange(N)
+    with h5py.File(hdf5_fname, 'r+') as f:
+        N = len(f[data_names[0]])
+        for data_name in data_names[1:]:
+            assert len(f[data_name]) == N
+        indices = []
+        while True:
+            if len(indices) < batch_size:
+                new_indices = np.arange(N)
+                if shuffle:
+                    np.random.shuffle(new_indices)
+                indices.extend(new_indices)
+            excerpt = indices[0:batch_size]
             if shuffle:
-                np.random.shuffle(new_indices)
-            indices.extend(new_indices)
-        excerpt = indices[0:batch_size]
-        out = tuple(datum[excerpt] for datum in data)
-        del indices[0:batch_size]
-        yield out
+                sort_inds = np.argsort(excerpt)
+                unsort_inds = [-1] * batch_size
+                for unsort_ind, sort_ind in enumerate(sort_inds):
+                    unsort_inds[sort_ind] = unsort_ind
+                excerpt = np.asarray(excerpt)[sort_inds].tolist()
+            else:
+                excerpt = slice(0, batch_size)
+            batch_data = tuple(f[data_name][excerpt] for data_name in data_names)
+            if shuffle:
+                for datum in batch_data:
+                    datum[...] = datum[unsort_inds, ...]
+            del indices[0:batch_size]
+            yield batch_data
 
 class Deconv2DLayer(L.Conv2DLayer):
     def __init__(self, incoming, channels, filter_size, stride=(1, 1),
@@ -159,10 +171,8 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
             snapshot_prefix = self.get_snapshot_prefix()
 
         # training data
-        with h5py.File(train_hdf5_fname, 'r+') as f:
-            X_train = f['image_curr'][:]
-            U_train = f['vel'][:]
-            X_diff_train = f['image_diff'][:]
+        minibatches = iterate_minibatches_indefinitely(train_hdf5_fname, 'image_curr', 'vel', 'image_diff',
+                                                       batch_size=batch_size, shuffle=True)
 
         # training loss
         param_l2_penalty = lasagne.regularization.regularize_network_params(self.l_x_next_pred, lasagne.regularization.l2)
@@ -184,12 +194,6 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
 
         validate = test_interval and val_hdf5_fname is not None
         if validate:
-            # validation data
-            with h5py.File(val_hdf5_fname, 'r+') as f:
-                X_val = f['image_curr'][:]
-                U_val = f['vel'][:]
-                X_diff_val = f['image_diff'][:]
-
             # validation loss
             test_loss = self.loss_deterministic + weight_decay * param_l2_penalty / 2.
 
@@ -198,12 +202,10 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
             val_fn = train_fn
 
         print("Starting training...")
-        minibatches = iterate_minibatches_indefinitely(X_train, U_train, X_diff_train,
-                                                       batch_size=batch_size, shuffle=True)
         iter_ = 0
         while iter_ < max_iter:
             if validate and iter_ % test_interval == 0:
-                self.test_all(val_fn, X_val, U_val, X_diff_val, batch_size, test_iter)
+                self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
 
             current_step = iter_ / stepsize
             rate = base_lr * gamma ** current_step
@@ -225,11 +227,11 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
             print("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate.get_value()))
             print("    training loss = {:.6f}".format(float(loss)))
         if validate and iter_ % test_interval == 0:
-            self.test_all(val_fn, X_val, U_val, X_diff_val, batch_size, test_iter)
+            self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
 
-    def test_all(self, val_fn, X_val, U_val, X_diff_val, batch_size, test_iter):
+    def test_all(self, val_fn, val_hdf5_fname, batch_size, test_iter):
         loss = 0
-        minibatches = iterate_minibatches_indefinitely(X_val, U_val, X_diff_val,
+        minibatches = iterate_minibatches_indefinitely(val_hdf5_fname, 'image_curr', 'vel', 'image_diff',
                                                        batch_size=batch_size, shuffle=False)
         for _ in range(test_iter):
             X, U, X_next = next(minibatches)
