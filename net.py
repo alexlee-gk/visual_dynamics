@@ -220,15 +220,13 @@ def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1,
     assert len(input_shapes) == 2
     image0_shape, vel_shape = input_shapes
     assert len(image0_shape) == 3
-    assert image0_shape[1] == 32
-    assert image0_shape[2] == 32
     assert len(vel_shape) == 1
     image0_num_channel = image0_shape[0]
     num_channel = kwargs.get('num_channel') or 16
     image1_num_channel = num_channel
     image2_num_channel = num_channel
-    image1_shape = (image1_num_channel, 16, 16)
-    image2_shape = (image2_num_channel, 8, 8)
+    image1_shape = (image1_num_channel, image0_shape[1]//2, image0_shape[2]//2)
+    image2_shape = (image2_num_channel, image1_shape[1]//2, image1_shape[2]//2)
     y0_dim = image0_shape[1] * image0_shape[2] # 1024
     y2_dim = kwargs.get('y2_dim') or 64
     u_dim = vel_shape[0]
@@ -282,7 +280,7 @@ def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1,
     y2_diff_pred = n.y_diff_pred = Bilinear(n, y2, u, y2_dim, u_dim, name='bilinear2', **fc_kwargs)
     n.y2_next_pred = L.Eltwise(y2, y2_diff_pred, operation=P.Eltwise.SUM)
     n.image2_next_pred_flat = L.InnerProduct(n.y2_next_pred, num_output=np.prod(image2_shape), weight_filler=dict(type='xavier'))
-    n.image2_next_pred = L.Reshape(n.image2_next_pred_flat, shape=dict(dim=[batch_size]+list(image2_shape)))
+    n.image2_next_pred = L.Reshape(n.image2_next_pred_flat, shape=dict(dim=[0]+list(image2_shape)))
 
     n.image1_next_pred = L.Deconvolution(n.image2_next_pred, **deconv1_kwargs)
     n.image1_next_pred = L.ReLU(n.image1_next_pred, in_place=True)
