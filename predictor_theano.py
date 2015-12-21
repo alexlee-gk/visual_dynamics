@@ -345,8 +345,10 @@ def build_small_action_cond_encoder_net(input_shapes):
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
 
     l_x1 = L.Conv2DLayer(l_x, x1_c_dim, filter_size=6, stride=2, pad=2,
+                         W=init.Normal(std=0.01),
                          nonlinearity=lasagne.nonlinearities.rectify)
     l_x2 = L.Conv2DLayer(l_x1, x2_c_dim, filter_size=6, stride=2, pad=2,
+                         W=init.Normal(std=0.01),
                          nonlinearity=lasagne.nonlinearities.rectify)
 
     l_y2 = L.DenseLayer(l_x2, y2_dim, nonlinearity=None)
@@ -356,8 +358,10 @@ def build_small_action_cond_encoder_net(input_shapes):
     l_x2_next_pred = L.ReshapeLayer(l_x2_next_pred_flat, ([0],) + x2_shape)
 
     l_x1_next_pred = Deconv2DLayer(l_x2_next_pred, x2_c_dim, filter_size=6, stride=2, pad=2,
+                                   W=init.Normal(std=0.01),
                                    nonlinearity=lasagne.nonlinearities.rectify)
     l_x_next_pred = Deconv2DLayer(l_x1_next_pred, x1_c_dim, filter_size=6, stride=2, pad=2,
+                                  W=init.Normal(std=0.01),
                                   nonlinearity=lasagne.nonlinearities.tanh)
 
     l_y = l_y2
