@@ -8,7 +8,6 @@ import cv2
 import caffe
 from caffe.proto import caffe_pb2 as pb2
 import predictor
-import util
 import simulator
 import controller
 import net
@@ -182,7 +181,7 @@ def main():
                             output_image = vis_image
                         image_fname = feature_predictor.net_name + feature_predictor.postfix + '_%04d.png'%iter_
                         cv2.imwrite(os.path.join(args.output_image_dir, image_fname), output_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-                    vis_image = util.resize_from_scale(vis_image, args.vis_scale)
+                    vis_image = cv2.resize(vis_image, (0, 0), fx=args.vis_scale, fy=args.vis_scale, interpolation=cv2.INTER_NEAREST)
                     cv2.imshow("Image window", vis_image)
                     key = cv2.waitKey(1)
                     key &= 255

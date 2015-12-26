@@ -41,19 +41,12 @@ def iterate_minibatches_indefinitely(hdf5_fname, *data_names, **kwargs):
                 if shuffle:
                     np.random.shuffle(new_indices)
                 indices.extend(new_indices)
-            excerpt = indices[0:batch_size]
-            if shuffle:
-                sort_inds = np.argsort(excerpt)
-                unsort_inds = [-1] * batch_size
-                for unsort_ind, sort_ind in enumerate(sort_inds):
-                    unsort_inds[sort_ind] = unsort_ind
-                excerpt = np.asarray(excerpt)[sort_inds].tolist()
+            excerpt = np.asarray(indices[0:batch_size])
+            unsorted = np.any(excerpt[1:] < excerpt[:-1])
+            if unsorted:
+                batch_data = tuple(np.asarray([f[data_name][ind][()] for ind in excerpt], dtype=theano.config.floatX) for data_name in data_names)
             else:
-                excerpt = slice(0, batch_size)
-            batch_data = tuple(f[data_name][excerpt] for data_name in data_names)
-            if shuffle:
-                for datum in batch_data:
-                    datum[...] = datum[unsort_inds, ...]
+                batch_data = tuple(np.asarray(f[data_name][excerpt.tolist()], dtype=theano.config.floatX) for data_name in data_names)
             del indices[0:batch_size]
             yield batch_data
 
@@ -180,7 +173,7 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
 
         # training function
         params = lasagne.layers.get_all_params(self.l_x_next_pred, trainable=True)
-        learning_rate = theano.shared(base_lr)
+        learning_rate = theano.shared(np.asarray(base_lr, dtype=theano.config.floatX))
         if solver_type == 'SGD':
             if momentum:
                 updates = lasagne.updates.momentum(loss, params, learning_rate=learning_rate, momentum=momentum)
@@ -190,6 +183,7 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
             updates = lasagne.updates.adam(loss, params, learning_rate=learning_rate, beta1=momentum, beta2=momentum2)
         else:
             raise
+        print "Compiling training function..."
         train_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], loss, updates=updates)
 
         validate = test_interval and val_hdf5_fname is not None
@@ -198,8 +192,8 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
             test_loss = self.loss_deterministic + weight_decay * param_l2_penalty / 2.
 
             # validation function
+            print "Compiling validation function..."
             val_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], test_loss)
-            val_fn = train_fn
 
         print("Starting training...")
         iter_ = 0
@@ -260,6 +254,10 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
             self.pred_fns[prediction_name] = pred_fn
         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
         batch = X.shape == self.x_shape
+        if X.dtype != theano.config.floatX:
+            X = X.astype(theano.config.floatX)
+        if U is not None and U.dtype != theano.config.floatX:
+            U = U.astype(theano.config.floatX)
         if batch:
             X = X[None, ...]
             if U is not None:
@@ -311,8 +309,8 @@ class TheanoNetFeaturePredictor(predictor.NetFeaturePredictor): # TODO: shouldn'
 
 def build_bilinear_net(input_shapes):
     x_shape, u_shape = input_shapes
-    X_var = T.dtensor4('X')
-    U_var = T.dmatrix('U')
+    X_var = T.tensor4('X')
+    U_var = T.matrix('U')
 
     l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var)
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
@@ -323,7 +321,7 @@ def build_bilinear_net(input_shapes):
     l_x_next_pred = L.ReshapeLayer(l_y_next_pred, ([0,],) + x_shape)
 
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
-    X_diff_var = T.dtensor4('X_diff')
+    X_diff_var = T.tensor4('X_diff')
     X_next_var = X_var + X_diff_var
     loss = ((X_next_var - X_next_pred_var) ** 2).mean(axis=0).sum() / 2.
 
@@ -338,8 +336,8 @@ def build_small_action_cond_encoder_net(input_shapes):
     x1_shape = (x1_c_dim, x_shape[1]//2, x_shape[2]//2)
     x2_shape = (x2_c_dim, x1_shape[1]//2, x1_shape[2]//2)
     y2_dim = 64
-    X_var = T.dtensor4('X')
-    U_var = T.dmatrix('U')
+    X_var = T.tensor4('X')
+    U_var = T.matrix('U')
 
     l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var)
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
@@ -368,7 +366,7 @@ def build_small_action_cond_encoder_net(input_shapes):
     l_y_diff_pred = l_y2_diff_pred
 
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
-    X_diff_var = T.dtensor4('X_diff')
+    X_diff_var = T.tensor4('X_diff')
     X_next_var = X_var + X_diff_var
     loss = ((X_next_var - X_next_pred_var) ** 2).mean(axis=0).sum() / 2.
 
