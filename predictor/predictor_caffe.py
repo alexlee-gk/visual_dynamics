@@ -2,49 +2,14 @@ from __future__ import division
 
 import os
 import numpy as np
-import argparse
-import h5py
 import cv2
-import lasagne
 import caffe
 from caffe.proto import caffe_pb2 as pb2
-import net
-import bilinear
-
-class FeaturePredictor(object):
-    """
-    Predicts change in features (y_dot) given the current input (x) and control (u):
-        x, u -> y_dot
-    """
-    def __init__(self, x_shape, u_shape, y_shape=None):
-        self.x_shape = x_shape
-        self.u_shape = u_shape
-        if y_shape is None:
-            y_shape = self.feature_from_input(np.empty(x_shape)).shape
-        self.y_shape = y_shape
-
-    def train(self, data):
-        raise NotImplementedError
-
-    def predict(self, X, U):
-        raise NotImplementedError
-
-    def jacobian_control(self, X, U):
-        raise NotImplementedError
-
-    def feature_from_input(self, X):
-        """
-        By default, the feature is just the input flattened
-        """
-        assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
-        if X.shape == self.x_shape:
-            Y = X.flatten()
-        else:
-            Y = X.reshape((X.shape[0], -1))
-        return Y
+import net_caffe
+import predictor
 
 
-class NetPredictor(caffe.Net):
+class CaffeNetPredictor(caffe.Net):
     """
     Predicts output given the current inputs
         inputs -> prediction
@@ -137,50 +102,23 @@ class NetPredictor(caffe.Net):
         return self._blobs[list(self._blob_names).index(blob_name)]
 
 
-class BilinearFeaturePredictor(bilinear.BilinearFunction, FeaturePredictor):
+class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
     """
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, x_shape, u_shape, y_shape=None):
-        FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
-        y_dim = np.prod(self.x_shape)
-        assert len(self.u_shape) == 1 or (len(self.u_shape) == 2 and self.u_shape[1] == 1)
-        u_dim = self.u_shape[0]
-        assert len(self.y_shape) == 1 or (len(self.y_shape) == 2 and self.y_shape[1] == 1)
-        assert y_dim == self.y_shape[0]
-        bilinear.BilinearFunction.__init__(self, y_dim, u_dim)
-
-    def train(self, X, U, Y_dot):
-        Y = self.feature_from_input(X)
-        self.fit(Y, U, Y_dot)
-
-    def predict(self, X, U):
-        Y = self.feature_from_input(X)
-        return self.eval(Y, U)
-
-    def jacobian_control(self, X, U):
-        Y = self.feature_from_input(X)
-        # in the bilinear model, the jacobian doesn't depend on u
-        return self.jac_u(Y)
-
-
-class NetFeaturePredictor(NetPredictor, FeaturePredictor):
-    """
-    Predicts change in features (y_dot) given the current input image (x) and control (u):
-        x, u -> y_dot
-    """
-    def __init__(self, net_func, inputs, input_shapes, outputs, pretrained_file=None, postfix='', batch_size=32):
+    def __init__(self, net_func, input_shapes, input_names=None, output_names=None, pretrained_file=None, postfix='', batch_size=32):
         """
         Assumes that outputs[0] is the prediction_name
-        batch_size_1: if True, another net of batch_size of 1 is created, and this net is used for computing forward in the predict method
+        batch_size_1: if True, another net_caffe of batch_size of 1 is created, and this net_caffe is used for computing forward in the predict method
         """
+        predictor.FeaturePredictor.__init__(self, *input_shapes, input_names=input_names, output_names=output_names)
         self.net_func = net_func
         self.postfix = postfix
         self.batch_size = batch_size
 
         self.deploy_net_param = net_func(input_shapes, batch_size=batch_size)
-        self.deploy_net_param = net.deploy_net(self.deploy_net_param, inputs, input_shapes, outputs, batch_size=batch_size)
+        self.deploy_net_param = net_caffe.deploy_net(self.deploy_net_param, self.input_names, input_shapes, self.output_names, batch_size=batch_size)
         self.net_name = str(self.deploy_net_param.name)
         deploy_fname = self.get_model_fname('deploy')
         with open(deploy_fname, 'w') as f:
@@ -188,14 +126,9 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
 
         if pretrained_file is not None and not pretrained_file.endswith('.caffemodel'):
             pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.caffemodel'
-        NetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=outputs[0])
+        CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=self.output_names[0])
 
         self.add_blur_weights(self.params) # TODO: better way to do this?
-
-        x_shape, u_shape = input_shapes
-        _, y_dim = self.blob(self.prediction_name).shape
-        y_shape = (y_dim,)
-        FeaturePredictor.__init__(self, x_shape, u_shape, y_shape)
 
         self.train_net = None
         self.val_net = None
@@ -227,11 +160,11 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
             for layer in layers:
                 if 'Data' not in layer.type:
                     self.train_val_net_param.layer.remove(layer)
-            # add data layers from validation net
+            # add data layers from validation net_caffe
             self.train_val_net_param.layer.extend([layer for layer in val_net_param.layer if 'Data' in layer.type])
             # add back the layers that are not data layers
             self.train_val_net_param.layer.extend([layer for layer in layers if 'Data' not in layer.type])
-        self.train_val_net_param = net.train_val_net(self.train_val_net_param)
+        self.train_val_net_param = net_caffe.train_val_net(self.train_val_net_param)
         train_val_fname = self.get_model_fname('train_val')
         with open(train_val_fname, 'w') as f:
             f.write(str(self.train_val_net_param))
@@ -282,7 +215,7 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         if not batch:
             Y = np.squeeze(Y, axis=0)
         return Y
-
+    
     def add_default_parameters(self, solver_param, val_net=True):
         if not solver_param.train_net:
             train_val_fname = self.get_model_fname('train_val')
@@ -325,7 +258,8 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
                 blob.data[...] = kernel.dot(kernel.T)
 
     def get_model_dir(self):
-        model_dir = os.path.join('models', self.net_name + self.postfix)
+        model_dir = predictor.FeaturePredictor.get_model_dir(self)
+        model_dir = os.path.join(model_dir, 'caffe', self.net_name + self.postfix)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
         return model_dir
@@ -335,34 +269,13 @@ class NetFeaturePredictor(NetPredictor, FeaturePredictor):
         fname = os.path.join(model_dir, phase + '.prototxt')
         return fname
 
-    def get_snapshot_prefix(self):
-        snapshot_dir = os.path.join(self.get_model_dir(), 'snapshot')
-        if not os.path.exists(snapshot_dir):
-            os.makedirs(snapshot_dir)
-        snapshot_prefix = os.path.join(snapshot_dir, '')
-        return snapshot_prefix
 
-    @staticmethod
-    def infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint):
-        input_shapes = []
-        if hdf5_fname_hint is None:
-            input_shapes = list(default_input_shapes)
-        else:
-            with h5py.File(hdf5_fname_hint, 'r+') as f:
-                for input_ in inputs:
-                    input_shape = f[input_].shape[1:]
-                    input_shapes.append(input_shape)
-        return input_shapes
-
-
-class BilinearNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
-        inputs = ['image_curr', 'vel']
-        default_input_shapes = [(1,7,10), (2,)]
-        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        outputs = ['y_diff_pred', 'y', 'image_next_pred']
-        super(BilinearNetFeaturePredictor, self).__init__(net.bilinear_net,
-                                                          inputs, input_shapes, outputs,
+class BilinearNetFeaturePredictor(CaffeNetFeaturePredictor):
+    def __init__(self, input_shapes, input_names=None, output_names=None, pretrained_file=None, postfix=''):
+        super(BilinearNetFeaturePredictor, self).__init__(net_caffe.bilinear_net,
+                                                          input_shapes,
+                                                          input_names=input_names,
+                                                          output_names=output_names,
                                                           pretrained_file=pretrained_file,
                                                           postfix=postfix)
 
@@ -376,107 +289,3 @@ class BilinearNetFeaturePredictor(NetFeaturePredictor):
             return jac
         else:
             return np.asarray([self.jacobian_control(x, None) for x in X])
-
-class BilinearConstrainedNetFeaturePredictor(BilinearNetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
-        inputs = ['image_curr', 'vel']
-        default_input_shapes = [(1,7,10), (2,)]
-        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        outputs = ['y_diff_pred', 'y', 'image_next_pred']
-        NetFeaturePredictor.__init__(self,
-                                     net.bilinear_constrained_net,
-                                     inputs, input_shapes, outputs,
-                                     pretrained_file=pretrained_file,
-                                     postfix=postfix)
-
-
-class ApproxBilinearNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
-        inputs = ['image_curr', 'vel']
-        default_input_shapes = [(1,7,10), (2,)]
-        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        outputs = ['y_diff_pred', 'y']
-        super(ApproxBilinearNetFeaturePredictor, self).__init__(net.approx_bilinear_net,
-                                                                inputs, input_shapes, outputs,
-                                                                pretrained_file=pretrained_file,
-                                                                postfix=postfix)
-
-class ActionCondEncoderNetFeaturePredictor(NetFeaturePredictor):
-    def __init__(self, hdf5_fname_hint=None, pretrained_file=None, postfix=''):
-        inputs = ['image_curr', 'vel']
-        default_input_shapes = [(1,7,10), (2,)]
-        input_shapes = self.infer_input_shapes(inputs, default_input_shapes, hdf5_fname_hint)
-        outputs = ['y_diff_pred', 'y']
-        super(ActionCondEncoderNetFeaturePredictor, self).__init__(net.action_cond_encoder_net,
-                                                                   inputs, input_shapes, outputs,
-                                                                   pretrained_file=pretrained_file,
-                                                                   postfix=postfix)
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('train_hdf5_fname', type=str)
-    parser.add_argument('val_hdf5_fname', nargs='?', type=str, default=None)
-
-    args = parser.parse_args()
-
-    if args.val_hdf5_fname is None:
-        val_file = h5py.File(args.train_hdf5_fname.replace('train', 'val'), 'r+')
-    else:
-        val_file = h5py.File(args.val_hdf5_fname, 'r+')
-
-    inputs = ['image_curr', 'vel']
-    input_shapes = NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
-    x_shape, u_shape = input_shapes
-
-    predictor_bn = BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
-    predictor_abn = ApproxBilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname)
-    predictor_b = BilinearFeaturePredictor(x_shape, u_shape, None)
-    import predictor_theano
-    predictor_tbn = predictor_theano.TheanoNetFeaturePredictor(*predictor_theano.build_bilinear_net(input_shapes))
-
-    # train
-    train_file = h5py.File(args.train_hdf5_fname, 'r+')
-    X = train_file['image_curr'][:]
-    U = train_file['vel'][:]
-    X_dot = train_file['image_diff'][:]
-    Y_dot = predictor_b.feature_from_input(X_dot)
-    N = len(X)
-    predictor_bn.train(args.train_hdf5_fname, args.val_hdf5_fname)
-    predictor_abn.train(args.train_hdf5_fname, args.val_hdf5_fname)
-    predictor_tbn.train(args.train_hdf5_fname, args.val_hdf5_fname)
-    predictor_b.train(X, U, Y_dot)
-    print "bn train error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
-    print "abn train error", (np.linalg.norm(Y_dot - predictor_abn.predict(X, U))**2) / (2*N)
-    print "tbn train error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
-    print "b train error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
-
-    # validation
-    X = val_file['image_curr'][:]
-    U = val_file['vel'][:]
-    X_dot = val_file['image_diff'][:]
-    Y_dot = predictor_b.feature_from_input(X_dot)
-    N = len(X)
-    # set parameters of bn to the ones of b and check that their methods return the same outputs
-    print "bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
-    print "abn validation error", (np.linalg.norm(Y_dot - predictor_abn.predict(X, U))**2) / (2*N)
-    print "tbn validation error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
-    print "b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
-    predictor_bn.params['bilinear_fc_outer_yu'][0].data[...] = predictor_b.A.reshape((predictor_b.A.shape[0], -1))
-    predictor_bn.params['bilinear_fc_u'][0].data[...] = predictor_b.B
-    predictor_tbn_params = {param.name: param for param in lasagne.layers.get_all_params(predictor_tbn.l_x_next_pred)}
-    predictor_tbn_params['M'].set_value(predictor_b.A)
-    predictor_tbn_params['N'].set_value(predictor_b.B)
-
-    Y_dot_bn = predictor_bn.predict(X, U)
-    Y_dot_tbn = predictor_tbn.predict(X, U)
-    Y_dot_b = predictor_b.predict(X, U)
-    print "all close Y_dot_bn, Y_dot_b", np.allclose(Y_dot_bn, Y_dot_b, atol=1e-4)
-    print "all close Y_dot_tbn, Y_dot_b", np.allclose(Y_dot_tbn, Y_dot_b)
-    jac_bn = predictor_bn.jacobian_control(X, U)
-    jac_tbn = predictor_tbn.jacobian_control(X, U)
-    jac_b = predictor_b.jacobian_control(X, U)
-    print "all close jac_bn, jac_b", np.allclose(jac_bn, jac_b)
-    print "all close jac_tbn, jac_b", np.allclose(jac_tbn, jac_b)
-
-if __name__ == "__main__":
-    main()

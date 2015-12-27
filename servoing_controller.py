@@ -5,12 +5,9 @@ import argparse
 import numpy as np
 import h5py
 import cv2
-import caffe
-from caffe.proto import caffe_pb2 as pb2
-import predictor
+from predictor import predictor
 import simulator
 import controller
-import net
 
 def main():
     parser = argparse.ArgumentParser()
@@ -63,6 +60,7 @@ def main():
     args.vel_min = np.asarray(args.vel_min)
     args.vel_max = np.asarray(args.vel_max)
 
+    input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
         train_file = h5py.File(args.train_hdf5_fname, 'r+')
         X = train_file['image_curr'][:]
@@ -73,11 +71,12 @@ def main():
         if not args.no_train:
             feature_predictor.train(X, U, Y_dot)
     elif args.predictor.startswith('build_'):
-        import predictor_theano
-        inputs = ['image_curr', 'vel']
-        input_shapes = predictor_theano.TheanoNetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
-        build_net = getattr(predictor_theano, args.predictor)
-        feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes))
+        from predictor import predictor_theano, net_theano
+        build_net = getattr(net_theano, args.predictor)
+        feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes),
+                                                                       postfix=args.postfix)
+        if args.pretrained_fname is not None:
+            feature_predictor.copy_from(args.pretrained_fname)
         if not args.no_train:
             feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname,
                                     solver_type='ADAM',
@@ -85,6 +84,9 @@ def main():
                                     momentum=0.9, momentum2=0.999,
                                     max_iter=args.max_iter)
     else:
+        import caffe
+        from caffe.proto import caffe_pb2 as pb2
+        from predictor import predictor_caffe, net_caffe
         if args.pretrained_fname == 'auto':
             args.pretrained_fname = str(args.max_iter)
         if args.solverstate_fname == 'auto':
@@ -93,27 +95,22 @@ def main():
         caffe.set_device(0)
         caffe.set_mode_gpu()
         if args.predictor == 'bilinear_net':
-            feature_predictor = predictor.BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
-                                                                      pretrained_file=args.pretrained_fname,
-                                                                      postfix=args.postfix)
-        elif args.predictor == 'bilinear_constrained_net':
-            feature_predictor = predictor.BilinearConstrainedNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
-                                                                                 pretrained_file=args.pretrained_fname,
-                                                                                 postfix=args.postfix)
+            feature_predictor = predictor_caffe.BilinearNetFeaturePredictor(hdf5_fname_hint=args.train_hdf5_fname,
+                                                                            pretrained_file=args.pretrained_fname,
+                                                                            postfix=args.postfix)
         else:
-            inputs = ['image_curr', 'vel']
-            input_shapes = predictor.NetFeaturePredictor.infer_input_shapes(inputs, None, args.train_hdf5_fname)
-            outputs = ['y_diff_pred', 'y', 'image_next_pred']
             net_kwargs = dict(num_channel=args.num_channel,
                               y1_dim=args.y1_dim,
                               y2_dim=args.y2_dim,
                               constrained=args.constrained,
                               levels=args.levels,
                               freeze=args.freeze)
-            net_func = getattr(net, args.predictor)
+            net_func = getattr(net_caffe, args.predictor)
             net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
-            feature_predictor = predictor.NetFeaturePredictor(net_func_with_kwargs, inputs, input_shapes, outputs,
-                                                              pretrained_file=args.pretrained_fname, postfix=args.postfix)
+            feature_predictor = predictor_caffe.CaffeNetFeaturePredictor(net_func_with_kwargs,
+                                                                         input_shapes,
+                                                                         pretrained_file=args.pretrained_fname,
+                                                                         postfix=args.postfix)
         solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
                                            base_lr=0.001, gamma=0.99,
                                            momentum=0.9, momentum2=0.999,

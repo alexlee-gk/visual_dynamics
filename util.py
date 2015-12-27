@@ -2,10 +2,13 @@ from __future__ import division
 
 import numpy as np
 import cv2
-import rospy
-import tf
-import geometry_msgs
-import gazebo_msgs.srv
+try:
+    import rospy
+    import tf
+    import geometry_msgs
+    import gazebo_msgs.srv
+except ImportError:
+    pass
 
 def standarize(data, in_min=0, in_max=255, out_min=-1, out_max=1):
     assert in_min <= data.min() <= data.max() <= in_max
