@@ -121,7 +121,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             if validate and iter_ % test_interval == 0:
                 self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
 
-            current_step = iter_ / stepsize
+            current_step = iter_ // stepsize
             rate = base_lr * gamma ** current_step
             learning_rate.set_value(rate)
 
@@ -153,6 +153,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             if prediction_name not in self.pred_vars:
                 self.pred_vars[prediction_name] = lasagne.layers.get_output(self.pred_layers[prediction_name], deterministic=True)
             input_vars = [self.X_var, self.U_var] if U is not None else [self.X_var]
+            print "Compiling prediction function..."
             pred_fn = theano.function(input_vars, self.pred_vars[prediction_name])
             self.pred_fns[prediction_name] = pred_fn
         if U is None:
@@ -187,6 +188,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
                 self.pred_vars[prediction_name] = Y_diff_pred_var
             self.jacobian_var, updates = theano.scan(lambda i, Y_diff_pred_var, U_var: theano.gradient.jacobian(Y_diff_pred_var[i], U_var)[:, i, :], sequences=T.arange(Y_diff_pred_var.shape[0]), non_sequences=[Y_diff_pred_var, self.U_var])
             input_vars = [self.X_var, self.U_var] if U is not None else [self.X_var]
+            print "Compiling jacobian function..."
             jacobian_fn = theano.function(input_vars, self.jacobian_var, updates=updates)
             self.jacobian_fn = jacobian_fn
         if U is None:
@@ -235,6 +237,9 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
     def copy_from(self, snapshot_fname):
         print "Copying weights from pickle file", snapshot_fname
         all_param_values = cPickle.load(open(snapshot_fname, 'rb'))
+        for i, param_value in enumerate(all_param_values):
+            if param_value.dtype != theano.config.floatX:
+                all_param_values[i] = param_value.astype(theano.config.floatX)
         lasagne.layers.set_all_param_values(self.l_x_next_pred, all_param_values)
 
     def get_model_dir(self):
