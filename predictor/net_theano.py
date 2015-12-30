@@ -54,12 +54,18 @@ class Deconv2DLayer(L.Conv2DLayer):
 
 
 class BilinearLayer(L.MergeLayer):
-    def __init__(self, incomings, M=init.Normal(std=0.001),
+    def __init__(self, incomings, axis=1, M=init.Normal(std=0.001),
                  N=init.Normal(std=0.001), b=init.Constant(0.), **kwargs):
+        """
+        axis: The first axis of Y to be lumped into a single bilinear model.
+            The bilinear model are computed independently for each element wrt the preceding axes.
+        """
         super(BilinearLayer, self).__init__(incomings, **kwargs)
+        assert axis >= 1
+        self.axis = axis
 
         self.y_shape, self.u_shape = [input_shape[1:] for input_shape in self.input_shapes]
-        self.y_dim = int(np.prod(self.y_shape))
+        self.y_dim = int(np.prod(self.y_shape[self.axis-1:]))
         self.u_dim,  = self.u_shape
 
         self.M = self.add_param(M, (self.y_dim, self.y_dim, self.u_dim), name='M')
@@ -72,18 +78,26 @@ class BilinearLayer(L.MergeLayer):
     def get_output_shape_for(self, input_shapes):
         Y_shape, U_shape = input_shapes
         assert Y_shape[0] == U_shape[0]
-        return (Y_shape[0], self.y_dim)
+        return Y_shape
 
     def get_output_for(self, inputs, **kwargs):
         Y, U = inputs
-        if Y.ndim > 2:
-            Y = Y.flatten(2)
+        if Y.ndim > (self.axis + 1):
+            Y = Y.flatten(self.axis + 1)
+        assert Y.ndim == self.axis + 1
 
-        outer_YU = Y[:, :, None] * U[:, None, :]
-        activation = T.dot(outer_YU.flatten(2), self.M.reshape((self.y_dim, self.y_dim * self.u_dim)).T)
-        activation = activation + T.dot(U, self.N.T)
+        outer_YU = Y.dimshuffle(range(Y.ndim) + ['x']) * U.dimshuffle([0] + ['x']*self.axis + [1])
+        bilinear = T.dot(outer_YU.reshape((-1, self.y_dim * self.u_dim)), self.M.reshape((self.y_dim, self.y_dim * self.u_dim)).T)
+        if self.axis > 1:
+            bilinear = bilinear.reshape((-1,) + self.y_shape[:self.axis-1] + (self.y_dim,))
+        linear = T.dot(U, self.N.T)
+        if self.axis > 1:
+            linear = linear.dimshuffle([0] + ['x']*(self.axis-1) + [1])
+        activation = bilinear + linear
         if self.b is not None:
-            activation = activation + self.b.dimshuffle('x', 0)
+            activation += self.b.dimshuffle(['x']*self.axis + [0])
+
+        activation = activation.reshape((-1,) + self.y_shape)
         return activation
 
 

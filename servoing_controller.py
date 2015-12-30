@@ -74,7 +74,7 @@ def main():
     elif args.predictor.startswith('build_'):
         from predictor import predictor_theano, net_theano
         build_net = getattr(net_theano, args.predictor)
-        feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes),
+        feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes, levels=args.levels),
                                                                        postfix=args.postfix)
         if args.pretrained_fname is not None:
             feature_predictor.copy_from(args.pretrained_fname)
