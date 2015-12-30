@@ -8,6 +8,7 @@ import cv2
 from predictor import predictor
 import simulator
 import controller
+import util
 
 def main():
     parser = argparse.ArgumentParser()
@@ -33,7 +34,7 @@ def main():
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
     parser.add_argument('--output_image_dir', type=str)
     parser.add_argument('--image_size', type=int, nargs=2, default=None, metavar=('HEIGHT', 'WIDTH'))
-    parser.add_argument('--simulator', '-s', type=str, default=None, choices=('square', 'ogre'))
+    parser.add_argument('--simulator', '-s', type=str, default=None, choices=('square', 'ogre', 'none'))
     # square simulator
     parser.add_argument('--abs_vel_max', type=float, default=None)
     parser.add_argument('--square_length', '-l', type=int, default=None, help='required to be odd')
@@ -126,15 +127,26 @@ def main():
                 val_losses = {blob_name: np.asscalar(blob.data) for blob_name, blob in feature_predictor.val_net.blobs.items() if blob_name.endswith('loss')}
                 print 'val_losses', val_losses
 
-    ctrl = controller.ServoingController(feature_predictor)
-
     if args.simulator == 'square':
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
     elif args.simulator== 'ogre':
         sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                        image_scale=args.image_scale, crop_size=args.image_size)
+    elif args.simulator == 'none':
+        with h5py.File(args.val_hdf5_fname, 'r') as hdf5_file:
+            for image_curr, vel, image_diff in zip(hdf5_file['image_curr'], hdf5_file['vel'], hdf5_file['image_diff']):
+                image_next = image_curr + image_diff
+                image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
+                image_pred_error = (image_next_pred - image_next)/2.0
+                if args.visualize:
+                    vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
+                    if done:
+                        break
+        return
     else:
         raise
+
+    ctrl = controller.ServoingController(feature_predictor)
 
     if args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')
@@ -169,8 +181,7 @@ def main():
 
                 # visualization
                 if args.visualize or args.output_image_dir:
-                    vis_image = np.concatenate([image.transpose(1, 2, 0), image_next_pred.transpose(1, 2, 0), image_target.transpose(1, 2, 0)], axis=1)
-                    vis_image = ((vis_image + 1.0) * 255.0/2.0).astype(np.uint8)
+                    vis_image, done = util.visualize_images_callback(image, image_next_pred, image_target)
                     if args.output_image_dir:
                         if vis_image.ndim == 2:
                             output_image = np.concatenate([vis_image]*3, axis=2)
@@ -178,15 +189,8 @@ def main():
                             output_image = vis_image
                         image_fname = feature_predictor.net_name + feature_predictor.postfix + '_%04d.png'%iter_
                         cv2.imwrite(os.path.join(args.output_image_dir, image_fname), output_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-                    vis_image = cv2.resize(vis_image, (0, 0), fx=args.vis_scale, fy=args.vis_scale, interpolation=cv2.INTER_NEAREST)
-                    cv2.imshow("Image window", vis_image)
-                    key = cv2.waitKey(1)
-                    key &= 255
-                    if key == 27 or key == ord('q'):
-                        print "Pressed ESC or q, exiting"
-                        done = True
+                    if done:
                         break
-
             image = sim.observe()
             image_pred_error = np.linalg.norm(image_next_pred - image)
             image_pred_errors.append(image_pred_error)

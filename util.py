@@ -156,3 +156,23 @@ def create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=
     
     vis_image = np.concatenate(images, axis=1)
     return vis_image
+
+def visualize_images_callback(*images, **kwargs):
+    vis_scale = kwargs.get('vis_scale', 1)
+    window_name = kwargs.get('window_name', 'Image window')
+    delay = kwargs.get('delay', 1)
+    vis_image = np.concatenate([image.transpose(1, 2, 0) for image in images], axis=1)
+    vis_image = ((vis_image + 1.0) * 255.0/2.0).astype(np.uint8)
+    if vis_scale != 1:
+        vis_rescaled_image = cv2.resize(vis_image, (0, 0), fx=vis_scale, fy=vis_scale, interpolation=cv2.INTER_NEAREST)
+    else:
+        vis_rescaled_image = vis_image
+    cv2.imshow(window_name, vis_rescaled_image)
+    key = cv2.waitKey(delay)
+    key &= 255
+    if key == 27 or key == ord('q'):
+        print "Pressed ESC or q, exiting"
+        exit_request = True
+    else:
+        exit_request = False
+    return vis_image, exit_request
