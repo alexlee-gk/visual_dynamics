@@ -109,10 +109,10 @@ def build_bilinear_net(input_shapes):
     l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var)
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
 
-    l_y_diff_pred = BilinearLayer([l_x, l_u], b=None)
+    l_x_diff_pred = BilinearLayer([l_x, l_u], b=None)
+    l_x_next_pred = L.ElemwiseMergeLayer([l_x, l_x_diff_pred], T.add)
     l_y = L.flatten(l_x)
-    l_y_next_pred = L.ElemwiseMergeLayer([l_y, l_y_diff_pred], T.add)
-    l_x_next_pred = L.ReshapeLayer(l_y_next_pred, ([0,],) + x_shape)
+    l_y_diff_pred = L.flatten(l_x_diff_pred)
 
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
     X_diff_var = T.tensor4('X_diff')
@@ -204,12 +204,16 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None):
 
     # bilinear
     l_xlevels_next_pred_0 = {}
+    l_ylevels = OrderedDict()
+    l_ylevels_diff_pred = OrderedDict()
     for level in levels:
-        l_y1 = l_xlevels[level]
-        l_y1_diff_pred = BilinearLayer([l_y1, l_u], b=None, axis=2)
-        l_y1_next_pred = L.ElemwiseMergeLayer([l_y1, l_y1_diff_pred], T.add)
-        l_x1_next_pred = l_y1_next_pred
-        l_xlevels_next_pred_0[level] = l_x1_next_pred
+        l_ylevel = l_xlevels[level]
+        l_ylevels[level] = l_ylevel
+        l_ylevel_diff_pred = BilinearLayer([l_ylevel, l_u], b=None, axis=2)
+        l_ylevels_diff_pred[level] = l_ylevel_diff_pred
+        l_ylevel_next_pred = L.ElemwiseMergeLayer([l_ylevel, l_ylevel_diff_pred], T.add)
+        l_xlevel_next_pred = l_ylevel_next_pred
+        l_xlevels_next_pred_0[level] = l_xlevel_next_pred
 
     # decoding
     l_xlevels_next_pred = {}
@@ -237,8 +241,8 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None):
         l_xlevels_next_pred[level] = l_xlevel_next_pred
 
     l_x_next_pred = l_xlevels_next_pred[0]
-    l_y = l_y1
-    l_y_diff_pred = l_y1_diff_pred
+    l_y = L.ConcatLayer(l_ylevels.values())
+    l_y_diff_pred = L.ConcatLayer(l_ylevels_diff_pred.values())
 
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
     X_diff_var = T.tensor4('X_diff')
