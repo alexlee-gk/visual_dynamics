@@ -95,10 +95,11 @@ def main():
     import argparse
     from caffe.proto import caffe_pb2 as pb2
     import theano
-    import lasagne
+    import cgt
     import predictor_caffe
     import predictor_theano
     import net_theano
+    import net_cgt
     
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
@@ -116,6 +117,7 @@ def main():
     predictor_bn = predictor_caffe.BilinearNetFeaturePredictor(input_shapes)
     predictor_b = BilinearFeaturePredictor(*input_shapes)
     predictor_tbn = predictor_theano.TheanoNetFeaturePredictor(*net_theano.build_bilinear_net(input_shapes))
+    predictor_cbn = predictor_theano.CgtNetFeaturePredictor(*net_cgt.build_bilinear_net(input_shapes))
 
     # train
     train_file = h5py.File(args.train_hdf5_fname, 'r+')
@@ -126,9 +128,11 @@ def main():
     N = len(X)
     predictor_bn.train(args.train_hdf5_fname, args.val_hdf5_fname, solver_param=pb2.SolverParameter(max_iter=100))
     predictor_tbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
+    predictor_cbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
     predictor_b.train(X, U, Y_dot)
     print "bn train error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
     print "tbn train error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
+    print "cbn train error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
     print "b train error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
 
     # validation
@@ -140,12 +144,16 @@ def main():
     # set parameters of bn to the ones of b and check that their methods return the same outputs
     print "bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
     print "tbn validation error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
+    print "cbn validation error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
     print "b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
     predictor_bn.params['bilinear_fc_outer_yu'][0].data[...] = predictor_b.A.reshape((predictor_b.A.shape[0], -1))
     predictor_bn.params['bilinear_fc_u'][0].data[...] = predictor_b.B
-    predictor_tbn_params = {param.name: param for param in lasagne.layers.get_all_params(predictor_tbn.l_x_next_pred)}
+    predictor_tbn_params = {param.name: param for param in predictor_tbn.get_all_params()}
     predictor_tbn_params['M'].set_value(predictor_b.A.astype(theano.config.floatX))
     predictor_tbn_params['N'].set_value(predictor_b.B.astype(theano.config.floatX))
+    predictor_cbn_params = {param.name: param for param in predictor_cbn.get_all_params()}
+    predictor_cbn_params['bilinear.M'].op.set_value(predictor_b.A.astype(cgt.floatX))
+    predictor_cbn_params['bilinear.N'].op.set_value(predictor_b.B.astype(cgt.floatX))
 
     Y_dot_bn = predictor_bn.predict(X, U)
     Y_dot_tbn = predictor_tbn.predict(X, U)
