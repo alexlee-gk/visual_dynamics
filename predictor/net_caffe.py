@@ -2,6 +2,7 @@ from __future__ import division
 
 import numpy as np
 import copy
+from collections import OrderedDict
 import caffe
 from caffe import layers as L
 from caffe import params as P
@@ -733,180 +734,185 @@ def ImageBilinear(n, image, u, image_shape, u_dim, bilinear_kwargs,
         image_next_pred = L.Concat(y_next_pred, concat_param=dict(axis=1)) # proxy for identity layer
     return image_next_pred
 
-def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, freeze=False, **kwargs):
-    assert len(input_shapes) == 2
-    image0_shape, vel_shape = input_shapes
-    assert len(image0_shape) == 3
-    assert len(vel_shape) == 1
-    image1_shape = (64,  image0_shape[1]//2, image0_shape[2]//2)
-    image2_shape = (128, image1_shape[1]//2, image1_shape[2]//2)
-    image3_shape = (256, image2_shape[1]//2, image2_shape[2]//2)
-    u_dim = vel_shape[0]
+def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, name=''):
+    assert len(bilinear_kwargs['param']) == 3
+    assert axis == 1 or axis == 2
+    fc_outer_yu_kwargs = dict(param=[bilinear_kwargs['param'][0]],
+                              bias_term=False,
+                              weight_filler=bilinear_kwargs['bilinear_filler'])
+    fc_u_kwargs = dict(param=bilinear_kwargs['param'][1:],
+                       weight_filler=bilinear_kwargs['linear_filler'],
+                       bias_filler=bilinear_kwargs['bias_filler'])
+    # y, u -> outer_yu
+    re_y_shape = (0,)*axis + (1, -1) # e.g. (N, 1, CI)  or (N, C, 1, I)
+    re_y = n.tops['bilinear'+name+'_re_y'] = L.Reshape(x, shape=dict(dim=list(re_y_shape)))
+    tile_re_y = n.tops['bilinear'+name+'_tile_re_y'] = L.Tile(re_y, axis=axis, tiles=u_dim) # (N, J, CI)  or (N, C, J, I)
+    re_u_shape = (0,) + (1,)*(axis-1) + (-1, 1) # e.g. (N, J, 1) or (N, 1, J, 1)
+    re_u = n.tops['bilinear'+name+'_re_u'] = L.Reshape(u, shape=dict(dim=list(re_u_shape)))
+    if axis == 1:
+        tile_re_u = n.tops['bilinear'+name+'_tile_re_u'] = L.Tile(re_u, axis=axis+1, tiles=np.prod(x_shape[axis-1:])) # (N, J, CI)
+    else:
+        tile_re_u1 = n.tops['bilinear'+name+'_tile_re_u1'] = L.Tile(re_u, axis=axis+1, tiles=np.prod(x_shape[axis-1:])) # (N, 1, J, I)
+        tile_re_u = n.tops['bilinear'+name+'_tile_re_u'] = L.Tile(tile_re_u1, axis=1, tiles=np.prod(x_shape[0]))  # (N, C, J, I)
+    outer_yu = n.tops['bilinear'+name+'_outer_yu'] = L.Eltwise(tile_re_y, tile_re_u, operation=P.Eltwise.PROD) # e.g. (N, J, CI) or (N, C, J, I)
+    # outer_yu, u -> y_next_pred
+    # bilinear term
+    bilinear_yu = n.tops['bilinear'+name+'_bilinear_yu'] = L.InnerProduct(outer_yu, num_output=np.prod(x_shape[axis-1:]), axis=axis, **fc_outer_yu_kwargs) # e.g. (N, CI) or (N, C, I)
+    # linear and bias terms
+    fc_u = n.tops['bilinear'+name+'_linear_u'] = L.InnerProduct(u, num_output=np.prod(x_shape[axis-1:]), **fc_u_kwargs) # e.g. (N, CI) or (N, I)
+    if axis == 1:
+        linear_u = fc_u
+    else:
+        re_fc_u_shape = (0,) + (1,)*(axis-1) + (np.prod(x_shape[axis-1:]),) # e.g. (N, 1, I)
+        re_fc_u = n.tops['bilinear'+name+'_re_fc_u'] = L.Reshape(fc_u, shape=dict(dim=list(re_fc_u_shape)))
+        linear_u = n.tops['bilinear'+name+'_tile_re_fc_u'] = L.Tile(re_fc_u, axis=1, tiles=x_shape[0]) # e.g. (N, C, I)
+    bilinear_yu_linear_u = n.tops['bilinear'+name+'_bilinear_yu_linear_u'] = L.Eltwise(bilinear_yu, linear_u, operation=P.Eltwise.SUM) # e.g. (N, C, I)
+    x_diff_pred = L.Reshape(bilinear_yu_linear_u, shape=dict(dim=list((0,) + x_shape)))
+    return x_diff_pred
 
-    bilinear_kwargs = dict(param=[dict(lr_mult=1, decay_mult=1),
-                                  dict(lr_mult=1, decay_mult=1),
-                                  dict(lr_mult=0, decay_mult=0)],
-                           bilinear_filler=dict(type='gaussian', std=0.001),
-                           linear_filler=dict(type='gaussian', std=0.001),
-                           bias_filler=dict(type='constant', value=0))
-    bilinear0_kwargs = bilinear1_kwargs = bilinear2_kwargs = bilinear3_kwargs = bilinear_kwargs # TODO deepcopy
-    image0_c = image0_shape[0]
-    image1_c = image1_shape[0]
-    image2_c = image2_shape[0]
-    image3_c = image3_shape[0]
-    conv1_kwargs = conv_kwargs_(image1_c, 3, 1, 1, name='conv1', name_bias='conv1_bias')
-    conv2_kwargs = conv_kwargs_(image2_c, 3, 1, 1, name='conv2', name_bias='conv2_bias')
-    conv3_kwargs = conv_kwargs_(image3_c, 3, 1, 1, name='conv3', name_bias='conv3_bias')
-    pool_kwargs = dict(pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
-    deconv3_kwargs = conv_kwargs_(image2_c, 3, 1, 1)
-    deconv2_kwargs = conv_kwargs_(image1_c, 3, 1, 1)
-    deconv1_kwargs = conv_kwargs_(image0_c, 3, 1, 1)
-    upsample3_kwargs = conv_kwargs_(image2_c, 2, 2, 0)
-    upsample2_kwargs = conv_kwargs_(image1_c, 2, 2, 0)
-    upsample1_kwargs = conv_kwargs_(image0_c, 2, 2, 0)
-    if freeze:
-        conv1_kwargs = conv_kwargs_(image1_c, 3, 1, 1, name='conv1', name_bias='conv1_bias', lr_mult=0, lr_mult_bias=0)
-        conv2_kwargs = conv_kwargs_(image2_c, 3, 1, 1, name='conv2', name_bias='conv2_bias', lr_mult=0, lr_mult_bias=0)
-        conv3_kwargs = conv_kwargs_(image3_c, 3, 1, 1, name='conv3', name_bias='conv3_bias', lr_mult=0, lr_mult_bias=0)
-        if np.sort(levels).tolist() == [2, 3]:
-            bilinear3_kwargs = dict(param=[dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0)],
-                                   bilinear_filler=dict(type='gaussian', std=0.001),
-                                   linear_filler=dict(type='gaussian', std=0.001),
-                                   bias_filler=dict(type='constant', value=0))
-        elif np.sort(levels).tolist() == [1, 2, 3]:
-            bilinear3_kwargs = dict(param=[dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0)],
-                                   bilinear_filler=dict(type='gaussian', std=0.001),
-                                   linear_filler=dict(type='gaussian', std=0.001),
-                                   bias_filler=dict(type='constant', value=0))
-            deconv3_kwargs = conv_kwargs_(image2_c, 3, 1, 1, lr_mult=0, lr_mult_bias=0)
-            upsample3_kwargs = conv_kwargs_(image2_c, 2, 2, 0, lr_mult=0, lr_mult_bias=0)
-            bilinear2_kwargs = dict(param=[dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0)],
-                                   bilinear_filler=dict(type='gaussian', std=0.001),
-                                   linear_filler=dict(type='gaussian', std=0.001),
-                                   bias_filler=dict(type='constant', value=0))
-        elif np.sort(levels).tolist() == [0, 1, 2, 3]:
-            bilinear3_kwargs = dict(param=[dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0)],
-                                   bilinear_filler=dict(type='gaussian', std=0.001),
-                                   linear_filler=dict(type='gaussian', std=0.001),
-                                   bias_filler=dict(type='constant', value=0))
-            deconv3_kwargs = conv_kwargs_(image2_c, 3, 1, 1, lr_mult=0, lr_mult_bias=0)
-            upsample3_kwargs = conv_kwargs_(image2_c, 2, 2, 0, lr_mult=0, lr_mult_bias=0)
-            bilinear2_kwargs = dict(param=[dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0)],
-                                   bilinear_filler=dict(type='gaussian', std=0.001),
-                                   linear_filler=dict(type='gaussian', std=0.001),
-                                   bias_filler=dict(type='constant', value=0))
-            deconv2_kwargs = conv_kwargs_(image1_c, 3, 1, 1, lr_mult=0, lr_mult_bias=0)
-            upsample2_kwargs = conv_kwargs_(image1_c, 2, 2, 0, lr_mult=0, lr_mult_bias=0)
-            bilinear1_kwargs = dict(param=[dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0),
-                                          dict(lr_mult=0, decay_mult=0)],
-                                   bilinear_filler=dict(type='gaussian', std=0.001),
-                                   linear_filler=dict(type='gaussian', std=0.001),
-                                   bias_filler=dict(type='constant', value=0))
-        else:
-            raise
+def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, freeze=False, **kwargs):
+    x_shape, u_shape = input_shapes
+    assert len(x_shape) == 3
+    assert len(u_shape) == 1
+    x_c_dim = x_shape[0]
+    x1_c_dim = 16
+    u_dim = u_shape[0]
+    levels = levels or [3]
+    levels = sorted(set(levels))
 
     n = caffe.NetSpec()
     data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname, shuffle=True)
     if phase is not None:
         data_kwargs.update(dict(include=dict(phase=phase)))
     n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
-    image0 = n.image_curr
-    u = n.vel
+    x, u = n.image_curr, n.vel
 
-    if levels is None:
-        levels = [0, 1, 2, 3]
+    # encoding
+    xlevels = OrderedDict()
+    xlevels_shape = OrderedDict()
+    for level in range(levels[-1]+1):
+        if level == 0:
+            xlevel = x
+            xlevel_shape = x_shape
+        else:
+            if level == 1:
+                xlevelm1_c_dim = x_c_dim
+                xlevel_c_dim = x1_c_dim
+            else:
+                xlevelm1_c_dim = xlevel_c_dim
+                xlevel_c_dim = 2 * xlevelm1_c_dim
+            n.tops['x%d_1'%level] = \
+            xlevel_1 = L.Convolution(xlevels[level-1],
+                                     param=[dict(name='x%d_1.w'%level, lr_mult=1, decay_mult=1),
+                                            dict(name='x%d_1.b'%level, lr_mult=1, decay_mult=1)],
+                                     convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
+                                                            weight_filler=dict(type='gaussian', std=0.01),
+                                                            bias_filler=dict(type='constant', value=0)))
+            n.tops['rx%d_1'%level] = L.ReLU(xlevel_1, in_place=True)
+            n.tops['x%d_2'%level] = \
+            xlevel_2 = L.Convolution(xlevel_1,
+                                     param=[dict(name='x%d_2.w'%level, lr_mult=1, decay_mult=1),
+                                            dict(name='x%d_2.b'%level, lr_mult=1, decay_mult=1)],
+                                     convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
+                                                            weight_filler=dict(type='gaussian', std=0.01),
+                                                            bias_filler=dict(type='constant', value=0)))
+            n.tops['rx%d_2'%level] = L.ReLU(xlevel_2, in_place=True)
+            n.tops['x%d'%level] = \
+            xlevel = L.Pooling(xlevel_2, pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
+            xlevel_shape = (xlevel_c_dim, xlevels_shape[level-1][1]//2, xlevels_shape[level-1][2]//2)
+        xlevels[level] = xlevel
+        xlevels_shape[level] = xlevel_shape
+
+    # bilinear
+    xlevels_next_pred_s0 = OrderedDict() # 0th summand
+    ylevels = OrderedDict()
+    ylevels_diff_pred = OrderedDict()
     for level in levels:
-        if level < 0 or level > 3:
-            raise
+        xlevel, xlevel_shape = xlevels[level], xlevels_shape[level]
+        n.tops['x%d_diff_pred_s0'%level] = \
+        xlevel_diff_pred_s0 = ImageBilinearChannelwise(n, xlevel, u, xlevel_shape, u_dim,
+                                            dict(param=[dict(lr_mult=1, decay_mult=1),
+                                                        dict(lr_mult=1, decay_mult=1),
+                                                        dict(lr_mult=0, decay_mult=0)],
+                                                 bilinear_filler=dict(type='gaussian', std=0.001),
+                                                 linear_filler=dict(type='gaussian', std=0.001),
+                                                 bias_filler=dict(type='constant', value=0)),
+                                            axis=2,
+                                            name=str(level))
+        ylevels[level] = n.tops['y%d'%level] = L.Flatten(xlevel)
+        ylevels_diff_pred[level] = n.tops['y%d_diff_pred'%level] = L.Flatten(xlevel_diff_pred_s0)
+        xlevels_next_pred_s0[level] = n.tops['x%d_next_pred_s0'%level] = L.Eltwise(xlevel, xlevel_diff_pred_s0, operation=P.Eltwise.SUM)
 
-    if np.max(levels) >= 1:
-        image1 = n.pool1 = ConvolutionPooling(n, image0, conv1_kwargs, pool_kwargs, name='1')
-    if np.max(levels) >= 2:
-        image2 = n.pool2 = ConvolutionPooling(n, image1, conv2_kwargs, pool_kwargs, name='2')
-    if np.max(levels) >= 3:
-        image3 = n.pool3 = ConvolutionPooling(n, image2, conv3_kwargs, pool_kwargs, name='3')
+    # decoding
+    xlevels_next_pred = OrderedDict()
+    for level in range(levels[-1]+1)[::-1]:
+        if level == levels[-1]:
+            xlevel_next_pred = xlevels_next_pred_s0[level]
+        else:
+            if level == 0:
+                xlevel_c_dim = xlevelm1_c_dim
+                xlevelm1_c_dim = x_c_dim
+            elif level < levels[-1]-1:
+                xlevel_c_dim = xlevelm1_c_dim
+                xlevelm1_c_dim = xlevel_c_dim // 2
+            n.tops['x%d_next_pred_2'%(level+1)] = \
+            xlevel_next_pred_2 = L.Deconvolution(xlevels_next_pred[level+1],
+                                                 param=[dict(lr_mult=1, decay_mult=1)],
+                                                 convolution_param=dict(num_output=xlevel_c_dim, kernel_size=2, stride=2, pad=0,
+                                                                        group=xlevel_c_dim, bias_term=False,
+                                                                        weight_filler=dict(type='bilinear')))
+            # TODO: nonlinearity needed?
+            n.tops['x%d_next_pred_1'%(level+1)] = \
+            xlevel_next_pred_1 = L.Deconvolution(xlevel_next_pred_2,
+                                                 param=[dict(lr_mult=1, decay_mult=1),
+                                                        dict(lr_mult=1, decay_mult=1)],
+                                                 convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
+                                                                        weight_filler=dict(type='gaussian', std=0.01),
+                                                                        bias_filler=dict(type='constant', value=0)))
+            n.tops['rx%d_next_pred_1'%(level+1)] = L.ReLU(xlevel_next_pred_1, in_place=True)
+            n.tops['x%d_next_pred_s1'%level] = \
+            xlevel_next_pred_s1 = L.Deconvolution(xlevel_next_pred_1,
+                                                  param=[dict(lr_mult=1, decay_mult=1),
+                                                         dict(lr_mult=1, decay_mult=1)],
+                                                  convolution_param=dict(num_output=xlevelm1_c_dim, kernel_size=3, stride=1, pad=1,
+                                                                         weight_filler=dict(type='gaussian', std=0.01),
+                                                                         bias_filler=dict(type='constant', value=0)))
+            if level != 0 or level in xlevels_next_pred_s0:
+                n.tops['rx%d_next_pred_s1'%level] = L.ReLU(xlevel_next_pred_s1, in_place=True)
+            if level in xlevels_next_pred_s0:
+                # sum using fixed coeffs
+                # n.tops['x%d_next_pred'%level] = \
+                # xlevel_next_pred = L.Eltwise(xlevels_next_pred_s0[level], xlevel_next_pred_s1, operation=P.Eltwise.SUM, coeff=[.5, .5])
+                # workaround to sum using learnable coeffs
+                xlevel_shape = xlevels_shape[level]
+                re_xlevel_next_pred_s0 = n.tops['re_x%d_next_pred_s0'%level] = L.Reshape(xlevels_next_pred_s0[level], shape=dict(dim=list((0, 1, -1))))
+                re_xlevel_next_pred_s1 = n.tops['re_x%d_next_pred_s1'%level] = L.Reshape(xlevel_next_pred_s1, shape=dict(dim=list((0, 1, -1))))
+                re_xlevel_next_pred_s01 = n.tops['re_x%d_next_pred_s01'%level] = L.Concat(re_xlevel_next_pred_s0, re_xlevel_next_pred_s1)
+                n.tops['re_x%d_next_pred'%level] = \
+                re_xlevel_next_pred = L.Convolution(re_xlevel_next_pred_s01,
+                                                    param=[dict(lr_mult=1, decay_mult=1)],
+                                                    convolution_param=dict(num_output=1, kernel_size=1, stride=1, pad=0,
+                                                                           bias_term=False,
+                                                                           weight_filler=dict(type='constant', value=0.5),
+                                                                           engine=P.Convolution.CAFFE))
+                xlevel_next_pred = n.tops['re_x%d_next_pred'%level] = L.Reshape(re_xlevel_next_pred, shape=dict(dim=list((0,) + xlevel_shape)))
+            else:
+                n.tops['x%d_next_pred'%level] = n.tops.pop('x%d_next_pred_s1'%level)
+                xlevel_next_pred = xlevel_next_pred_s1
+        xlevels_next_pred[level] = xlevel_next_pred
 
-    y_flat_list = []
-    y_diff_pred_flat_list = []
+    n.image_next_pred = L.TanH(xlevels_next_pred[0])
 
-    # image3_next_pred
-    if 3 in levels:
-        n.image3_next_pred = ImageBilinear(n, image3, u, image3_shape, u_dim, bilinear3_kwargs, name='3')
-        y_flat_list.append(n.y3_flat)
-        y_diff_pred_flat_list.append(n.y3_diff_pred_flat)
-
-    # image2_next_pred
-    image2_next_preds = []
-    if np.max(levels) > 2:
-        n.image2_next_pred_3 = DeconvolutionUpsample(n, n.image3_next_pred, deconv3_kwargs, upsample3_kwargs, name='3')
-        image2_next_preds.append(n.image2_next_pred_3)
-    if 2 in levels:
-        n.image2_next_pred_2 = ImageBilinear(n, image2, u, image2_shape, u_dim, bilinear2_kwargs, name='2')
-        y_flat_list.append(n.y2_flat)
-        y_diff_pred_flat_list.append(n.y2_diff_pred_flat)
-        image2_next_preds.append(n.image2_next_pred_2)
-    if len(image2_next_preds) > 1:
-        image2_next_pred = n.image2_next_pred = L.Eltwise(*image2_next_preds, operation=P.Eltwise.SUM)
-    elif len(image2_next_preds) == 1:
-        image2_next_pred = image2_next_preds[0]
-
-    # image1_next_pred
-    image1_next_preds = []
-    if np.max(levels) > 1:
-        n.image1_next_pred_2 = DeconvolutionUpsample(n, image2_next_pred, deconv2_kwargs, upsample2_kwargs, name='2')
-        image1_next_preds.append(n.image1_next_pred_2)
-    if 1 in levels:
-        n.image1_next_pred_1 = ImageBilinear(n, image1, u, image1_shape, u_dim, bilinear1_kwargs, name='1')
-        y_flat_list.append(n.y1_flat)
-        y_diff_pred_flat_list.append(n.y1_diff_pred_flat)
-        image1_next_preds.append(n.image1_next_pred_1)
-    if len(image1_next_preds) > 1:
-        image1_next_pred = n.image1_next_pred = L.Eltwise(*image1_next_preds, operation=P.Eltwise.SUM)
-    elif len(image1_next_preds) == 1:
-        image1_next_pred = image1_next_preds[0]
-
-    # image0_next_pred
-    image0_next_preds = []
-    if np.max(levels) > 0:
-        n.image0_next_pred_1 = DeconvolutionUpsample(n, image1_next_pred, deconv1_kwargs, upsample1_kwargs, name='1')
-        image0_next_preds.append(n.image0_next_pred_1)
-    if 0 in levels:
-        n.image0_next_pred_0 = ImageBilinear(n, image0, u, image0_shape, u_dim, bilinear0_kwargs, name='0')
-        y_flat_list.append(n.y0_flat)
-        y_diff_pred_flat_list.append(n.y0_diff_pred_flat)
-        image0_next_preds.append(n.image0_next_pred_0)
-    if len(image0_next_preds) > 1:
-        image0_next_pred = n.image0_next_pred = L.Eltwise(*image0_next_preds, operation=P.Eltwise.SUM)
-    elif len(image0_next_preds) == 1:
-        image0_next_pred = image0_next_preds[0]
-
-    n.y = L.Concat(*y_flat_list, concat_param=dict(axis=1))
-    n.y_diff_pred = L.Concat(*y_diff_pred_flat_list, concat_param=dict(axis=1))
-
-    n.image_next_pred = L.TanH(image0_next_pred)
+    n.y = L.Concat(*ylevels.values(), concat_param=dict(axis=1))
+    n.y_diff_pred = L.Concat(*ylevels_diff_pred.values(), concat_param=dict(axis=1))
 
     n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
-#     n.image1_next = ConvolutionPooling(n, image0_next, conv1_kwargs, pool_kwargs, name='conv1_next')
-#     n.image2_next = ConvolutionPooling(n, n.image1_next, conv2_kwargs, pool_kwargs, name='conv2_next')
-#     n.image3_next = ConvolutionPooling(n, n.image2_next, conv3_kwargs, pool_kwargs, name='conv3_next')
 
     n.image0_next_loss = L.EuclideanLoss(n.image_next, n.image_next_pred)
-#     n.image3_next_loss = L.EuclideanLoss(n.image3_next, n.image3_next_pred)
 
     net = n.to_proto()
     if net_name is None:
         net_name = 'FcnActionCondEncoderNet'
-        net_name +='_levels' + ''.join([str(level) for level in np.sort(levels)])
+        net_name +='_levels' + ''.join([str(level) for level in levels])
     net.name = net_name
     return net
