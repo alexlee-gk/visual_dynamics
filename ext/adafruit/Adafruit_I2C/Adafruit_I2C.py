@@ -9,17 +9,28 @@ import smbus
 class Adafruit_I2C(object):
 
   @staticmethod
-  def getTegraI2CBusNumber():
+  def getJetsonVersion():
+    try:
+      with open('/proc/cpuinfo', 'r') as infile:
+        for line in infile:
+          # Match a line of the form "Hardware : jetson-tx1"
+          match = re.match('Hardware\s*:\s+jetson(-|_).*(\w{3})$', line)
+          if match and match.group(2) in ['tk1', 'tx1']:
+            return match.group(2)
+        # Couldn't find the version, assume version tk1
+        return 'tk1'
+    except:
+      return 'tk1'
+
+  @staticmethod
+  def getJetsonI2CBusNumber():
     # Gets the I2C bus number /dev/i2c#
-    return 1
+    return 1 if Adafruit_I2C.getJetsonVersion() == 'tk1' else 0
 
   def __init__(self, address, busnum=-1, debug=False):
     self.address = address
     # By default, the correct I2C bus is auto-detected using /proc/cpuinfo
-    # Alternatively, you can hard-code the bus version below:
-    # self.bus = smbus.SMBus(0); # Force I2C0 (early 256MB Pi's)
-    # self.bus = smbus.SMBus(1); # Force I2C1 (512MB Pi's)
-    self.bus = smbus.SMBus(busnum if busnum >= 0 else Adafruit_I2C.getTegraI2CBusNumber())
+    self.bus = smbus.SMBus(busnum if busnum >= 0 else Adafruit_I2C.getJetsonI2CBusNumber())
     self.debug = debug
 
   def reverseByteOrder(self, data):
