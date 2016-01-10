@@ -181,7 +181,7 @@ def main():
 
                 # visualization
                 if args.visualize or args.output_image_dir:
-                    vis_image, done = util.visualize_images_callback(image, image_next_pred, image_target)
+                    vis_image, done = util.visualize_images_callback(image, image_next_pred, image_target, vis_scale=args.vis_scale)
                     if args.output_image_dir:
                         if vis_image.ndim == 2:
                             output_image = np.concatenate([vis_image]*3, axis=2)
