@@ -115,13 +115,13 @@ class SquareSimulator(object):
 
 
 class DiscreteVelocitySimulator(Simulator):
-    def __init__(self, dof_limits, dof_vel_limits):
+    def __init__(self, dof_limits, dof_vel_limits, dtype=None):
         dof_min, dof_max = dof_limits
         vel_min, vel_max = dof_vel_limits
         assert len(dof_min) == len(dof_max)
         assert len(vel_min) == len(vel_max)
-        self.dof_limits = [np.asarray(dof_limit) for dof_limit in dof_limits]
-        self.dof_vel_limits = [np.asarray(dof_vel_limit) for dof_vel_limit in dof_vel_limits]
+        self.dof_limits = [np.asarray(dof_limit, dtype=dtype) for dof_limit in dof_limits]
+        self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=dtype) for dof_vel_limit in dof_vel_limits]
         self._dof_values = np.mean(self.dof_limits, axis=0)
 
     @property
@@ -224,7 +224,7 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         """
         DOFs are pan, tilt
         """
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
         ScaleCropImageSimulator.__init__(self, image_scale=image_scale, crop_size=crop_size)
         # camera initialization
         import pygame.camera
