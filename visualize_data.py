@@ -7,29 +7,17 @@ import util
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('file', type=str)
-    parser.add_argument('--rescale_factor', type=int, default=10)
-    parser.add_argument('--draw_vel', type=int, default=0)
+    parser.add_argument('hdf5_fname', type=str)
+    parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
 
     args = parser.parse_args()
 
-    f = h5py.File(args.file, 'r+')
-
-    cv2.namedWindow("Image window", 1)
-
-    for i, (image_curr_data, vel_data, image_diff_data, image_next_data) in enumerate(zip(f['image_curr'], f['vel'], f['image_diff'], f['image_next'])):
-        try:
-            image_curr_data = (image_curr_data + 1.0) / 2.0
-            image_diff_data = image_diff_data / 2.0
-            vis_image = util.create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=args.rescale_factor, draw_vel=args.draw_vel)
-
-            cv2.imshow("Image window", vis_image)
-            key = cv2.waitKey(0)
-            key &= 255
-            if key == 27 or key == ord('q'):
+    with h5py.File(args.hdf5_fname, 'r') as hdf5_file:
+        for image_curr, vel, image_diff in zip(hdf5_file['image_curr'], hdf5_file['vel'], hdf5_file['image_diff']):
+            image_next = image_curr + image_diff
+            vis_image, done = util.visualize_images_callback(image_curr, image_next, vis_scale=args.vis_scale, delay=0)
+            if done:
                 break
-        except KeyboardInterrupt:
-            break
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":

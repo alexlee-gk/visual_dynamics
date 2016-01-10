@@ -133,14 +133,7 @@ def main():
 
                 # visualization
                 if args.visualize:
-                    vis_image = util.resize_from_scale(((image.transpose(1, 2, 0) + 1.0) * 255./2.0).astype(np.uint8), args.vis_scale)
-                    cv2.imshow("Image window", vis_image)
-                    key = cv2.waitKey(100)
-                    key &= 255
-                    if key == 27 or key == ord('q'):
-                        print "Pressed ESC or q, exiting"
-                        done = True
-                        break
+                    vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
             if done:
                 break
         except KeyboardInterrupt:
