@@ -58,30 +58,42 @@ def main():
     parser.add_argument('--visualize', '-v', type=int, default=0)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
     parser.add_argument('--image_size', type=int, nargs=2, default=[64, 64], metavar=('HEIGHT', 'WIDTH'))
-    parser.add_argument('--simulator', '-s', type=str, default='ogre', choices=('square', 'ogre'))
+    parser.add_argument('--simulator', '-s', type=str, default='ogre', choices=('square', 'ogre', 'servo'))
     # square simulator
     parser.add_argument('--abs_vel_max', type=float, default=1.0)
     parser.add_argument('--square_length', '-l', type=int, default=1, help='required to be odd')
     # ogre simulator
-    parser.add_argument('--dof_min', type=float, nargs='+', default=[18, 2, -6, np.deg2rad(-20), np.deg2rad(-20)])
-    parser.add_argument('--dof_max', type=float, nargs='+', default=[24, 6, -2, np.deg2rad(20), np.deg2rad(20)])
-    parser.add_argument('--vel_min', type=float, nargs='+', default=[-0.8]*3 + [np.deg2rad(-7.5)]*2)
-    parser.add_argument('--vel_max', type=float, nargs='+', default=[0.8]*3 + [np.deg2rad(7.5)]*2)
+    parser.add_argument('--dof_min', type=float, nargs='+', default=None)
+    parser.add_argument('--dof_max', type=float, nargs='+', default=None)
+    parser.add_argument('--vel_min', type=float, nargs='+', default=None)
+    parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--dof', type=int, default=5)
     parser.add_argument('--image_scale', '-f', type=float, default=0.15)
 
     args = parser.parse_args()
-    args.dof_min = np.asarray(args.dof_min[:args.dof])
-    args.dof_max = np.asarray(args.dof_max[:args.dof])
-    args.vel_min = np.asarray(args.vel_min[:args.dof])
-    args.vel_max = np.asarray(args.vel_max[:args.dof])
-
+    if args.simulator == 'ogre':
+        args.dof_min = args.dof_min or [18, 2, -6, np.deg2rad(-20), np.deg2rad(-20)]
+        args.dof_max = args.dof_max or [24, 6, -2, np.deg2rad(20), np.deg2rad(20)]
+        args.vel_min = args.vel_min or [-0.8]*3 + [np.deg2rad(-7.5)]*2
+        args.vel_max = args.vel_max or [0.8]*3 + [np.deg2rad(7.5)]*2
+        args.dof_min = args.dof_min[:args.dof]
+        args.dof_max = args.dof_max[:args.dof]
+        args.vel_min = args.vel_min[:args.dof]
+        args.vel_max = args.vel_max[:args.dof]
+    else:
+        args.dof_min = args.dof_min or (170, 220)
+        args.dof_max = args.dof_max or (670, 560)
+        args.vel_min = args.vel_min or (-50, -50)
+        args.vel_max = args.vel_max or (50, 50)
 
     if args.simulator == 'square':
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.abs_vel_max)
-    elif args.simulator== 'ogre':
+    elif args.simulator == 'ogre':
         sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                       image_scale=args.image_scale, crop_size=args.image_size)
+                                      image_scale=args.image_scale, crop_size=args.image_size)
+    elif args.simulator == 'servo':
+        sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                      image_scale=args.image_scale, crop_size=args.image_size)
     else:
         raise
     ctrl = controller.RandomController(*sim.action_bounds)
@@ -89,7 +101,7 @@ def main():
         sim_args = dict(image_size=args.image_size, simulator=args.simulator)
         if args.simulator == 'square':
             sim_args.update(dict(abs_vel_max=args.abs_vel_max, square_length=args.square_length))
-        elif args.simulator== 'ogre':
+        elif args.simulator == 'ogre' or args.simulator == 'servo':
             sim_args.update(dict(dof_min=args.dof_min, dof_max=args.dof_max,
                                  vel_min=args.vel_min, vel_max=args.vel_max,
                                  image_scale=args.image_scale))
