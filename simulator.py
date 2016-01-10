@@ -227,11 +227,12 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
         ScaleCropImageSimulator.__init__(self, image_scale=image_scale, crop_size=crop_size)
         # camera initialization
-        self.cap = cv2.VideoCapture(camera_id)
-        if not self.cap.isOpened():
-            self.cap.open()
+        import pygame.camera
+        pygame.camera.init()
+        self.cam = pygame.camera.Camera("/dev/video0", (640, 480))
+        self.cam.start()
         for _ in range(warmup_frames):
-            self.cap.read()
+            self.cam.get_image()
         # servos initialization
         from ext.adafruit.Adafruit_PWM_Servo_Driver.Adafruit_PWM_Servo_Driver import PWM
         self.pwm = PWM(pwm_address)
@@ -239,7 +240,7 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         self.pwm_channels = pwm_channels
 
     def __del__(self):
-        self.cap.release()
+        self.cam.stop()
 
     @DiscreteVelocitySimulator.dof_values.setter
     def dof_values(self, next_dof_values):
@@ -251,9 +252,10 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         time.sleep(.5)
 
     def observe(self):
-        success, image = self.cap.read()
-        if not success:
-            raise RuntimeError("Could not read the image from the capture device")
+        import pygame
+        image = self.cam.get_image()
+        image = pygame.surfarray.array3d(image).transpose(1, 0, 2)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         return self._scale_crop(image)
 
 
