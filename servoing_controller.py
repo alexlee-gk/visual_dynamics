@@ -26,7 +26,7 @@ def main():
     parser.add_argument('--constrained', type=int, default=1, help='net parameter')
     parser.add_argument('--levels', type=int, nargs='+', default=[3], help='net parameter')
     parser.add_argument('--freeze', type=int, default=0, help='net parameter')
-    parser.add_argument('--postfix', type=str, default='')
+    parser.add_argument('--postfix', type=str, default=None)
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
@@ -49,6 +49,8 @@ def main():
 
     if args.val_hdf5_fname is None:
         args.val_hdf5_fname = args.train_hdf5_fname.replace('train', 'val')
+    if args.postfix is None:
+        args.postfix = os.path.basename(args.train_hdf5_fname).split('_')[0]
 
     # use sim args of the validation data
     with h5py.File(args.val_hdf5_fname, 'r') as hdf5_file:
