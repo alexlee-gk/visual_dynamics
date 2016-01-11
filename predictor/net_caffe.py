@@ -877,7 +877,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                   convolution_param=dict(num_output=xlevelm1_c_dim, kernel_size=3, stride=1, pad=1,
                                                                          weight_filler=dict(type='gaussian', std=0.01),
                                                                          bias_filler=dict(type='constant', value=0)))
-            if level != 0 or level in xlevels_next_pred_s0:
+            if level != 0: # or level in xlevels_next_pred_s0:
                 n.tops['rx%d_next_pred_s1'%level] = L.ReLU(xlevel_next_pred_s1, in_place=True)
             if level in xlevels_next_pred_s0:
                 # sum using fixed coeffs
