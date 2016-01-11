@@ -36,7 +36,7 @@ def main():
         time.sleep(1)
         if args.visualize:
             image = sim.observe()
-            vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
+            vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale, delay=0)
             if done:
                 break
 
@@ -48,7 +48,7 @@ def main():
         while np.any(action):
             if args.visualize:
                 image = sim.observe()
-                vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
+                vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale, delay=0)
                 if done:
                     break
             action = sim.apply_action(action)
