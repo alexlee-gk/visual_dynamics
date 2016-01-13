@@ -2,6 +2,7 @@ from __future__ import division
 
 import time
 import numpy as np
+import threading
 import cv2
 
 def axis2quat(axis, angle):
@@ -217,6 +218,32 @@ class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         return self._scale_crop(image)
 
 
+class VideoCaptureThread(threading.Thread):
+    def __init__(self, camera_id, warmup_frames=0):
+        threading.Thread.__init__(self)
+        self.cap = cv2.VideoCapture(camera_id)
+        self.warmup_frames = warmup_frames
+        self.image = None
+        self._done = False
+
+    def run(self):
+        while not self._done and self.cap.isOpened():
+            success, image = self.cap.read()
+            if not success:
+                raise RuntimeError("Could not read the image from the capture device")
+            if self.warmup_frames > 0:
+                self.warmup_frames -= 1
+            self.image = image
+        self._done = True
+
+    def stop(self):
+        self.cap.release()
+        self._done = True
+
+    def ready(self):
+        return self.image is not None and self.warmup_frames == 0
+
+
 class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
     def __init__(self, dof_limits, dof_vel_limits,
                  image_scale=None, crop_size=None,
@@ -227,37 +254,41 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
         ScaleCropImageSimulator.__init__(self, image_scale=image_scale, crop_size=crop_size)
         # camera initialization
-        import pygame.camera
-        pygame.camera.init()
-        self.cam = pygame.camera.Camera("/dev/video0", (640, 480))
-        self.cam.start()
-        for _ in range(warmup_frames):
-            self.cam.get_image()
+        self.cap_thread = VideoCaptureThread(camera_id, warmup_frames=warmup_frames)
+        self.cap_thread.start()
+        while not self.cap_thread.ready():
+            print "Capture device not ready, waiting..."
+            time.sleep(.1)
         # servos initialization
-        from ext.adafruit.Adafruit_PWM_Servo_Driver.Adafruit_PWM_Servo_Driver import PWM
-        self.pwm = PWM(pwm_address)
-        self.pwm.setPWMFreq(pwm_freq)
-        self.pwm_channels = pwm_channels
+        try:
+            from ext.adafruit.Adafruit_PWM_Servo_Driver.Adafruit_PWM_Servo_Driver import PWM
+            self.pwm = PWM(pwm_address)
+            self.pwm.setPWMFreq(pwm_freq)
+            self.pwm_channels = pwm_channels
+            self.use_pwm = True
+        except:
+            self.use_pwm = False
+            print "Exception when using pwm. Disabling it."
 
     def __del__(self):
-        self.cam.stop()
+        self.cap_thread.stop()
+        self.cap_thread.join()
 
     @DiscreteVelocitySimulator.dof_values.setter
     def dof_values(self, next_dof_values):
         assert self._dof_values is None or self._dof_values.shape == next_dof_values.shape
         next_dof_values = np.round(next_dof_values).astype(np.int)
         self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
-        for channel, dof_value in zip(self.pwm_channels, self._dof_values):
-            self.pwm.setPWM(channel, 0, dof_value)
+        if self.use_pwm:
+            for channel, dof_value in zip(self.pwm_channels, self._dof_values):
+                self.pwm.setPWM(channel, 0, dof_value)
         time.sleep(.5)
 
-    def observe(self):
-        import pygame
-        image = self.cam.get_image()
-        image = pygame.surfarray.array3d(image).transpose(1, 0, 2)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        return self._scale_crop(image)
+    def apply_action(self, vel):
+        return super(ServoPlatform, self).apply_action(np.round(vel).astype(np.int))
 
+    def observe(self):
+        return self._scale_crop(self.cap_thread.image)
 
 class PR2HeadSimulator(Simulator):
     def __init__(self, robot, vel_max):
