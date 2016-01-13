@@ -135,7 +135,10 @@ def main():
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
     elif args.simulator== 'ogre':
         sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                       image_scale=args.image_scale, crop_size=args.image_size)
+                                      image_scale=args.image_scale, crop_size=args.image_size)
+    elif args.simulator == 'servo':
+        sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                      image_scale=args.image_scale, crop_size=args.image_size)
     elif args.simulator == 'none':
         with h5py.File(args.val_hdf5_fname, 'r') as hdf5_file:
             for image_curr, vel, image_diff in zip(hdf5_file['image_curr'], hdf5_file['vel'], hdf5_file['image_diff']):
