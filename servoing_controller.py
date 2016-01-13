@@ -112,10 +112,17 @@ def main():
                               num_downsample=args.num_downsample)
             net_func = getattr(net_caffe, args.predictor)
             net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
-            feature_predictor = predictor_caffe.CaffeNetFeaturePredictor(net_func_with_kwargs,
-                                                                         input_shapes,
-                                                                         pretrained_file=args.pretrained_fname,
-                                                                         postfix=args.postfix)
+            if args.predictor == 'fcn_action_cond_encoder_net':
+                feature_predictor = predictor_caffe.FcnActionCondEncoderNetFeaturePredictor(net_func_with_kwargs,
+                                                                                            input_shapes,
+                                                                                            pretrained_file=args.pretrained_fname,
+                                                                                            postfix=args.postfix)
+            else:
+                feature_predictor = predictor_caffe.CaffeNetFeaturePredictor(net_func_with_kwargs,
+                                                                             input_shapes,
+                                                                             pretrained_file=args.pretrained_fname,
+                                                                             postfix=args.postfix)
+
         solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
                                            base_lr=0.001, gamma=0.99,
                                            momentum=0.9, momentum2=0.999,
