@@ -23,7 +23,7 @@ class RandomController(Controller):
 
 
 class ServoingController(Controller):
-    def __init__(self, feature_predictor, alpha=1.0, vel_max=1.0, lambda_=0.0):
+    def __init__(self, feature_predictor, alpha=1.0, vel_max=None, lambda_=0.0):
         self.predictor = feature_predictor
         self.alpha = alpha
         self.lambda_ = lambda_
@@ -46,7 +46,8 @@ class ServoingController(Controller):
             u = np.zeros(self.predictor.u_shape)
 
         vel = u
-        vel = np.clip(vel, -self.vel_max, self.vel_max)
+        if self.vel_max is not None:
+            vel = np.clip(vel, -self.vel_max, self.vel_max)
         return vel
 
     @property
