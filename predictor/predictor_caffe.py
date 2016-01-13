@@ -272,7 +272,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
 
     def get_model_dir(self):
         model_dir = predictor.FeaturePredictor.get_model_dir(self)
-        model_dir = os.path.join(model_dir, 'caffe', self.net_name + self.postfix)
+        model_dir = os.path.join(model_dir, 'caffe', self.net_name + '_' + self.postfix)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
         return model_dir

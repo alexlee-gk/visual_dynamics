@@ -141,8 +141,8 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None):
 
     # bilinear
     Xlevels_next_pred_0 = {}
-    Ylevels = {}
-    Ylevels_diff_pred = {}
+    Ylevels = OrderedDict()
+    Ylevels_diff_pred = OrderedDict()
     for level in levels:
         Xlevel = Xlevels[level]
         Xlevel_diff_pred = Bilinear(input_shapes, b=None, axis=2, name='bilinear%d'%level)(Xlevel, U)
@@ -174,6 +174,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None):
             if level in Xlevels_next_pred_0:
                 coefs = nn.parameter(nn.init_array(nn.Constant(0.5), (2,)), name='sum%d.coef'%level)
                 Xlevel_next_pred = coefs[0] * Xlevel_next_pred + coefs[1] * Xlevels_next_pred_0[level]
+            # TODO: tanh should be after sum
         Xlevels_next_pred[level] = Xlevel_next_pred
 
     X_next_pred = Xlevels_next_pred[0]
