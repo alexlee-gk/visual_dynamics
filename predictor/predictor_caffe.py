@@ -127,6 +127,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         if pretrained_file is not None and not pretrained_file.endswith('.caffemodel'):
             pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.caffemodel'
         CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=self.output_names[0])
+        self.output_names = [name for name in self.output_names if name in self.blobs]
 
         self.add_blur_weights(self.params) # TODO: better way to do this?
 
@@ -195,6 +196,11 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         if val_hdf5_fname is not None:
             self.val_net = solver.test_nets[0]
 
+    def predict(self, *inputs, **kwargs):
+        if 'prediction_name' in kwargs and kwargs['prediction_name'] not in self.blobs:
+            kwargs['prediction_name'] = kwargs['prediction_name'].replace('image', 'x0')
+        return super(CaffeNetFeaturePredictor, self).predict(*inputs, **kwargs)
+
     def jacobian_control(self, X, U):
         return self.jacobian(self.inputs[1], X, U)
 
@@ -215,7 +221,13 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         if not batch:
             Y = np.squeeze(Y, axis=0)
         return Y
-    
+
+    def preprocess_input(self, X):
+        if 'x0' in self.blobs:
+            return self.feature_from_input(X, output_name='x0')
+        else:
+            return X
+
     def add_default_parameters(self, solver_param, val_net=True):
         if not solver_param.train_net:
             train_val_fname = self.get_model_fname('train_val')

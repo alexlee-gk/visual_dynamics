@@ -770,12 +770,10 @@ def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, n
     x_diff_pred = L.Reshape(bilinear_yu_linear_u, shape=dict(dim=list((0,) + x_shape)))
     return x_diff_pred
 
-def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, freeze=False, **kwargs):
+def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, **kwargs):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
-    x_c_dim = x_shape[0]
-    x1_c_dim = 16
     u_dim = u_shape[0]
     levels = levels or [3]
     levels = sorted(set(levels))
@@ -787,16 +785,30 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
     n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     x, u = n.image_curr, n.vel
 
+    # preprocess
+    x0 = x
+    x0_shape = x_shape
+    for i_ds in range(num_downsample):
+        n.tops['x0_ds%d'%(i_ds+1)] = \
+        x0 = L.Convolution(x0,
+                           param=[dict(lr_mult=0, decay_mult=0)],
+                           convolution_param=dict(num_output=x0_shape[0], kernel_size=2, stride=2, pad=0,
+                                                  group=x0_shape[0], bias_term=False,
+                                                  weight_filler=dict(type='bilinear')))
+        x0_shape = (x0_shape[0], x0_shape[1]//2, x0_shape[2]//2)
+    if num_downsample > 0:
+        n.x0 = n.tops.pop('x0_ds%d'%num_downsample)
+
     # encoding
     xlevels = OrderedDict()
     xlevels_shape = OrderedDict()
     for level in range(levels[-1]+1):
         if level == 0:
-            xlevel = x
-            xlevel_shape = x_shape
+            xlevel = x0
+            xlevel_shape = x0_shape
         else:
             if level == 1:
-                xlevelm1_c_dim = x_c_dim
+                xlevelm1_c_dim = x0_shape[0]
                 xlevel_c_dim = x1_c_dim
             else:
                 xlevelm1_c_dim = xlevel_c_dim
@@ -843,6 +855,10 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         ylevels_diff_pred[level] = n.tops['y%d_diff_pred'%level] = L.Flatten(xlevel_diff_pred_s0)
         xlevels_next_pred_s0[level] = n.tops['x%d_next_pred_s0'%level] = L.Eltwise(xlevel, xlevel_diff_pred_s0, operation=P.Eltwise.SUM)
 
+    # features
+    n.y = L.Concat(*ylevels.values(), concat_param=dict(axis=1))
+    n.y_diff_pred = L.Concat(*ylevels_diff_pred.values(), concat_param=dict(axis=1))
+
     # decoding
     xlevels_next_pred = OrderedDict()
     for level in range(levels[-1]+1)[::-1]:
@@ -850,8 +866,8 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
             xlevel_next_pred = xlevels_next_pred_s0[level]
         else:
             if level == 0:
-                xlevel_c_dim = xlevelm1_c_dim
-                xlevelm1_c_dim = x_c_dim
+                xlevel_c_dim = x1_c_dim
+                xlevelm1_c_dim = x0_shape[0]
             elif level < levels[-1]-1:
                 xlevel_c_dim = xlevelm1_c_dim
                 xlevelm1_c_dim = xlevel_c_dim // 2
@@ -901,18 +917,32 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                 xlevel_next_pred = xlevel_next_pred_s1
         xlevels_next_pred[level] = xlevel_next_pred
 
-    n.image_next_pred = L.TanH(xlevels_next_pred[0])
+    x_next_pred = n.image_next_pred = L.TanH(xlevels_next_pred[0])
+    x0_next_pred = x_next_pred
+    if num_downsample > 0:
+        n.x0_next_pred = n.tops.pop('image_next_pred') # for consistent name (i.e. all image or all x0)
 
-    n.y = L.Concat(*ylevels.values(), concat_param=dict(axis=1))
-    n.y_diff_pred = L.Concat(*ylevels_diff_pred.values(), concat_param=dict(axis=1))
+    x_next = n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
 
-    n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
+    # preprocess
+    x0_next = x_next
+    for i_ds in range(num_downsample):
+        n.tops['x0_next_ds%d'%(i_ds+1)] = \
+        x0_next = L.Convolution(x0_next,
+                                param=[dict(lr_mult=0, decay_mult=0)],
+                                convolution_param=dict(num_output=x0_shape[0], kernel_size=2, stride=2, pad=0,
+                                                       group=x0_shape[0], bias_term=False,
+                                                       weight_filler=dict(type='bilinear')))
+    if num_downsample > 0:
+        n.x0_next = n.tops.pop('x0_next_ds%d'%num_downsample)
 
-    n.image0_next_loss = L.EuclideanLoss(n.image_next, n.image_next_pred)
+    n.x0_next_loss = L.EuclideanLoss(x0_next, x0_next_pred)
 
     net = n.to_proto()
     if net_name is None:
         net_name = 'FcnActionCondEncoderNet'
         net_name +='_levels' + ''.join([str(level) for level in levels])
+        net_name += '_x1cdim' + str(x1_c_dim)
+        net_name += '_numds' + str(num_downsample)
     net.name = net_name
     return net

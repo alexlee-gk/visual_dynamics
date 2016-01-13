@@ -25,7 +25,8 @@ def main():
     parser.add_argument('--y2_dim', type=int, help='net parameter')
     parser.add_argument('--constrained', type=int, default=1, help='net parameter')
     parser.add_argument('--levels', type=int, nargs='+', default=[3], help='net parameter')
-    parser.add_argument('--freeze', type=int, default=0, help='net parameter')
+    parser.add_argument('--x1_c_dim', '--x1cdim', type=int, default=16, help='net parameter')
+    parser.add_argument('--num_downsample', '--numds', type=int, default=0, help='net parameter')
     parser.add_argument('--postfix', type=str, default=None)
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
@@ -107,7 +108,8 @@ def main():
                               y2_dim=args.y2_dim,
                               constrained=args.constrained,
                               levels=args.levels,
-                              freeze=args.freeze)
+                              x1_c_dim=args.x1_c_dim,
+                              num_downsample=args.num_downsample)
             net_func = getattr(net_caffe, args.predictor)
             net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
             feature_predictor = predictor_caffe.CaffeNetFeaturePredictor(net_func_with_kwargs,
@@ -137,10 +139,12 @@ def main():
     elif args.simulator == 'none':
         with h5py.File(args.val_hdf5_fname, 'r') as hdf5_file:
             for image_curr, vel, image_diff in zip(hdf5_file['image_curr'], hdf5_file['vel'], hdf5_file['image_diff']):
-                image_next = image_curr + image_diff
                 image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
-                image_pred_error = (image_next_pred - image_next)/2.0
                 if args.visualize:
+                    image_next = image_curr + image_diff
+                    image_curr = feature_predictor.preprocess_input(image_curr)
+                    image_next = feature_predictor.preprocess_input(image_next)
+                    image_pred_error = (image_next_pred - image_next)/2.0
                     vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
                     if done:
                         break
@@ -183,7 +187,10 @@ def main():
 
                 # visualization
                 if args.visualize or args.output_image_dir:
-                    vis_image, done = util.visualize_images_callback(image, image_next_pred, image_target, vis_scale=args.vis_scale)
+                    vis_image, done = util.visualize_images_callback(feature_predictor.preprocess_input(image),
+                                                                     image_next_pred,
+                                                                     feature_predictor.preprocess_input(image_target),
+                                                                     vis_scale=args.vis_scale, delay=100)
                     if args.output_image_dir:
                         if vis_image.ndim == 2:
                             output_image = np.concatenate([vis_image]*3, axis=2)
@@ -194,9 +201,9 @@ def main():
                     if done:
                         break
             image = sim.observe()
-            image_pred_error = np.linalg.norm(image_next_pred - image)
+            image_pred_error = np.linalg.norm(image_next_pred - feature_predictor.preprocess_input(image))
             image_pred_errors.append(image_pred_error)
-            image_error = np.linalg.norm(image_target - image)
+            image_error = np.linalg.norm(feature_predictor.preprocess_input(image_target) - feature_predictor.preprocess_input(image))
             image_errors.append(image_error)
             dof_values = sim.state
             pos_error = np.linalg.norm(dof_values_target[:3] - dof_values[:3])

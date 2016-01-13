@@ -12,7 +12,7 @@ class FeaturePredictor(object):
     """
     def __init__(self, x_shape, u_shape, input_names=None, output_names=None, net_name=None, postfix=None):
         self.input_names = input_names or ['image_curr', 'vel']
-        self.output_names = output_names or ['y_diff_pred', 'y', 'image_next_pred']
+        self.output_names = output_names or ['y_diff_pred', 'y', 'image_next_pred', 'x0_next_pred'] # ok if some of these don't exist
         self.x_shape = x_shape
         self.u_shape = u_shape
         self.net_name = net_name
@@ -29,6 +29,9 @@ class FeaturePredictor(object):
     
     def feature_from_input(self, X):
         raise NotImplementedError
+
+    def preprocess_input(self, X):
+        return X
     
     def copy_from(self, params_fname):
         raise NotImplementedError
