@@ -321,10 +321,20 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
                 xlevel_c_dim = xlevel.shape[0]
                 y_dim = np.prod(xlevel.shape[1:])
                 u_dim, = self.u_shape
-                A = self.params['bilinear%d_bilinear_yu'%level][0].data.reshape((y_dim, u_dim, y_dim))
-                B = self.params['bilinear%d_linear_u'%level][0].data
-                c = self.params['bilinear%d_linear_u'%level][1].data
-                jaclevel = (np.einsum("kji,ci->ckj", A, xlevel.reshape((xlevel_c_dim, y_dim))) + B + c[:, None]).reshape(xlevel_c_dim * y_dim, u_dim)
+                if 'bilinear%d_bilinear_yu'%level in self.params: # shared weights
+                    A = self.params['bilinear%d_bilinear_yu'%level][0].data.reshape((y_dim, u_dim, y_dim))
+                    jaclevel = np.einsum("kji,ci->ckj", A, xlevel.reshape((xlevel_c_dim, y_dim)))
+                else:
+                    A = np.asarray([self.params['bilinear%d_bilinear_yu_%d'%(level, channel)][0].data for channel in range(xlevel_c_dim)]).reshape((xlevel_c_dim, y_dim, u_dim, y_dim))
+                    jaclevel = np.einsum("ckji,ci->ckj", A, xlevel.reshape((xlevel_c_dim, y_dim)))
+                if 'bilinear%d_linear_u'%level in self.params: # shared weights
+                    B = self.params['bilinear%d_linear_u'%level][0].data
+                    c = self.params['bilinear%d_linear_u'%level][1].data
+                else:
+                    B = np.asarray([self.params['bilinear%d_linear_u_%d'%(level, channel)][0].data for channel in range(xlevel_c_dim)])
+                    c = np.asarray([self.params['bilinear%d_linear_u_%d'%(level, channel)][1].data for channel in range(xlevel_c_dim)])
+                jaclevel += B + c[..., None]
+                jaclevel = jaclevel.reshape(xlevel_c_dim * y_dim, u_dim)
                 jaclevels.append(jaclevel)
             y = np.concatenate(ylevels)
             assert np.allclose(y, self.feature_from_input(X)) # make sure the order of features in the hierarchy are consistent
