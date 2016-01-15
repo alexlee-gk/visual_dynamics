@@ -57,6 +57,8 @@ def main():
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=0)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
+    parser.add_argument('--background_window', '-b', action='store_true')
+    parser.add_argument('--background_window_size', type=int, nargs='+', default=[5, 8], metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--image_size', type=int, nargs=2, default=[64, 64], metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--simulator', '-s', type=str, default='ogre', choices=('square', 'ogre', 'servo'))
     # square simulator
@@ -111,11 +113,25 @@ def main():
     else:
         collector = None
 
+    if args.background_window:
+        cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
+        cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.cv.CV_WINDOW_FULLSCREEN)
+
     done = False
     for traj_iter in range(args.num_trajs):
         if traj_iter%10 == 0:
             print traj_iter, traj_iter
         try:
+            if args.background_window:
+                background_shape = (np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[0]+1),
+                                    np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[1]+1))
+                cv2.imshow("Background window", (np.ones(background_shape)[..., None] * np.random.random(3)[None, None, :]))
+                key = cv2.waitKey(1)
+                key &= 255
+                if key == 27 or key == ord('q'):
+                    print "Pressed ESC or q, exiting"
+                    done = True
+                    break
             pos_init = sim.sample_state()
             sim.reset(pos_init)
             for step_iter in range(args.num_steps):
