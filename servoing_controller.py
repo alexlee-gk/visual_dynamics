@@ -207,6 +207,7 @@ def main():
                         else:
                             output_image = vis_image
                         image_fname = feature_predictor.net_name + feature_predictor.postfix + '_%04d.png'%iter_
+                        iter_ += 1
                         cv2.imwrite(os.path.join(args.output_image_dir, image_fname), output_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                     if done:
                         break
@@ -260,7 +261,6 @@ def main():
                 break
         except KeyboardInterrupt:
             break
-        iter_ += 1
 
     if args.visualize:
         cv2.destroyAllWindows()
