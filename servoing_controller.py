@@ -27,6 +27,7 @@ def main():
     parser.add_argument('--levels', type=int, nargs='+', default=[3], help='net parameter')
     parser.add_argument('--x1_c_dim', '--x1cdim', type=int, default=16, help='net parameter')
     parser.add_argument('--num_downsample', '--numds', type=int, default=0, help='net parameter')
+    parser.add_argument('--share_bilinear_weights', '--share', type=int, default=0, help='net parameter')
     parser.add_argument('--postfix', type=str, default=None)
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
@@ -109,7 +110,8 @@ def main():
                               constrained=args.constrained,
                               levels=args.levels,
                               x1_c_dim=args.x1_c_dim,
-                              num_downsample=args.num_downsample)
+                              num_downsample=args.num_downsample,
+                              share_bilinear_weights=args.share_bilinear_weights)
             net_func = getattr(net_caffe, args.predictor)
             net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
             if args.predictor == 'fcn_action_cond_encoder_net':
@@ -207,6 +209,7 @@ def main():
                         else:
                             output_image = vis_image
                         image_fname = feature_predictor.net_name + feature_predictor.postfix + '_%04d.png'%iter_
+                        iter_ += 1
                         cv2.imwrite(os.path.join(args.output_image_dir, image_fname), output_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                     if done:
                         break
@@ -260,7 +263,6 @@ def main():
                 break
         except KeyboardInterrupt:
             break
-        iter_ += 1
 
     if args.visualize:
         cv2.destroyAllWindows()

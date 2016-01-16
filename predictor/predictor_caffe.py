@@ -118,7 +118,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         self.postfix = postfix
         self.batch_size = batch_size
 
-        self.deploy_net_param = net_func(input_shapes, batch_size=batch_size)
+        self.deploy_net_param, weight_fillers = net_func(input_shapes, batch_size=batch_size)
         self.deploy_net_param = net_caffe.deploy_net(self.deploy_net_param, self.input_names, input_shapes, self.output_names, batch_size=batch_size)
         self.net_name = str(self.deploy_net_param.name)
         deploy_fname = self.get_model_fname('deploy')
@@ -130,7 +130,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=self.output_names[0])
         self.output_names = [name for name in self.output_names if name in self.blobs]
 
-        self.add_blur_weights(self.params) # TODO: better way to do this?
+        self.set_weight_fillers(self.params, weight_fillers)
 
         self.train_net = None
         self.val_net = None
@@ -151,9 +151,9 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         train_hdf5_txt_fname, val_hdf5_txt_fname = hdf5_txt_fnames
 
         input_shapes = (self.x_shape, self.u_shape)
-        train_net_param = self.net_func(input_shapes, train_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TRAIN)
+        train_net_param, weight_fillers = self.net_func(input_shapes, train_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TRAIN)
         if val_hdf5_fname is not None:
-            val_net_param = self.net_func(input_shapes, val_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TEST)
+            val_net_param, _ = self.net_func(input_shapes, val_hdf5_txt_fname, batch_size, self.net_name, phase=caffe.TEST)
 
         self.train_val_net_param = train_net_param
         if val_hdf5_fname is not None:
@@ -180,7 +180,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
             f.write(str(solver_param))
 
         solver = caffe.get_solver(solver_fname)
-        self.add_blur_weights(solver.net.params)
+        self.set_weight_fillers(solver.net.params, weight_fillers)
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 solver_blob.data[...] = blob.data
@@ -260,15 +260,13 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         # don't change solver_param.solver_mode
 
     @staticmethod
-    def add_blur_weights(params):
-        for param_name, param in params.items():
-            if 'blur' in param_name:
-                assert len(param) == 1
-                blob = param[0]
-                assert blob.data.shape[-1] == blob.data.shape[-2]
-                kernel_size = blob.data.shape[-1]
-                kernel = cv2.getGaussianKernel(kernel_size, -1)
-                blob.data[...] = kernel.dot(kernel.T)
+    def set_weight_fillers(params, weight_fillers):
+        if weight_fillers:
+            for param_name, fillers in weight_fillers.items():
+                param = params.get(param_name)
+                if param:
+                    for blob, filler in zip(param, fillers):
+                        blob.data[...] = filler
 
     def get_model_dir(self):
         model_dir = predictor.FeaturePredictor.get_model_dir(self)
@@ -321,10 +319,20 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
                 xlevel_c_dim = xlevel.shape[0]
                 y_dim = np.prod(xlevel.shape[1:])
                 u_dim, = self.u_shape
-                A = self.params['bilinear%d_bilinear_yu'%level][0].data.reshape((y_dim, u_dim, y_dim))
-                B = self.params['bilinear%d_linear_u'%level][0].data
-                c = self.params['bilinear%d_linear_u'%level][1].data
-                jaclevel = (np.einsum("kji,ci->ckj", A, xlevel.reshape((xlevel_c_dim, y_dim))) + B + c[:, None]).reshape(xlevel_c_dim * y_dim, u_dim)
+                if 'bilinear%d_bilinear_yu'%level in self.params: # shared weights
+                    A = self.params['bilinear%d_bilinear_yu'%level][0].data.reshape((y_dim, u_dim, y_dim))
+                    jaclevel = np.einsum("kji,ci->ckj", A, xlevel.reshape((xlevel_c_dim, y_dim)))
+                else:
+                    A = np.asarray([self.params['bilinear%d_bilinear_yu_%d'%(level, channel)][0].data for channel in range(xlevel_c_dim)]).reshape((xlevel_c_dim, y_dim, u_dim, y_dim))
+                    jaclevel = np.einsum("ckji,ci->ckj", A, xlevel.reshape((xlevel_c_dim, y_dim)))
+                if 'bilinear%d_linear_u'%level in self.params: # shared weights
+                    B = self.params['bilinear%d_linear_u'%level][0].data
+                    c = self.params['bilinear%d_linear_u'%level][1].data
+                else:
+                    B = np.asarray([self.params['bilinear%d_linear_u_%d'%(level, channel)][0].data for channel in range(xlevel_c_dim)])
+                    c = np.asarray([self.params['bilinear%d_linear_u_%d'%(level, channel)][1].data for channel in range(xlevel_c_dim)])
+                jaclevel += B + c[..., None]
+                jaclevel = jaclevel.reshape(xlevel_c_dim * y_dim, u_dim)
                 jaclevels.append(jaclevel)
             y = np.concatenate(ylevels)
             assert np.allclose(y, self.feature_from_input(X)) # make sure the order of features in the hierarchy are consistent

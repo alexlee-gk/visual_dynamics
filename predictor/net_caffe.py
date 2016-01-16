@@ -3,6 +3,7 @@ from __future__ import division
 import numpy as np
 import copy
 from collections import OrderedDict
+import cv2
 import caffe
 from caffe import layers as L
 from caffe import params as P
@@ -56,14 +57,14 @@ def deploy_net(net, inputs, input_shapes, outputs, batch_size=1, force_backward=
     net.input.extend(inputs)
     net.input_shape.extend([pb2.BlobShape(dim=(batch_size,)+shape) for shape in input_shapes])
     net.force_backward = force_backward
-    return net
+    return net, None
 
 def train_val_net(net):
     # remove all layers that are not descendants of loss layers
     loss_layers = [layer for layer in net.layer if layer.name.endswith('loss')]
     exception_layers = [layer for layer in net.layer if 'data' in layer.name]
     remove_non_descendants(net.layer, loss_layers, exception_layers)
-    return net
+    return net, None
 
 def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ApproxBilinearNet', phase=None):
     assert len(input_shapes) == 2
@@ -95,7 +96,7 @@ def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=
 
     net = n.to_proto()
     net.name = net_name
-    return net
+    return net, None
 
 def Bilinear(n, y, u, y_dim, u_dim, name='bilinear', **fc_kwargs):
     re_y = n.tops[name+'_re_y'] = L.Reshape(y, shape=dict(dim=[0, -1, 1]))
@@ -135,7 +136,7 @@ def bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='Biline
 
     net = n.to_proto()
     net.name = net_name
-    return net
+    return net, None
 
 def bilinear_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='BilinearConstrainedNet', phase=None, **kwargs):
     assert len(input_shapes) == 2
@@ -166,7 +167,7 @@ def bilinear_constrained_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_
 
     net = n.to_proto()
     net.name = net_name
-    return net
+    return net, None
 
 def action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ActionCondEncoderNet', phase=None):
     assert len(input_shapes) == 2
@@ -215,7 +216,7 @@ def action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_n
 
     net = n.to_proto()
     net.name = net_name
-    return net
+    return net, None
 
 def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, constrained=True, **kwargs):
     assert len(input_shapes) == 2
@@ -303,7 +304,7 @@ def small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1,
         net_name +='_num_channel' + str(num_channel)
         net_name += '_y2_dim' + str(y2_dim)
     net.name = net_name
-    return net
+    return net, None
 
 def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='DownsampledSmallActionCondEncoderNet', phase=None):
     assert len(input_shapes) == 2
@@ -340,6 +341,10 @@ def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', b
                      weight_filler=dict(type='gaussian', std=0.001),
                      bias_filler=dict(type='constant', value=0))
 
+    weight_fillers = OrderedDict()
+    ds_kernel = cv2.getGaussianKernel(ksize=5, sigma=-1)
+    ds_weight_filler = ds_kernel.dot(ds_kernel.T)
+
     n = caffe.NetSpec()
     data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname)
     if phase is not None:
@@ -348,6 +353,8 @@ def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', b
 
     n.image_curr_ds = L.Convolution(n.image_curr, name='blur_conv1', **blur_conv_kwargs)
     n.image_diff_ds = L.Convolution(n.image_diff, name='blur_conv2', **blur_conv_kwargs)
+    weight_fillers['image_curr_ds'] = [ds_weight_filler]
+    weight_fillers['image_diff_ds'] = [ds_weight_filler]
 
     n.conv1 = L.Convolution(n.image_curr_ds, **conv_kwargs)
     n.relu1 = L.ReLU(n.conv1, name='relu1', in_place=True)
@@ -372,7 +379,7 @@ def downsampled_small_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', b
 
     net = n.to_proto()
     net.name = net_name
-    return net
+    return net, weight_fillers
 
 def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, constrained=True, **kwargs):
     assert len(input_shapes) == 2
@@ -489,7 +496,7 @@ def ladder_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1
         net_name += '_y1_dim' + str(y1_dim)
         net_name += '_y2_dim' + str(y2_dim)
     net.name = net_name
-    return net
+    return net, None
 
 def ladder_conv_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, constrained=True, **kwargs):
     assert len(input_shapes) == 2
@@ -623,7 +630,7 @@ def ladder_conv_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_s
         net_name += '_y1_dim' + str(y1_dim)
         net_name += '_y2_dim' + str(y2_dim)
     net.name = net_name
-    return net
+    return net, None
 
 def ConvolutionPooling(n, image, conv_kwargs, pool_kwargs, name=''):
     conv_1_kwargs = copy.deepcopy(conv_kwargs)
@@ -734,7 +741,7 @@ def ImageBilinear(n, image, u, image_shape, u_dim, bilinear_kwargs,
         image_next_pred = L.Concat(y_next_pred, concat_param=dict(axis=1)) # proxy for identity layer
     return image_next_pred
 
-def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, name=''):
+def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, name='', share_weights=True):
     assert len(bilinear_kwargs['param']) == 3
     assert axis == 1 or axis == 2
     fc_outer_yu_kwargs = dict(param=[bilinear_kwargs['param'][0]],
@@ -756,21 +763,42 @@ def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, n
         tile_re_u = n.tops['bilinear'+name+'_tile_re_u'] = L.Tile(tile_re_u1, axis=1, tiles=np.prod(x_shape[0]))  # (N, C, J, I)
     outer_yu = n.tops['bilinear'+name+'_outer_yu'] = L.Eltwise(tile_re_y, tile_re_u, operation=P.Eltwise.PROD) # e.g. (N, J, CI) or (N, C, J, I)
     # outer_yu, u -> y_next_pred
-    # bilinear term
-    bilinear_yu = n.tops['bilinear'+name+'_bilinear_yu'] = L.InnerProduct(outer_yu, num_output=np.prod(x_shape[axis-1:]), axis=axis, **fc_outer_yu_kwargs) # e.g. (N, CI) or (N, C, I)
-    # linear and bias terms
-    fc_u = n.tops['bilinear'+name+'_linear_u'] = L.InnerProduct(u, num_output=np.prod(x_shape[axis-1:]), **fc_u_kwargs) # e.g. (N, CI) or (N, I)
-    if axis == 1:
-        linear_u = fc_u
+    if share_weights:
+        # bilinear term
+        bilinear_yu = n.tops['bilinear'+name+'_bilinear_yu'] = L.InnerProduct(outer_yu, num_output=np.prod(x_shape[axis-1:]), axis=axis, **fc_outer_yu_kwargs) # e.g. (N, CI) or (N, C, I)
+        # linear and bias terms
+        fc_u = n.tops['bilinear'+name+'_linear_u'] = L.InnerProduct(u, num_output=np.prod(x_shape[axis-1:]), **fc_u_kwargs) # e.g. (N, CI) or (N, I)
+        if axis == 1:
+            linear_u = fc_u
+        else:
+            re_fc_u_shape = (0,) + (1,)*(axis-1) + (np.prod(x_shape[axis-1:]),) # e.g. (N, 1, I)
+            re_fc_u = n.tops['bilinear'+name+'_re_fc_u'] = L.Reshape(fc_u, shape=dict(dim=list(re_fc_u_shape)))
+            linear_u = n.tops['bilinear'+name+'_tile_re_fc_u'] = L.Tile(re_fc_u, axis=1, tiles=x_shape[0]) # e.g. (N, C, I)
+        bilinear_yu_linear_u = n.tops['bilinear'+name+'_bilinear_yu_linear_u'] = L.Eltwise(bilinear_yu, linear_u, operation=P.Eltwise.SUM) # e.g. (N, C, I)
     else:
+        assert axis == 2
+        # bilinear term
+        outer_yu_channels = L.Slice(outer_yu, ntop=x_shape[0], slice_param=dict(axis=1, slice_point=range(1, x_shape[0])))
+        bilinear_yu_channels = []
+        for channel, outer_yu_channel in enumerate(outer_yu_channels):
+            n.tops['bilinear'+name+'_outer_yu_%d'%channel] = outer_yu_channel
+            n.tops['bilinear'+name+'_bilinear_yu_%d'%channel] = \
+            bilinear_yu_channel = L.InnerProduct(outer_yu_channel, num_output=np.prod(x_shape[axis-1:]), axis=axis, **fc_outer_yu_kwargs) # e.g. (N, 1, I)
+            bilinear_yu_channels.append(bilinear_yu_channel)
+        bilinear_yu = n.tops['bilinear'+name+'_bilinear_yu'] = L.Concat(*bilinear_yu_channels, axis=1) # e.g. (N, C, I)
+        # linear and bias terms
         re_fc_u_shape = (0,) + (1,)*(axis-1) + (np.prod(x_shape[axis-1:]),) # e.g. (N, 1, I)
-        re_fc_u = n.tops['bilinear'+name+'_re_fc_u'] = L.Reshape(fc_u, shape=dict(dim=list(re_fc_u_shape)))
-        linear_u = n.tops['bilinear'+name+'_tile_re_fc_u'] = L.Tile(re_fc_u, axis=1, tiles=x_shape[0]) # e.g. (N, C, I)
-    bilinear_yu_linear_u = n.tops['bilinear'+name+'_bilinear_yu_linear_u'] = L.Eltwise(bilinear_yu, linear_u, operation=P.Eltwise.SUM) # e.g. (N, C, I)
+        linear_u_channels = []
+        for channel in range(x_shape[0]):
+            fc_u_channel = n.tops['bilinear'+name+'_linear_u_%d'%channel] = L.InnerProduct(u, num_output=np.prod(x_shape[axis-1:]), **fc_u_kwargs) # e.g. (N, I)
+            linear_u_channel = n.tops['bilinear'+name+'_re_fc_u_%d'%channel] = L.Reshape(fc_u_channel, shape=dict(dim=list(re_fc_u_shape))) # e.g. (N, 1, I)
+            linear_u_channels.append(linear_u_channel)
+        linear_u = n.tops['bilinear'+name+'_linear_u'] = L.Concat(*linear_u_channels, axis=1) # e.g. (N, C, I)
+        bilinear_yu_linear_u = n.tops['bilinear'+name+'_bilinear_yu_linear_u'] = L.Eltwise(bilinear_yu, linear_u, operation=P.Eltwise.SUM) # e.g. (N, C, I)
     x_diff_pred = L.Reshape(bilinear_yu_linear_u, shape=dict(dim=list((0,) + x_shape)))
     return x_diff_pred
 
-def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, **kwargs):
+def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, **kwargs):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -785,6 +813,10 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
     n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
     x, u = n.image_curr, n.vel
 
+    weight_fillers = OrderedDict()
+    ds_kernel = cv2.getGaussianKernel(ksize=2, sigma=-1)
+    ds_weight_filler = ds_kernel.dot(ds_kernel.T)
+
     # preprocess
     x0 = x
     x0_shape = x_shape
@@ -793,11 +825,12 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         x0 = L.Convolution(x0,
                            param=[dict(lr_mult=0, decay_mult=0)],
                            convolution_param=dict(num_output=x0_shape[0], kernel_size=2, stride=2, pad=0,
-                                                  group=x0_shape[0], bias_term=False,
-                                                  weight_filler=dict(type='bilinear')))
+                                                  bias_term=False))
+        weight_fillers['x0_ds%d'%(i_ds+1)] = [ds_weight_filler]
         x0_shape = (x0_shape[0], x0_shape[1]//2, x0_shape[2]//2)
     if num_downsample > 0:
         n.x0 = n.tops.pop('x0_ds%d'%num_downsample)
+        weight_fillers['x0'] = weight_fillers.pop('x0_ds%d'%num_downsample)
 
     # encoding
     xlevels = OrderedDict()
@@ -843,14 +876,15 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         xlevel, xlevel_shape = xlevels[level], xlevels_shape[level]
         n.tops['x%d_diff_pred_s0'%level] = \
         xlevel_diff_pred_s0 = ImageBilinearChannelwise(n, xlevel, u, xlevel_shape, u_dim,
-                                            dict(param=[dict(lr_mult=1, decay_mult=1),
-                                                        dict(lr_mult=1, decay_mult=1),
-                                                        dict(lr_mult=0, decay_mult=0)],
-                                                 bilinear_filler=dict(type='gaussian', std=0.001),
-                                                 linear_filler=dict(type='gaussian', std=0.001),
-                                                 bias_filler=dict(type='constant', value=0)),
-                                            axis=2,
-                                            name=str(level))
+                                                       dict(param=[dict(lr_mult=1, decay_mult=1),
+                                                                   dict(lr_mult=1, decay_mult=1),
+                                                                   dict(lr_mult=0, decay_mult=0)], # TODO: use non-zero
+                                                            bilinear_filler=dict(type='gaussian', std=0.001),
+                                                            linear_filler=dict(type='gaussian', std=0.001),
+                                                            bias_filler=dict(type='constant', value=0)),
+                                                       axis=2,
+                                                       name=str(level),
+                                                       share_weights=share_bilinear_weights)
         ylevels[level] = n.tops['y%d'%level] = L.Flatten(xlevel)
         ylevels_diff_pred[level] = n.tops['y%d_diff_pred'%level] = L.Flatten(xlevel_diff_pred_s0)
         xlevels_next_pred_s0[level] = n.tops['x%d_next_pred_s0'%level] = L.Eltwise(xlevel, xlevel_diff_pred_s0, operation=P.Eltwise.SUM)
@@ -931,10 +965,11 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         x0_next = L.Convolution(x0_next,
                                 param=[dict(lr_mult=0, decay_mult=0)],
                                 convolution_param=dict(num_output=x0_shape[0], kernel_size=2, stride=2, pad=0,
-                                                       group=x0_shape[0], bias_term=False,
-                                                       weight_filler=dict(type='bilinear')))
+                                                       bias_term=False))
+        weight_fillers['x0_next_ds%d'%(i_ds+1)] = [ds_weight_filler]
     if num_downsample > 0:
         n.x0_next = n.tops.pop('x0_next_ds%d'%num_downsample)
+        weight_fillers['x0_next'] = weight_fillers.pop('x0_next_ds%d'%num_downsample)
 
     n.x0_next_loss = L.EuclideanLoss(x0_next, x0_next_pred)
 
@@ -944,5 +979,6 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         net_name +='_levels' + ''.join([str(level) for level in levels])
         net_name += '_x1cdim' + str(x1_c_dim)
         net_name += '_numds' + str(num_downsample)
+        net_name += '_share' + str(int(share_bilinear_weights))
     net.name = net_name
-    return net
+    return net, weight_fillers
