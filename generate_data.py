@@ -83,8 +83,8 @@ def main():
         args.vel_min = args.vel_min[:args.dof]
         args.vel_max = args.vel_max[:args.dof]
     else:
-        args.dof_min = args.dof_min or (170, 220)
-        args.dof_max = args.dof_max or (670, 560)
+        args.dof_min = args.dof_min or (230, 220)
+        args.dof_max = args.dof_max or (610, 560)
         args.vel_min = args.vel_min or (-50, -50)
         args.vel_max = args.vel_max or (50, 50)
 

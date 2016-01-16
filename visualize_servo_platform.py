@@ -22,8 +22,8 @@ def main():
     parser.add_argument('--image_scale', '-f', type=float, default=0.15)
 
     args = parser.parse_args()
-    args.dof_min = args.dof_min or (170, 220)
-    args.dof_max = args.dof_max or (670, 560)
+    args.dof_min = args.dof_min or (230, 220)
+    args.dof_max = args.dof_max or (610, 560)
     args.vel_min = args.vel_min or (-50, -50)
     args.vel_max = args.vel_max or (50, 50)
 
