@@ -53,6 +53,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', '-o', type=str, default=None)
     parser.add_argument('--shuffle', type=int, default=0)
+    parser.add_argument('--target', action='store_true', help='collect target images')
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=0)
@@ -87,6 +88,8 @@ def main():
         args.dof_max = args.dof_max or (610, 560)
         args.vel_min = args.vel_min or (-50, -50)
         args.vel_max = args.vel_max or (50, 50)
+    if args.target:
+        args.num_steps = 1
 
     if args.simulator == 'square':
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.abs_vel_max)
@@ -119,8 +122,7 @@ def main():
 
     done = False
     for traj_iter in range(args.num_trajs):
-        if traj_iter%10 == 0:
-            print traj_iter, traj_iter
+        print 'traj_iter', traj_iter
         try:
             if args.background_window:
                 background_shape = (np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[0]+1),
@@ -137,17 +139,18 @@ def main():
             for step_iter in range(args.num_steps):
                 state = sim.state
                 image = sim.observe()
-                action = ctrl.step(image)
-                action = sim.apply_action(action)
-                image_next = sim.observe()
-
-                if collector:
-                    collector.add(image_curr=image,
-                                  image_diff=image_next - image,
-                                  pos=state,
-                                  vel=action)
-
-                # visualization
+                if args.target:
+                    if collector:
+                        collector.add(image_target=image, pos=state)
+                else:
+                    action = ctrl.step(image)
+                    action = sim.apply_action(action)
+                    image_next = sim.observe()
+                    if collector:
+                        collector.add(image_curr=image,
+                                      image_diff=image_next - image,
+                                      pos=state,
+                                      vel=action)
                 if args.visualize:
                     vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
             if done:
