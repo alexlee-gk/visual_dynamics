@@ -27,7 +27,7 @@ def main():
     parser.add_argument('--levels', type=int, nargs='+', default=[3], help='net parameter')
     parser.add_argument('--x1_c_dim', '--x1cdim', type=int, default=16, help='net parameter')
     parser.add_argument('--num_downsample', '--numds', type=int, default=0, help='net parameter')
-    parser.add_argument('--share_bilinear_weights', '--share', type=int, default=0, help='net parameter')
+    parser.add_argument('--share_bilinear_weights', '--share', type=int, default=1, help='net parameter')
     parser.add_argument('--postfix', type=str, default=None)
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
