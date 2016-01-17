@@ -137,7 +137,8 @@ def target_loop(args, sim, collector=None):
             if collector:
                 collector.add(image_target=image_target, pos=dof_values_target)
             if args.visualize:
-                vis_image, done = util.visualize_images_callback(image_target, vis_scale=args.vis_scale)
+                delay = 100 if args.simulator == 'servo' else 1
+                vis_image, done = util.visualize_images_callback(image_target, vis_scale=args.vis_scale, delay=delay)
             if done:
                 break
         except KeyboardInterrupt:
@@ -180,7 +181,8 @@ def controller_loop(args, sim, collector=None):
                                   pos=state,
                                   vel=action)
                 if args.visualize:
-                    vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
+                    delay = 100 if args.simulator == 'servo' else 1
+                    vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale, delay=delay)
             if done:
                 break
         except KeyboardInterrupt:
