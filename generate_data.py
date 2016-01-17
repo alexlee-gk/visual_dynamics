@@ -110,7 +110,7 @@ def main():
                                  image_scale=args.image_scale))
         else:
             raise
-        if target_generator:
+        if args.target_generator:
             collector = DataCollector(args.output, args.num_trajs, sim_args=sim_args, auto_shuffle=args.shuffle)
         else:
             collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args, auto_shuffle=args.shuffle)
