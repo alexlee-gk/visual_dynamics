@@ -57,7 +57,7 @@ def deploy_net(net, inputs, input_shapes, outputs, batch_size=1, force_backward=
     net.input.extend(inputs)
     net.input_shape.extend([pb2.BlobShape(dim=(batch_size,)+shape) for shape in input_shapes])
     net.force_backward = force_backward
-    return net, None
+    return net
 
 def train_val_net(net):
     # remove all layers that are not descendants of loss layers
