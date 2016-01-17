@@ -6,6 +6,7 @@ import cv2
 import h5py
 import simulator
 import controller
+import target_generator
 import util
 
 class DataCollector(object):
@@ -53,7 +54,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', '-o', type=str, default=None)
     parser.add_argument('--shuffle', type=int, default=0)
-    parser.add_argument('--target', action='store_true', help='collect target images')
+    parser.add_argument('--target_generator', type=str, default=None, choices=('random', 'interactive'), help='generator of target images')
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=0)
@@ -88,8 +89,6 @@ def main():
         args.dof_max = args.dof_max or (610, 560)
         args.vel_min = args.vel_min or (-50, -50)
         args.vel_max = args.vel_max or (50, 50)
-    if args.target:
-        args.num_steps = 1
 
     if args.simulator == 'square':
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.abs_vel_max)
@@ -101,7 +100,6 @@ def main():
                                       image_scale=args.image_scale, crop_size=args.image_size)
     else:
         raise
-    ctrl = controller.RandomController(*sim.action_bounds)
     if args.output:
         sim_args = dict(image_size=args.image_size, simulator=args.simulator)
         if args.simulator == 'square':
@@ -112,14 +110,47 @@ def main():
                                  image_scale=args.image_scale))
         else:
             raise
-        collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args, auto_shuffle=args.shuffle)
+        if target_generator:
+            collector = DataCollector(args.output, args.num_trajs, sim_args=sim_args, auto_shuffle=args.shuffle)
+        else:
+            collector = DataCollector(args.output, args.num_trajs * args.num_steps, sim_args=sim_args, auto_shuffle=args.shuffle)
     else:
         collector = None
 
+    if args.target_generator:
+        target_loop(args, sim, collector)
+    else:
+        controller_loop(args, sim, collector)
+
+def target_loop(args, sim, collector=None):
+    if args.target_generator == 'random':
+        target_gen = target_generator.RandomTargetGenerator(sim)
+    elif args.target_generator == 'interactive':
+        target_gen = target_generator.InteractiveTargetGenerator(sim, vis_scale=args.vis_scale)
+    else:
+        raise
+    done = False
+    for traj_iter in range(args.num_trajs):
+        print 'traj_iter', traj_iter
+        try:
+            image_target, dof_values_target = target_gen.get_target()
+            if collector:
+                collector.add(image_target=image_target, pos=dof_values_target)
+            if args.visualize:
+                vis_image, done = util.visualize_images_callback(image_target, vis_scale=args.vis_scale)
+            if done:
+                break
+        except KeyboardInterrupt:
+            break
+    if args.visualize:
+        cv2.destroyAllWindows()
+
+def controller_loop(args, sim, collector=None):
     if args.background_window:
         cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.cv.CV_WINDOW_FULLSCREEN)
 
+    ctrl = controller.RandomController(*sim.action_bounds)
     done = False
     for traj_iter in range(args.num_trajs):
         print 'traj_iter', traj_iter
@@ -134,23 +165,20 @@ def main():
                     print "Pressed ESC or q, exiting"
                     done = True
                     break
+
             pos_init = sim.sample_state()
             sim.reset(pos_init)
             for step_iter in range(args.num_steps):
                 state = sim.state
                 image = sim.observe()
-                if args.target:
-                    if collector:
-                        collector.add(image_target=image, pos=state)
-                else:
-                    action = ctrl.step(image)
-                    action = sim.apply_action(action)
-                    image_next = sim.observe()
-                    if collector:
-                        collector.add(image_curr=image,
-                                      image_diff=image_next - image,
-                                      pos=state,
-                                      vel=action)
+                action = ctrl.step(image)
+                action = sim.apply_action(action)
+                image_next = sim.observe()
+                if collector:
+                    collector.add(image_curr=image,
+                                  image_diff=image_next - image,
+                                  pos=state,
+                                  vel=action)
                 if args.visualize:
                     vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
             if done:
@@ -158,7 +186,7 @@ def main():
         except KeyboardInterrupt:
             break
 
-    if args.visualize:
+    if args.visualize or args.background_window:
         cv2.destroyAllWindows()
 
 if __name__ == "__main__":

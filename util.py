@@ -161,6 +161,7 @@ def visualize_images_callback(*images, **kwargs):
     vis_scale = kwargs.get('vis_scale', 1)
     window_name = kwargs.get('window_name', 'Image window')
     delay = kwargs.get('delay', 1)
+    ret_key = kwargs.get('ret_key', False)
     vis_image = np.concatenate([image.transpose(1, 2, 0) for image in images], axis=1)
     vis_image = ((vis_image + 1.0) * 255.0/2.0).astype(np.uint8)
     if vis_scale != 1:
@@ -175,4 +176,7 @@ def visualize_images_callback(*images, **kwargs):
         exit_request = True
     else:
         exit_request = False
-    return vis_image, exit_request
+    if ret_key:
+        return vis_image, exit_request, key
+    else:
+        return vis_image, exit_request

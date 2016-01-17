@@ -8,6 +8,7 @@ import cv2
 from predictor import predictor
 import simulator
 import controller
+import target_generator
 import util
 
 def main():
@@ -30,6 +31,7 @@ def main():
     parser.add_argument('--share_bilinear_weights', '--share', type=int, default=1, help='net parameter')
     parser.add_argument('--postfix', type=str, default=None)
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
+    parser.add_argument('--target_hdf5_fname', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -164,6 +166,11 @@ def main():
     else:
         raise
 
+    if args.target_hdf5_fname:
+        target_gen = target_generator.Hdf5TargetGenerator(args.target_hdf5_fname)
+        args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
+    else:
+        target_gen = target_generator.RandomTargetGenerator(sim)
     ctrl = controller.ServoingController(feature_predictor)
 
     if args.output_hdf5_fname:
@@ -184,9 +191,7 @@ def main():
     iter_ = 0
     for traj_iter in range(args.num_trajs):
         try:
-            dof_values_target = sim.sample_state()
-            sim.reset(dof_values_target)
-            image_target = sim.observe()
+            image_target, dof_values_target = target_gen.get_target()
             ctrl.set_target_obs(image_target)
 
             dof_values_init = np.mean(sim.dof_limits, axis=0)
