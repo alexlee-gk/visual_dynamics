@@ -50,6 +50,7 @@ def main():
     parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--image_scale', '-f', type=float, default=None)
     parser.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=None)
+    parser.add_argument('--camera_id', '-i', type=str, default=None)
     parser.add_argument('--ogrehead', action='store_true')
     args = parser.parse_args()
 
@@ -70,6 +71,8 @@ def main():
     args.vel_max = np.asarray(args.vel_max)
     if args.pwm_channels is None:
         args.pwm_channels = (0, 1)
+    if args.camera_id is None:
+        args.camera_id = '0'
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':

@@ -4,6 +4,7 @@ import time
 import numpy as np
 import threading
 import cv2
+import util
 
 def axis2quat(axis, angle):
     axis = np.asarray(axis)
@@ -259,6 +260,11 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
         ScaleCropImageSimulator.__init__(self, image_scale=image_scale, crop_size=crop_size)
         # camera initialization
+        if isinstance(camera_id, basestring):
+            if camera_id.isdigit():
+                camera_id = int(camera_id)
+            else:
+                camera_id = util.device_id_from_camera_id(camera_id)
         self.cap_thread = VideoCaptureThread(camera_id, warmup_frames=warmup_frames)
         self.cap_thread.start()
         while not self.cap_thread.ready():

@@ -1,5 +1,8 @@
 from __future__ import division
 
+import os
+import subprocess
+import re
 import numpy as np
 import cv2
 try:
@@ -180,3 +183,41 @@ def visualize_images_callback(*images, **kwargs):
         return vis_image, exit_request, key
     else:
         return vis_image, exit_request
+
+def serial_number_from_device_id(device_id):
+    output = subprocess.check_output("udevadm info -a -n /dev/video%d | grep '{serial}' | head -n1"%device_id, shell=True)
+    match = re.match('\s*ATTRS{serial}=="([A-Z0-9]+)"\n', output)
+    if not match:
+        raise RuntimeError('Device id %d does not exist'%device_id)
+    serial_number = match.group(1)
+    return serial_number
+
+def device_id_from_serial_number(serial_number):
+    for dev_file in  os.listdir('/dev'):
+        match = re.match('video(\d)$', dev_file)
+        if match:
+            device_id = int(match.group(1))
+            if serial_number == serial_number_from_device_id(device_id):
+                return device_id
+    return None
+
+def serial_number_from_camera_id(camera_id):
+    serial_number = dict([('A', 'EE96593F'),
+                          ('B', 'E8FE493F'),
+                          ('C', 'C3D6593F'),
+                          ('D', '6ACE493F')])
+    if camera_id not in serial_number:
+        raise RuntimeError('Camera id %s does not exist'%camera_id)
+    return serial_number[camera_id]
+
+def camera_id_from_serial_number(serial_number):
+    camera_id = dict([('EE96593F', 'A'),
+                      ('E8FE493F', 'B'),
+                      ('C3D6593F', 'C'),
+                      ('6ACE493F', 'D')])
+    if serial_number not in camera_id:
+        raise RuntimeError('Serial number %s does not exist'%serial_number)
+    return camera_id[serial_number]
+
+def device_id_from_camera_id(camera_id):
+    return device_id_from_serial_number(serial_number_from_camera_id(camera_id))
