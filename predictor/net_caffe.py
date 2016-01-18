@@ -64,7 +64,7 @@ def train_val_net(net):
     loss_layers = [layer for layer in net.layer if layer.name.endswith('loss')]
     exception_layers = [layer for layer in net.layer if 'data' in layer.name]
     remove_non_descendants(net.layer, loss_layers, exception_layers)
-    return net, None
+    return net
 
 def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ApproxBilinearNet', phase=None):
     assert len(input_shapes) == 2
