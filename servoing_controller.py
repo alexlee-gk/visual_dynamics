@@ -43,12 +43,13 @@ def main():
     # square simulator
     parser.add_argument('--abs_vel_max', type=float, default=None)
     parser.add_argument('--square_length', '-l', type=int, default=None, help='required to be odd')
-    # ogre simulator
+    # ogre and servo simulator
     parser.add_argument('--dof_min', type=float, nargs='+', default=None)
     parser.add_argument('--dof_max', type=float, nargs='+', default=None)
     parser.add_argument('--vel_min', type=float, nargs='+', default=None)
     parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--image_scale', '-f', type=float, default=None)
+    parser.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=None)
     parser.add_argument('--ogrehead', action='store_true')
     args = parser.parse_args()
 
@@ -67,6 +68,8 @@ def main():
     args.dof_max = np.asarray(args.dof_max)
     args.vel_min = np.asarray(args.vel_min)
     args.vel_max = np.asarray(args.vel_max)
+    if args.pwm_channels is None:
+        args.pwm_channels = (0, 1)
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':

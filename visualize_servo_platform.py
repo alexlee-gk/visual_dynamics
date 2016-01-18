@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--vel_min', type=float, nargs='+', default=None)
     parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--image_scale', '-f', type=float, default=0.15)
+    parser.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=(0, 1))
 
     args = parser.parse_args()
     args.dof_min = args.dof_min or (230, 220)
@@ -28,7 +29,8 @@ def main():
     args.vel_max = args.vel_max or (50, 50)
 
     sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                  image_scale=args.image_scale, crop_size=args.image_size)
+                                  image_scale=args.image_scale, crop_size=args.image_size,
+                                  pwm_channels=args.pwm_channels)
 
     # go to all combinations of dof limits
     for dof_values in itertools.product(*zip(args.dof_min, args.dof_max)):
