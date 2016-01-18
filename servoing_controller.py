@@ -48,7 +48,7 @@ def main():
     parser.add_argument('--vel_min', type=float, nargs='+', default=None)
     parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--image_scale', '-f', type=float, default=None)
-
+    parser.add_argument('--ogrehead', action='store_true')
     args = parser.parse_args()
 
     if args.val_hdf5_fname is None:
@@ -146,7 +146,8 @@ def main():
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
     elif args.simulator== 'ogre':
         sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                      image_scale=args.image_scale, crop_size=args.image_size)
+                                      image_scale=args.image_scale, crop_size=args.image_size,
+                                      ogrehead=args.ogrehead)
     elif args.simulator == 'servo':
         sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                       image_scale=args.image_scale, crop_size=args.image_size)

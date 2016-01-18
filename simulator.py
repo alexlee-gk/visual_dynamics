@@ -188,7 +188,7 @@ class ScaleCropImageSimulator(Simulator):
 
 
 class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None):
+    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None, ogrehead=False):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
@@ -200,6 +200,11 @@ class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         self.ogre = pygre.Pygre()
         self.ogre.init()
         self.ogre.addNode("node1", "house.mesh", 0, 0, 0)
+        if ogrehead:
+            self.ogre.addNode("node2", "ogrehead.mesh", 10, 5, -5) #([far, close], [down, up], [right, left])
+            self.ogre.addNode("node3", "ogrehead.mesh", 10, 0, -5)
+            self.ogre.addNode("node4", "ogrehead.mesh", 10, 5, -10)
+            self.ogre.addNode("node5", "ogrehead.mesh", 10, 0, -10)
         self.ogre.setCameraOrientation(self._q0)
 
     @DiscreteVelocitySimulator.dof_values.setter
