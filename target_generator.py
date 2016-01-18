@@ -44,8 +44,6 @@ class InteractiveTargetGenerator(TargetGenerator):
         self.vis_scale = vis_scale
 
     def get_target(self):
-        dof_values = np.mean(self.sim.dof_limits, axis=0)
-        self.sim.reset(dof_values)
         dof_vel_min, dof_vel_max = self.sim.dof_vel_limits
         while True:
             image = self.sim.observe()
