@@ -66,13 +66,14 @@ def main():
     # square simulator
     parser.add_argument('--abs_vel_max', type=float, default=1.0)
     parser.add_argument('--square_length', '-l', type=int, default=1, help='required to be odd')
-    # ogre simulator
+    # ogre and servo simulator
     parser.add_argument('--dof_min', type=float, nargs='+', default=None)
     parser.add_argument('--dof_max', type=float, nargs='+', default=None)
     parser.add_argument('--vel_min', type=float, nargs='+', default=None)
     parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--dof', type=int, default=5)
     parser.add_argument('--image_scale', '-f', type=float, default=0.15)
+    parser.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=(0, 1))
 
     args = parser.parse_args()
     if args.simulator == 'ogre':
@@ -97,7 +98,8 @@ def main():
                                       image_scale=args.image_scale, crop_size=args.image_size)
     elif args.simulator == 'servo':
         sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                      image_scale=args.image_scale, crop_size=args.image_size)
+                                      image_scale=args.image_scale, crop_size=args.image_size,
+                                      pwm_channels=args.pwm_channels)
     else:
         raise
     if args.output:
@@ -107,7 +109,8 @@ def main():
         elif args.simulator == 'ogre' or args.simulator == 'servo':
             sim_args.update(dict(dof_min=args.dof_min, dof_max=args.dof_max,
                                  vel_min=args.vel_min, vel_max=args.vel_max,
-                                 image_scale=args.image_scale))
+                                 image_scale=args.image_scale,
+                                 pwm_channels=args.pwm_channels))
         else:
             raise
         if args.target_generator:
