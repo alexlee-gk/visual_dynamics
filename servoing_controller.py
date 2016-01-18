@@ -181,7 +181,7 @@ def main():
 
     if args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')
-        output_hdf5_group = output_hdf5_file.require_group(feature_predictor.net_name + feature_predictor.postfix)
+        output_hdf5_group = output_hdf5_file.require_group(feature_predictor.net_name + '_' + feature_predictor.postfix)
         if feature_predictor.val_net is not None:
             val_losses_group = output_hdf5_group.require_group('val_losses')
             for key, value in val_losses.items():
