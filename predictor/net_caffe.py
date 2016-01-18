@@ -64,7 +64,7 @@ def train_val_net(net):
     loss_layers = [layer for layer in net.layer if layer.name.endswith('loss')]
     exception_layers = [layer for layer in net.layer if 'data' in layer.name]
     remove_non_descendants(net.layer, loss_layers, exception_layers)
-    return net, None
+    return net
 
 def approx_bilinear_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name='ApproxBilinearNet', phase=None):
     assert len(input_shapes) == 2
@@ -798,7 +798,7 @@ def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, n
     x_diff_pred = L.Reshape(bilinear_yu_linear_u, shape=dict(dim=list((0,) + x_shape)))
     return x_diff_pred
 
-def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, **kwargs):
+def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, ladder_loss=True, **kwargs):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -973,6 +973,42 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
 
     n.x0_next_loss = L.EuclideanLoss(x0_next, x0_next_pred)
 
+    if ladder_loss:
+        # encoding of next image
+        xlevels_next = OrderedDict()
+        for level in range(levels[-1]+1):
+            if level == 0:
+                xlevel_next = x0_next
+            else:
+                if level == 1:
+                    xlevelm1_c_dim = x0_shape[0]
+                    xlevel_c_dim = x1_c_dim
+                else:
+                    xlevelm1_c_dim = xlevel_c_dim
+                    xlevel_c_dim = 2 * xlevelm1_c_dim
+                n.tops['x%d_next_1'%level] = \
+                xlevel_next_1 = L.Convolution(xlevels_next[level-1],
+                                              param=[dict(name='x%d_1.w'%level, lr_mult=1, decay_mult=1),
+                                                     dict(name='x%d_1.b'%level, lr_mult=1, decay_mult=1)],
+                                              convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
+                                                                     weight_filler=dict(type='gaussian', std=0.01),
+                                                                     bias_filler=dict(type='constant', value=0)))
+                n.tops['rx%d_next_1'%level] = L.ReLU(xlevel_next_1, in_place=True)
+                n.tops['x%d_next_2'%level] = \
+                xlevel_next_2 = L.Convolution(xlevel_next_1,
+                                              param=[dict(name='x%d_2.w'%level, lr_mult=1, decay_mult=1),
+                                                     dict(name='x%d_2.b'%level, lr_mult=1, decay_mult=1)],
+                                              convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
+                                                                     weight_filler=dict(type='gaussian', std=0.01),
+                                                                     bias_filler=dict(type='constant', value=0)))
+                n.tops['rx%d_next_2'%level] = L.ReLU(xlevel_next_2, in_place=True)
+                n.tops['x%d_next'%level] = \
+                xlevel_next = L.Pooling(xlevel_next_2, pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
+            xlevels_next[level] = xlevel_next
+
+        for level in range(1, levels[-1]+1):
+            n.tops['x%d_next_loss'%level] = L.EuclideanLoss(xlevels_next[level], xlevels_next_pred[level])
+
     net = n.to_proto()
     if net_name is None:
         net_name = 'FcnActionCondEncoderNet'
@@ -980,5 +1016,6 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         net_name += '_x1cdim' + str(x1_c_dim)
         net_name += '_numds' + str(num_downsample)
         net_name += '_share' + str(int(share_bilinear_weights))
+        net_name += '_ladder' + str(int(ladder_loss))
     net.name = net_name
     return net, weight_fillers

@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--x1_c_dim', '--x1cdim', type=int, default=16, help='net parameter')
     parser.add_argument('--num_downsample', '--numds', type=int, default=0, help='net parameter')
     parser.add_argument('--share_bilinear_weights', '--share', type=int, default=1, help='net parameter')
+    parser.add_argument('--ladder_loss', '--ladder', type=int, default=0, help='net parameter')
     parser.add_argument('--postfix', type=str, default=None)
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--target_hdf5_fname', type=str, default=None)
@@ -43,13 +44,15 @@ def main():
     # square simulator
     parser.add_argument('--abs_vel_max', type=float, default=None)
     parser.add_argument('--square_length', '-l', type=int, default=None, help='required to be odd')
-    # ogre simulator
+    # ogre and servo simulator
     parser.add_argument('--dof_min', type=float, nargs='+', default=None)
     parser.add_argument('--dof_max', type=float, nargs='+', default=None)
     parser.add_argument('--vel_min', type=float, nargs='+', default=None)
     parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--image_scale', '-f', type=float, default=None)
-
+    parser.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=None)
+    parser.add_argument('--camera_id', '-i', type=str, default=None)
+    parser.add_argument('--ogrehead', action='store_true')
     args = parser.parse_args()
 
     if args.val_hdf5_fname is None:
@@ -67,6 +70,10 @@ def main():
     args.dof_max = np.asarray(args.dof_max)
     args.vel_min = np.asarray(args.vel_min)
     args.vel_max = np.asarray(args.vel_max)
+    if args.pwm_channels is None:
+        args.pwm_channels = (0, 1)
+    if args.camera_id is None:
+        args.camera_id = '0'
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
@@ -114,7 +121,8 @@ def main():
                               levels=args.levels,
                               x1_c_dim=args.x1_c_dim,
                               num_downsample=args.num_downsample,
-                              share_bilinear_weights=args.share_bilinear_weights)
+                              share_bilinear_weights=args.share_bilinear_weights,
+                              ladder_loss=args.ladder_loss)
             net_func = getattr(net_caffe, args.predictor)
             net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
             if args.predictor == 'fcn_action_cond_encoder_net':
@@ -147,7 +155,8 @@ def main():
         sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
     elif args.simulator== 'ogre':
         sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                      image_scale=args.image_scale, crop_size=args.image_size)
+                                      image_scale=args.image_scale, crop_size=args.image_size,
+                                      ogrehead=args.ogrehead)
     elif args.simulator == 'servo':
         sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                       image_scale=args.image_scale, crop_size=args.image_size)
@@ -180,7 +189,7 @@ def main():
 
     if args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')
-        output_hdf5_group = output_hdf5_file.require_group(feature_predictor.net_name + feature_predictor.postfix)
+        output_hdf5_group = output_hdf5_file.require_group(feature_predictor.net_name + '_' + feature_predictor.postfix)
         if feature_predictor.val_net is not None:
             val_losses_group = output_hdf5_group.require_group('val_losses')
             for key, value in val_losses.items():

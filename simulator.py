@@ -4,6 +4,7 @@ import time
 import numpy as np
 import threading
 import cv2
+import util
 
 def axis2quat(axis, angle):
     axis = np.asarray(axis)
@@ -188,7 +189,7 @@ class ScaleCropImageSimulator(Simulator):
 
 
 class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None):
+    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None, ogrehead=False):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
@@ -200,6 +201,11 @@ class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         self.ogre = pygre.Pygre()
         self.ogre.init()
         self.ogre.addNode("node1", "house.mesh", 0, 0, 0)
+        if ogrehead:
+            self.ogre.addNode("node2", "ogrehead.mesh", 10, 5, -5) #([far, close], [down, up], [right, left])
+            self.ogre.addNode("node3", "ogrehead.mesh", 10, 0, -5)
+            self.ogre.addNode("node4", "ogrehead.mesh", 10, 5, -10)
+            self.ogre.addNode("node5", "ogrehead.mesh", 10, 0, -10)
         self.ogre.setCameraOrientation(self._q0)
 
     @DiscreteVelocitySimulator.dof_values.setter
@@ -254,6 +260,11 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
         ScaleCropImageSimulator.__init__(self, image_scale=image_scale, crop_size=crop_size)
         # camera initialization
+        if isinstance(camera_id, basestring):
+            if camera_id.isdigit():
+                camera_id = int(camera_id)
+            else:
+                camera_id = util.device_id_from_camera_id(camera_id)
         self.cap_thread = VideoCaptureThread(camera_id, warmup_frames=warmup_frames)
         self.cap_thread.start()
         while not self.cap_thread.ready():
