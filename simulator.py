@@ -189,7 +189,7 @@ class ScaleCropImageSimulator(Simulator):
 
 
 class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None, ogrehead=False):
+    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None, background_color=None, ogrehead=False):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
@@ -200,6 +200,8 @@ class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         import pygre
         self.ogre = pygre.Pygre()
         self.ogre.init()
+        if background_color is not None:
+            self.ogre.setBackgroundColor(np.asarray(background_color))
         self.ogre.addNode("node1", "house.mesh", 0, 0, 0)
         if ogrehead:
             self.ogre.addNode("node2", "ogrehead.mesh", 10, 5, -5) #([far, close], [down, up], [right, left])

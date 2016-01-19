@@ -50,9 +50,12 @@ def main():
     parser.add_argument('--vel_min', type=float, nargs='+', default=None)
     parser.add_argument('--vel_max', type=float, nargs='+', default=None)
     parser.add_argument('--image_scale', '-f', type=float, default=None)
+    # ogre simulator
+    parser.add_argument('--background_color', type=float, nargs=3, default=None, help='background color for ogre')
+    parser.add_argument('--ogrehead', action='store_true')
+    # servo simulator
     parser.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=None)
     parser.add_argument('--camera_id', '-i', type=str, default=None)
-    parser.add_argument('--ogrehead', action='store_true')
     args = parser.parse_args()
 
     if args.val_hdf5_fname is None:
@@ -156,6 +159,7 @@ def main():
     elif args.simulator== 'ogre':
         sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                       image_scale=args.image_scale, crop_size=args.image_size,
+                                      background_color=args.background_color,
                                       ogrehead=args.ogrehead)
     elif args.simulator == 'servo':
         sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
