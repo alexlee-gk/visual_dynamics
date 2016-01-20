@@ -878,7 +878,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         xlevel_diff_pred_s0 = ImageBilinearChannelwise(n, xlevel, u, xlevel_shape, u_dim,
                                                        dict(param=[dict(lr_mult=1, decay_mult=1),
                                                                    dict(lr_mult=1, decay_mult=1),
-                                                                   dict(lr_mult=0, decay_mult=0)], # TODO: use non-zero
+                                                                   dict(lr_mult=1, decay_mult=1)],
                                                             bilinear_filler=dict(type='gaussian', std=0.001),
                                                             linear_filler=dict(type='gaussian', std=0.001),
                                                             bias_filler=dict(type='constant', value=0)),
@@ -1006,8 +1006,10 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                 xlevel_next = L.Pooling(xlevel_next_2, pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
             xlevels_next[level] = xlevel_next
 
-        for level in range(1, levels[-1]+1):
-            n.tops['x%d_next_loss'%level] = L.EuclideanLoss(xlevels_next[level], xlevels_next_pred[level])
+        for level in levels:
+            if level == 0:
+                continue
+            n.tops['x%d_next_loss'%level] = L.EuclideanLoss(xlevels_next[level], xlevels_next_pred[level], loss_weight=1e-3)
 
     net = n.to_proto()
     if net_name is None:
