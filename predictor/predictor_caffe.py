@@ -3,7 +3,7 @@ from __future__ import division
 import os
 import re
 import numpy as np
-import cv2
+import matplotlib.pyplot as plt
 import caffe
 from caffe.proto import caffe_pb2 as pb2
 import net_caffe
@@ -188,7 +188,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
             if not solverstate_fname.endswith('.solverstate'):
                 solverstate_fname = self.get_snapshot_prefix() + '_iter_' + solverstate_fname + '.solverstate'
             solver.restore(solverstate_fname)
-        solver.solve()
+        self.solve(solver, solver_param)
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 blob.data[...] = solver_blob.data
@@ -196,6 +196,54 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         self.train_net = solver.net
         if val_hdf5_fname is not None:
             self.val_net = solver.test_nets[0]
+
+    def solve(self, solver, solver_param):
+        iters = []
+        losses = []
+        val_losses = [[] for _ in range(len(solver.test_nets))]
+        loss_fig_fname = os.path.join(self.get_model_dir(), 'loss.pdf')
+        loss_txt_fname = os.path.join(self.get_model_dir(), 'loss.txt')
+        plt.ion()
+        for iter_ in range(solver.iter, solver_param.max_iter):
+            solver.step(1)
+            if iter_ % solver_param.display == 0:
+                iters.append(iter_)
+                # training loss
+                loss = 0.0
+                for blob_name, loss_weight in solver.net.blob_loss_weights.items():
+                    if loss_weight:
+                        loss += loss_weight * solver.net.blobs[blob_name].data
+                losses.append(loss)
+                # validation loss
+                test_losses = []
+                for test_net, test_iter, test_losses in zip(solver.test_nets, solver_param.test_iter, val_losses):
+                    test_scores = {}
+                    for i in range(test_iter):
+                        output_blobs = test_net.forward()
+                        for blob_name, blob_data in output_blobs.items():
+                            if i == 0:
+                                test_scores[blob_name] = blob_data.copy()
+                            else:
+                                test_scores[blob_name] += blob_data
+                    test_loss = 0.0
+                    for blob_name, score in test_scores.items():
+                        loss_weight = test_net.blob_loss_weights[blob_name]
+                        mean_score = score / test_iter
+                        if loss_weight:
+                            test_loss += loss_weight * mean_score
+                    test_losses.append(test_loss)
+                # visualization
+                plt.cla()
+                plt.plot(iters, losses, label='train')
+                for i_test, test_losses in enumerate(val_losses):
+                    plt.plot(iters, test_losses, label='test %d'%i_test)
+                plt.ylabel('iteration')
+                plt.ylabel('loss')
+                plt.legend()
+                plt.draw()
+                # save to file
+                plt.savefig(loss_fig_fname)
+                np.savetxt(loss_txt_fname, np.asarray([iters, losses] + val_losses).T, fmt=['%d'] + ['%.2f']*(1+len(solver.test_nets)), delimiter='\t', header='\t'.join(['iter', 'train loss'] + ['test %d loss'%i_test for i_test in range(len(solver.test_nets))]))
 
     def predict(self, *inputs, **kwargs):
         if 'prediction_name' in kwargs and kwargs['prediction_name'] not in self.blobs:
