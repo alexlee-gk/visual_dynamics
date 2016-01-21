@@ -24,3 +24,13 @@ cd /path/to/visual_dynamics
 cd ext/adafruit/
 sudo python setup.py install
 ```
+
+In order to use the device with root access, put the following in the file `/etc/udev/rules.d/99-libftdi.rules`:
+```
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", GROUP="dialout", MODE="0660"
+```
+Make sure to unplug and plug in the device for this rule to take effect. If root access is still required, the user might need to be added to the dialout group:
+```
+sudo usermod -a -G dialout $USER
+```
+Make sure to log out and log in for this change to take effect.
