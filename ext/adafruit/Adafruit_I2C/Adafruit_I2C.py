@@ -17,15 +17,22 @@ class Adafruit_I2C(object):
           match = re.match('Hardware\s*:\s+jetson(-|_).*(\w{3})$', line)
           if match and match.group(2) in ['tk1', 'tx1']:
             return match.group(2)
-        # Couldn't find the version, assume version tk1
-        return 'tk1'
+        # Couldn't find the version
+        return None
     except:
-      return 'tk1'
+      return None
 
   @staticmethod
   def getJetsonI2CBusNumber():
     # Gets the I2C bus number /dev/i2c#
-    return 1 if Adafruit_I2C.getJetsonVersion() == 'tk1' else 0
+    version = Adafruit_I2C.getJetsonVersion()
+    if version == 'tk1':
+      bus_number = 1
+    elif version == 'tx1':
+      bus_number = 0
+    else:
+      raise RuntimeError("Could not get Jetson version. This is probably not a Jetson device.")
+    return bus_number
 
   def __init__(self, address, busnum=-1, debug=False):
     self.address = address

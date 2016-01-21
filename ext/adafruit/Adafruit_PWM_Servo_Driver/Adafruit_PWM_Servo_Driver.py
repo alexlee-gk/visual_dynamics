@@ -32,7 +32,15 @@ class PWM :
   __INVRT              = 0x10
   __OUTDRV             = 0x04
 
-  general_call_i2c = Adafruit_I2C(0x00)
+  if Adafruit_I2C.getJetsonVersion() is not None:
+    general_call_i2c = Adafruit_I2C(0x00)
+  else:
+    import Adafruit_GPIO.FT232H as FT232H
+    # Temporarily disable FTDI serial drivers.
+    FT232H.use_FT232H()
+    # Find the first FT232H device.
+    ft232h = FT232H.FT232H()
+    general_call_i2c = FT232H.I2CDevice(ft232h, 0x00)
 
   @classmethod
   def softwareReset(cls):
@@ -40,7 +48,11 @@ class PWM :
     cls.general_call_i2c.writeRaw8(0x06)        # SWRST
 
   def __init__(self, address=0x40, debug=False):
-    self.i2c = Adafruit_I2C(address)
+    if Adafruit_I2C.getJetsonVersion() is not None:
+      self.i2c = Adafruit_I2C(address)
+    else:
+      import Adafruit_GPIO.FT232H as FT232H
+      self.i2c = FT232H.I2CDevice(PWM.ft232h, address)
     self.i2c.debug = debug
     self.address = address
     self.debug = debug
