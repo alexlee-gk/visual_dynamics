@@ -160,7 +160,7 @@ def target_loop(args, sim, collector=None):
 def controller_loop(args, sim, collector=None):
     if args.background_window:
         cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
-        cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.cv.CV_WINDOW_FULLSCREEN)
+        cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
     ctrl = controller.RandomController(*sim.action_bounds)
     done = False
@@ -171,7 +171,7 @@ def controller_loop(args, sim, collector=None):
                 background_shape = (np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[0]+1),
                                     np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[1]+1))
                 cv2.imshow("Background window", (np.ones(background_shape)[..., None] * np.random.random(3)[None, None, :]))
-                key = cv2.waitKey(1)
+                key = cv2.waitKey(100)
                 key &= 255
                 if key == 27 or key == ord('q'):
                     print "Pressed ESC or q, exiting"
