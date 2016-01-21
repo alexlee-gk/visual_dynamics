@@ -279,9 +279,9 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
             self.pwm.setPWMFreq(pwm_freq)
             self.pwm_channels = pwm_channels
             self.use_pwm = True
-        except:
+        except Exception as e:
             self.use_pwm = False
-            print "Exception when using pwm. Disabling it."
+            print "Exception when using pwm: %s. Disabling it."%e
 
     def __del__(self):
         self.cap_thread.stop()
