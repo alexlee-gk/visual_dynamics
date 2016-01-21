@@ -64,7 +64,7 @@ def disable_FTDI_driver():
     elif sys.platform.startswith('linux'):
         logger.debug('Detected Linux')
         # Linux commands to disable FTDI driver.
-        _check_running_as_root()
+        # _check_running_as_root()
         subprocess.call('modprobe -r -q ftdi_sio', shell=True)
         subprocess.call('modprobe -r -q usbserial', shell=True)
     # Note there is no need to disable FTDI drivers on Windows!
@@ -81,7 +81,7 @@ def enable_FTDI_driver():
     elif sys.platform.startswith('linux'):
         logger.debug('Detected Linux')
         # Linux commands to enable FTDI driver.
-        _check_running_as_root()
+        # _check_running_as_root()
         subprocess.check_call('modprobe -q ftdi_sio', shell=True)
         subprocess.check_call('modprobe -q usbserial', shell=True)
 
