@@ -37,22 +37,26 @@ def main():
     # go to all combinations of dof limits
     for dof_values in itertools.product(*zip(args.dof_min, args.dof_max)):
         sim.reset(np.asarray(dof_values))
-        time.sleep(1)
         if args.visualize:
-            image = sim.observe()
-            vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale, delay=0)
+            while True:
+                image = sim.observe()
+                vis_image, done, key = util.visualize_images_callback(image, vis_scale=args.vis_scale, ret_key=True)
+                if done or key == 32:
+                    break
             if done:
                 break
 
     # apply max and min velocities
     sim.reset(np.asarray(args.dof_min))
-    time.sleep(1)
     for vel_limit in [args.vel_max, args.vel_min]:
         action = np.asarray(vel_limit)
         while np.any(action):
             if args.visualize:
-                image = sim.observe()
-                vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale, delay=0)
+                while True:
+                    image = sim.observe()
+                    vis_image, done, key = util.visualize_images_callback(image, vis_scale=args.vis_scale, ret_key=True)
+                    if done or key == 32:
+                        break
                 if done:
                     break
             action = sim.apply_action(action)

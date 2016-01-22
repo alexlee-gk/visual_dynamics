@@ -175,9 +175,9 @@ class ScaleCropImageSimulator(Simulator):
     def _scale_crop(self, image):
 #         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         image = (image.astype(float) / 255.0) * 2.0 - 1.0
-        if self.image_scale is not None:
+        if self.image_scale is not None and self.image_scale != 1.0:
             image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale)
-        if self.crop_size is not None:
+        if self.crop_size is not None and tuple(self.crop_size) != image.shape[:2]:
             h, w = image.shape[:2]
             crop_h, crop_w = self.crop_size
             image = image[h/2-crop_h/2:h/2-crop_h/2+crop_h, w/2-crop_w/2:w/2-crop_w/2+crop_w, ...]
@@ -255,7 +255,8 @@ class VideoCaptureThread(threading.Thread):
 class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
     def __init__(self, dof_limits, dof_vel_limits,
                  image_scale=None, crop_size=None,
-                 pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), camera_id=0, warmup_frames=25):
+                 pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
+                 camera_id=0, warmup_frames=25):
         """
         DOFs are pan, tilt
         """
@@ -278,7 +279,12 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
             self.pwm = PWM(pwm_address)
             self.pwm.setPWMFreq(pwm_freq)
             self.pwm_channels = pwm_channels
+            self.pwm_extra_delay = pwm_extra_delay
             self.use_pwm = True
+            self.dof_values = self._dof_values
+            duration = self.duration_dof_vel(np.diff(self.dof_limits, axis=0).max())
+            time.sleep(duration + self.pwm_extra_delay)
+
         except Exception as e:
             self.use_pwm = False
             print "Exception when using pwm: %s. Disabling it."%e
@@ -291,17 +297,32 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
     def dof_values(self, next_dof_values):
         assert self._dof_values is None or self._dof_values.shape == next_dof_values.shape
         next_dof_values = np.round(next_dof_values).astype(np.int)
-        self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
+        next_dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
+        dof_changes = np.abs(next_dof_values - self._dof_values)
+        self._dof_values = next_dof_values
         if self.use_pwm:
-            for channel, dof_value in zip(self.pwm_channels, self._dof_values):
+            finish_times = []
+            for channel, dof_value, dof_change in zip(self.pwm_channels, self._dof_values, dof_changes):
                 self.pwm.setPWM(channel, 0, dof_value)
-        time.sleep(.5)
+                finish_time = time.time() + self.duration_dof_vel(dof_change)
+                finish_times.append(finish_time)
+            duration = time.time() - np.max(finish_times)
+            time.sleep(max(0, duration + self.pwm_extra_delay))
 
     def apply_action(self, vel):
         return super(ServoPlatform, self).apply_action(np.round(vel).astype(np.int))
 
     def observe(self):
         return self._scale_crop(self.cap_thread.image)
+
+    def duration_dof_vel(self, dof_vel):
+        """
+        Time duration the servo (HS-5645) takes to change its dof by dof_vel.
+        """
+        deg_vel = 90.0 * dof_vel / 250.0
+        duration = 0.23 * deg_vel / 60.0
+        return duration
+
 
 class PR2HeadSimulator(Simulator):
     def __init__(self, robot, vel_max):
