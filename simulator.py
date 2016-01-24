@@ -4,6 +4,7 @@ import time
 import numpy as np
 import threading
 import cv2
+import video
 import util
 
 def axis2quat(axis, angle):
@@ -49,6 +50,9 @@ class Simulator(object):
     @property
     def state_dim(self):
         raise NotImplementedError
+
+    def stop(self):
+        return
 
 
 class SquareSimulator(object):
@@ -226,32 +230,6 @@ class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         return self._scale_crop(image)
 
 
-class VideoCaptureThread(threading.Thread):
-    def __init__(self, camera_id, warmup_frames=0):
-        threading.Thread.__init__(self)
-        self.cap = cv2.VideoCapture(camera_id)
-        self.warmup_frames = warmup_frames
-        self.image = None
-        self._done = False
-
-    def run(self):
-        while not self._done and self.cap.isOpened():
-            success, image = self.cap.read()
-            if not success:
-                raise RuntimeError("Could not read the image from the capture device")
-            if self.warmup_frames > 0:
-                self.warmup_frames -= 1
-            self.image = image
-        self._done = True
-
-    def stop(self):
-        self.cap.release()
-        self._done = True
-
-    def ready(self):
-        return self.image is not None and self.warmup_frames == 0
-
-
 class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
     def __init__(self, dof_limits, dof_vel_limits,
                  image_scale=None, crop_size=None,
@@ -268,12 +246,12 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
                 camera_id = int(camera_id)
             else:
                 camera_id = util.device_id_from_camera_id(camera_id)
-        self.cap_thread = VideoCaptureThread(camera_id, warmup_frames=warmup_frames)
-        self.cap_thread.start()
-        while not self.cap_thread.ready():
-            print "Capture device not ready, waiting..."
-            time.sleep(.1)
+        self.cap = video.GstVideoCapture(device='/dev/video%d'%camera_id)
+        self.cap.start()
+        for _ in range(warmup_frames):
+            self.cap.get()
         # servos initialization
+        self.last_time = -np.inf
         try:
             from ext.adafruit.Adafruit_PWM_Servo_Driver.Adafruit_PWM_Servo_Driver import PWM
             self.pwm = PWM(pwm_address)
@@ -284,14 +262,13 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
             self.dof_values = self._dof_values
             duration = self.duration_dof_vel(np.diff(self.dof_limits, axis=0).max())
             time.sleep(duration + self.pwm_extra_delay)
-
+            self.last_time = self.cap.get_time()
         except Exception as e:
             self.use_pwm = False
             print "Exception when using pwm: %s. Disabling it."%e
 
-    def __del__(self):
-        self.cap_thread.stop()
-        self.cap_thread.join()
+    def stop(self):
+        self.cap.stop()
 
     @DiscreteVelocitySimulator.dof_values.setter
     def dof_values(self, next_dof_values):
@@ -308,12 +285,18 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
                 finish_times.append(finish_time)
             duration = time.time() - np.max(finish_times)
             time.sleep(max(0, duration + self.pwm_extra_delay))
+            self.last_time = self.cap.get_time()
 
     def apply_action(self, vel):
         return super(ServoPlatform, self).apply_action(np.round(vel).astype(np.int))
 
     def observe(self):
-        return self._scale_crop(self.cap_thread.image)
+        image_time = None
+        latency = int(.9 * 1e9)
+        while image_time is None or (image_time - latency) < self.last_time:
+            image, image_time = self.cap.get()
+            time.sleep(.1)
+        return self._scale_crop(image)
 
     def duration_dof_vel(self, dof_vel):
         """
@@ -321,7 +304,7 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
         """
         deg_vel = 90.0 * dof_vel / 250.0
         duration = 0.23 * deg_vel / 60.0
-        return duration
+        return abs(duration)
 
 
 class PR2HeadSimulator(Simulator):
