@@ -221,3 +221,31 @@ def camera_id_from_serial_number(serial_number):
 
 def device_id_from_camera_id(camera_id):
     return device_id_from_serial_number(serial_number_from_camera_id(camera_id))
+
+def yes_or_no(question):
+    assert isinstance(question, str) or isinstance(question, unicode)
+    while True:
+        yn = raw_input(question + " ([y]/n): ")
+        if yn == 'y' or yn == '':
+            return True
+        elif yn == 'n':
+            return False
+
+def obs_from_image(image):
+    """
+    image: height x width x channel array of type uint8 with values in [0, 255]
+    """
+    obs = (image.astype(float) / 255.0) * 2.0 - 1.0
+    if obs.ndim == 2:
+        obs = obs[None, :, :]
+    else:
+        obs = obs.transpose(2, 0, 1)
+    return obs
+
+def image_from_obs(obs):
+    """
+    obs: channel x height x width array of type float with values in [-1, 1]
+    """
+    image = obs.transpose(1, 2, 0)
+    image = ((image + 1.0) * 255.0 / 2.0).astype(np.uint8)
+    return image

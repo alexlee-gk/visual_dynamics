@@ -9,12 +9,14 @@ from predictor import predictor
 import simulator
 import controller
 import target_generator
+import data_container
 import util
+import util_parser
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
-    parser.add_argument('val_hdf5_fname', type=str, nargs='?', default=None)
+    parser.add_argument('val_hdf5_fname', type=str, default=None)
     parser.add_argument('--predictor', '-p', type=str, default='small_action_cond_encoder_net')
     parser.add_argument('--pretrained_fname', '--pf', type=str, default=None)
     parser.add_argument('--solverstate_fname', '--sf', type=str, default=None)
@@ -39,44 +41,31 @@ def main():
     parser.add_argument('--visualize', '-v', type=int, default=1)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
     parser.add_argument('--output_image_dir', type=str)
-    parser.add_argument('--image_size', type=int, nargs=2, default=None, metavar=('HEIGHT', 'WIDTH'))
-    parser.add_argument('--simulator', '-s', type=str, default=None, choices=('square', 'ogre', 'none'))
-    # square simulator
-    parser.add_argument('--abs_vel_max', type=float, default=None)
-    parser.add_argument('--square_length', '-l', type=int, default=None, help='required to be odd')
-    # ogre and servo simulator
-    parser.add_argument('--dof_min', type=float, nargs='+', default=None)
-    parser.add_argument('--dof_max', type=float, nargs='+', default=None)
-    parser.add_argument('--vel_min', type=float, nargs='+', default=None)
-    parser.add_argument('--vel_max', type=float, nargs='+', default=None)
-    parser.add_argument('--image_scale', '-f', type=float, default=None)
-    # ogre simulator
-    parser.add_argument('--background_color', type=float, nargs=3, default=None, help='background color for ogre')
-    parser.add_argument('--ogrehead', action='store_true')
-    # servo simulator
-    parser.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=None)
-    parser.add_argument('--camera_id', '-i', type=str, default=None)
-    args = parser.parse_args()
+    args, remaining_args = parser.parse_known_args()
 
     if args.val_hdf5_fname is None:
         args.val_hdf5_fname = args.train_hdf5_fname.replace('train', 'val')
     if args.postfix is None:
         args.postfix = os.path.basename(args.train_hdf5_fname).split('_')[0]
 
-    # use sim args of the validation data
-    with h5py.File(args.val_hdf5_fname, 'r') as hdf5_file:
-        if 'sim_args' in hdf5_file:
-            for arg_name, arg in hdf5_file['sim_args'].items():
-                if args.__dict__[arg_name] is None:
-                    args.__dict__[arg_name] = arg[...] if arg.shape else np.asscalar(arg[...])
-    args.dof_min = np.asarray(args.dof_min)
-    args.dof_max = np.asarray(args.dof_max)
-    args.vel_min = np.asarray(args.vel_min)
-    args.vel_max = np.asarray(args.vel_max)
-    if args.pwm_channels is None:
-        args.pwm_channels = (0, 1)
-    if args.camera_id is None:
-        args.camera_id = '0'
+    val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
+    sim_args = val_container.get_group('sim_args')
+    # parse simulator arguments if specified, and prioritize them in this order: specified arguments, sim_args from the validation data, the default arguments
+    if remaining_args:
+        subparsers = util_parser.add_simulator_subparsers(parser)
+        subparsers.add_parser('none')
+        parser.set_defaults(**sim_args)
+        val_hdf5_fname = args.val_hdf5_fname
+        postfix = args.postfix
+        args = parser.parse_args()
+        args.val_hdf5_fname = val_hdf5_fname
+        args.postfix = postfix
+        sim_args = args.get_sim_args(args)
+    else:
+        args.__dict__.update(sim_args)
+        args.create_simulator = dict(square=util_parser.create_square_simulator,
+                                     ogre=util_parser.create_ogre_simulator,
+                                     servo=util_parser.create_servo_simulator)[args.simulator]
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
@@ -154,31 +143,21 @@ def main():
                 val_losses = {blob_name: np.asscalar(blob.data) for blob_name, blob in feature_predictor.val_net.blobs.items() if blob_name.endswith('loss')}
                 print 'val_losses', val_losses
 
-    if args.simulator == 'square':
-        sim = simulator.SquareSimulator(args.image_size, args.square_length, args.vel_max)
-    elif args.simulator== 'ogre':
-        sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                      image_scale=args.image_scale, crop_size=args.image_size,
-                                      background_color=args.background_color,
-                                      ogrehead=args.ogrehead)
-    elif args.simulator == 'servo':
-        sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                      image_scale=args.image_scale, crop_size=args.image_size)
-    elif args.simulator == 'none':
-        with h5py.File(args.val_hdf5_fname, 'r') as hdf5_file:
-            for image_curr, vel, image_diff in zip(hdf5_file['image_curr'], hdf5_file['vel'], hdf5_file['image_diff']):
-                image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
-                if args.visualize:
-                    image_next = image_curr + image_diff
-                    image_curr = feature_predictor.preprocess_input(image_curr)
-                    image_next = feature_predictor.preprocess_input(image_next)
-                    image_pred_error = (image_next_pred - image_next)/2.0
-                    vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
-                    if done:
-                        break
+    if args.simulator == 'none':
+        for datum_iter in range(val_container.num_data):
+            image_curr, image_diff, vel = val_container.get_datum(datum_iter, ['image_curr', 'image_diff', 'vel']).values()
+            image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
+            if args.visualize:
+                image_next = image_curr + image_diff
+                image_curr = feature_predictor.preprocess_input(image_curr)
+                image_next = feature_predictor.preprocess_input(image_next)
+                image_pred_error = (image_next_pred - image_next)/2.0
+                vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
+                if done:
+                    break
         return
     else:
-        raise
+        sim = args.create_simulator(args)
 
     if args.target_hdf5_fname:
         target_gen = target_generator.Hdf5TargetGenerator(args.target_hdf5_fname)
@@ -186,8 +165,8 @@ def main():
     else:
         target_gen = target_generator.RandomTargetGenerator(sim)
     if args.train_target_hdf5_fnames:
-        image_targets = [h5py.File(fname)['image_target'][()] for fname in args.train_target_hdf5_fnames]
-        ctrl = controller.SpecializedServoingController(feature_predictor, *image_targets)
+        pos_image_targets, neg_image_targets = [h5py.File(fname)['image_target'][()] for fname in args.train_target_hdf5_fnames]
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_image_targets, neg_image_targets)
     else:
         ctrl = controller.ServoingController(feature_predictor)
 
@@ -287,6 +266,9 @@ def main():
         except KeyboardInterrupt:
             break
 
+    if args.output_hdf5_fname:
+        output_hdf5_file.close()
+    sim.stop()
     if args.visualize:
         cv2.destroyAllWindows()
 
