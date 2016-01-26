@@ -191,9 +191,9 @@ class ImageTrajectoryDataContainer(TrajectoryDataContainer, ImageDataContainer):
     def add_datum(self, *iters_datum_dict):
         iters, datum_dict = iters_datum_dict[:-1], iters_datum_dict[-1]
         datum_iter = self._get_datum_iter(*iters)
-        ImageDataContainer.add_datum(self, datum_iter, datum_dict, fmt_args=(traj_iter, step_iter))
+        ImageDataContainer.add_datum(self, datum_iter, datum_dict, fmt_args=iters)
 
     def get_datum(self, *iters_datum_names):
         iters, datum_names = iters_datum_names[:-1], iters_datum_names[-1]
         datum_iter = self._get_datum_iter(*iters)
-        return ImageDataContainer.get_datum(self, datum_iter, datum_names, fmt_args=(traj_iter, step_iter))
+        return ImageDataContainer.get_datum(self, datum_iter, datum_names, fmt_args=iters)
