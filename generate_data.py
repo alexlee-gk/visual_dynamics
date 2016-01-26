@@ -64,12 +64,12 @@ def main():
                 image = sim.observe()
                 action = ctrl.step(image)
                 action = sim.apply_action(action)
-                image_next = sim.observe()
                 if traj_container:
                     traj_container.add_datum(traj_iter, step_iter, dict(image=image,
                                                                         dof_val=dof_val,
                                                                         vel=action))
                     if step_iter == (args.num_steps-1):
+                        image_next = sim.observe()
                         traj_container.add_datum(traj_iter, step_iter+1, dict(image=image_next,
                                                                               dof_val=sim.dof_values))
                 if args.visualize:

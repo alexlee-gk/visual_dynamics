@@ -2,7 +2,6 @@ from __future__ import division
 
 import time
 import numpy as np
-import threading
 import cv2
 import video
 import util
@@ -234,7 +233,7 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
     def __init__(self, dof_limits, dof_vel_limits,
                  image_scale=None, crop_size=None,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
-                 camera_id=0, warmup_frames=25):
+                 camera_id=0):
         """
         DOFs are pan, tilt
         """
@@ -248,8 +247,6 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
                 camera_id = util.device_id_from_camera_id(camera_id)
         self.cap = video.GstVideoCapture(device='/dev/video%d'%camera_id)
         self.cap.start()
-        for _ in range(warmup_frames):
-            self.cap.get()
         # servos initialization
         self.last_time = -np.inf
         try:
@@ -290,12 +287,15 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
     def apply_action(self, vel):
         return super(ServoPlatform, self).apply_action(np.round(vel).astype(np.int))
 
+    def reset(self, dof_values):
+        self.dof_values = dof_values
+        time.sleep(2.5)
+
     def observe(self):
-        image_time = None
-        latency = int(.9 * 1e9)
-        while image_time is None or (image_time - latency) < self.last_time:
+        while True:
             image, image_time = self.cap.get()
-            time.sleep(.1)
+            if image_time > self.last_time:
+                break
         return self._scale_crop(image)
 
     def duration_dof_vel(self, dof_vel):

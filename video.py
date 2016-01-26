@@ -7,7 +7,7 @@ GObject.threads_init()
 Gst.init(None)
 
 class GstVideoCapture(object):
-    def __init__(self, device=None, size=None, fps=None, sync=True):
+    def __init__(self, device=None, size=None, fps=None, sync=False):
         self.device = device or '/dev/video0'
         self.size = size or (480, 640)
         fps = fps or 30
@@ -18,6 +18,14 @@ class GstVideoCapture(object):
 
         self.source = Gst.ElementFactory.make('v4l2src', 'source')
         self.source.set_property('device', device)
+        self.source.set_property('do-timestamp', 'true')
+        # run 'v4l2-ctl --list-ctrls' for full list of controls
+        struct, _ = Gst.structure_from_string('name,\
+                                               white_balance_temperature_auto=(bool){0},\
+                                               backlight_compensation=(int){0},\
+                                               exposure_auto=0,\
+                                               focus_auto=(bool){0}')
+        self.source.set_property('extra-controls', struct)
 
         caps = Gst.caps_from_string('video/x-raw,format=(string){BGR},width=%d,height=%d,framerate=%d/1'%(size[1], size[0], fps))
         self.sink = Gst.ElementFactory.make('appsink', 'sink')
@@ -42,7 +50,7 @@ class GstVideoCapture(object):
                            buffer=buf.extract_dup(0, buf.get_size()),
                            dtype=np.uint8)
         return image, self.pipeline.base_time + buf.pts - buf.duration
-    
+
     def get_time(self):
         return self.pipeline.clock.get_time()
 
