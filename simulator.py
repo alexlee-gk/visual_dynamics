@@ -170,22 +170,6 @@ class DiscreteVelocitySimulator(Simulator):
         return dim
 
 
-class ScaleCropImageSimulator(Simulator):
-    def __init__(self, image_scale=None, crop_size=None):
-        self.image_scale = image_scale
-        self.crop_size = crop_size
-
-    def _scale_crop(self, image):
-#         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        if self.image_scale is not None and self.image_scale != 1.0:
-            image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale)
-        if self.crop_size is not None and tuple(self.crop_size) != image.shape[:2]:
-            h, w = image.shape[:2]
-            crop_h, crop_w = self.crop_size
-            image = image[h/2-crop_h/2:h/2-crop_h/2+crop_h, w/2-crop_w/2:w/2-crop_w/2+crop_w, ...]
-        return image
-
-
 class ImageTransformer(object):
     def __init__(self, image_scale=None, crop_size=None, crop_offset=None):
         self.image_scale = image_scale
@@ -219,13 +203,12 @@ class ImageTransformer(object):
         return image
 
 
-class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, image_scale=None, crop_size=None, background_color=None, ogrehead=False):
+class OgreSimulator(DiscreteVelocitySimulator):
+    def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
-        ScaleCropImageSimulator.__init__(self, image_scale=image_scale, crop_size=crop_size)
         self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
 
         import pygre
@@ -254,19 +237,17 @@ class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
 
     def observe(self):
         image = self.ogre.getScreenshot()
-        return util.obs_from_image(self._scale_crop(image))
+        return util.obs_from_image(image)
 
 
-class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
+class ServoPlatform(DiscreteVelocitySimulator):
     def __init__(self, dof_limits, dof_vel_limits,
-                 image_scale=None, crop_size=None,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
                  camera_id=0):
         """
         DOFs are pan, tilt
         """
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
-        ScaleCropImageSimulator.__init__(self, image_scale=image_scale, crop_size=crop_size)
         # camera initialization
         if isinstance(camera_id, basestring):
             if camera_id.isdigit():
@@ -324,7 +305,7 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
             image, image_time = self.cap.get()
             if image_time > self.last_time:
                 break
-        return util.obs_from_image(self._scale_crop(image))
+        return util.obs_from_image(image)
 
     def duration_dof_vel(self, dof_vel):
         """
