@@ -1,17 +1,60 @@
+import time
 import numpy as np
-import gi
-gi.require_version('Gst', '1.0')
-from gi.repository import GObject, Gst
+try:
+    import gi
+    gi.require_version('Gst', '1.0')
+    from gi.repository import GObject, Gst
+    GObject.threads_init()
+    Gst.init(None)
+    gstreamer_available = True
+except ImportError:
+    gstreamer_available = False
 
-GObject.threads_init()
-Gst.init(None)
+try:
+    import cv2
+    opencv_available = True
+except ImportError:
+    opencv_available = False
+
+
+class Cv2VideoCapture(object):
+    def __init__(self, device=None, size=None, fps=None, sync=False):
+        self.device = device or 0
+        self.size = size or (480, 640)
+        fps = fps or 30
+
+        self.cap = cv2.VideoCapture(self.device)
+        cap_height, cap_width = self.cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT), self.cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
+        if cap_height != self.size[0]:
+            self.cap.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, self.size[0])
+        if cap_width != self.size[1]:
+            self.cap.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, self.size[1])
+        cap_fps = self.cap.get(cv2.cv.CV_CAP_PROP_FPS)
+        if cap_fps != fps:
+            self.cap.set(cv2.cv.CV_CAP_PROP_FPS, fps)
+        if sync:
+            raise ValueError("sync not supported")
+
+    def get(self):
+        ret, image = self.cap.read()
+        if not ret:
+            raise RuntimeError("Could not read the image from the capture device")
+        return image, self.get_time() # TODO: use actual time of the frame
+
+    def get_time(self):
+        return time.time()
+
+    def release(self):
+        self.cap.release()
+
 
 class GstVideoCapture(object):
     def __init__(self, device=None, size=None, fps=None, sync=False):
-        self.device = device or '/dev/video0'
+        self.device = '/dev/video%d'%(device or 0)
         self.size = size or (480, 640)
         fps = fps or 30
         self._create_main_pipeline(self.device, self.size, fps, sync)
+        self._start()
 
     def _create_main_pipeline(self, device, size, fps, sync):
         self.pipeline = Gst.Pipeline()
@@ -54,13 +97,41 @@ class GstVideoCapture(object):
     def get_time(self):
         return self.pipeline.clock.get_time()
 
-    def start(self):
+    def _start(self):
         state_change_return = self.pipeline.set_state(Gst.State.PLAYING)
         if state_change_return == Gst.StateChangeReturn.FAILURE:
             raise RuntimeError('Failed to start capture device %s'%self.device)
 
-    def stop(self):
+    def release(self):
         self.pipeline.set_state(Gst.State.NULL)
+
+
+class VideoCapture(object):
+    def __init__(self, device=None, size=None, fps=None, sync=False, backend=None):
+        if backend is None:
+            # select backend that is available
+            if gstreamer_available:
+                self.cap = GstVideoCapture(device, size, sync)
+            elif opencv_available:
+                self.cap = Cv2VideoCapture(device, size)
+            else:
+                # if no backend available, raise exception
+                self.video = GstVideoCapture(device, size, sync)
+        elif backend == "gstreamer":
+            self.cap = GstVideoCapture(device, size, sync)
+        elif backend == "opencv":
+            self.video = Cv2VideoCapture(device, size)
+        else:
+            raise ValueError("Unknown backend: %s", backend)
+
+    def get(self):
+        return self.cap.get()
+
+    def get_time(self):
+        return self.cap.get_time()
+
+    def release(self):
+        self.cap.release()
 
 
 def main():
@@ -68,18 +139,18 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--device', type=str, default=None)
+    parser.add_argument('--device', type=int, default=None)
     parser.add_argument('--size', nargs=2, type=int, default=None, metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--fps', type=int, default=None)
     parser.add_argument('--sync', type=int, default=1)
+    parser.add_argument('--backend', type=str, default=None)
 
     args = parser.parse_args()
 
-    cap = GstVideoCapture(device=args.device, size=args.size, fps=args.fps, sync=args.sync)
-    cap.start()
+    cap = VideoCapture(device=args.device, size=args.size, fps=args.fps, sync=args.sync, backend=args.backend)
     while True:
         try:
-            image = cap.get()
+            image, _ = cap.get()
             cv2.imshow("Image window", image)
             key = cv2.waitKey(100)
             key &= 255
@@ -88,7 +159,7 @@ def main():
                 break
         except KeyboardInterrupt:
             break
-    cap.stop()
+    cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":

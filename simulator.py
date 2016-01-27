@@ -254,8 +254,7 @@ class ServoPlatform(DiscreteVelocitySimulator):
                 camera_id = int(camera_id)
             else:
                 camera_id = util.device_id_from_camera_id(camera_id)
-        self.cap = video.GstVideoCapture(device='/dev/video%d'%camera_id)
-        self.cap.start()
+        self.cap = video.VideoCapture(device=camera_id)
         # servos initialization
         self.last_time = -np.inf
         try:
@@ -274,7 +273,7 @@ class ServoPlatform(DiscreteVelocitySimulator):
             print "Exception when using pwm: %s. Disabling it."%e
 
     def stop(self):
-        self.cap.stop()
+        self.cap.release()
 
     @DiscreteVelocitySimulator.dof_values.setter
     def dof_values(self, next_dof_values):
