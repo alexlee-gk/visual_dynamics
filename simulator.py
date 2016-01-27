@@ -177,16 +177,44 @@ class ScaleCropImageSimulator(Simulator):
 
     def _scale_crop(self, image):
 #         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        image = (image.astype(float) / 255.0) * 2.0 - 1.0
         if self.image_scale is not None and self.image_scale != 1.0:
             image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale)
         if self.crop_size is not None and tuple(self.crop_size) != image.shape[:2]:
             h, w = image.shape[:2]
             crop_h, crop_w = self.crop_size
             image = image[h/2-crop_h/2:h/2-crop_h/2+crop_h, w/2-crop_w/2:w/2-crop_w/2+crop_w, ...]
-        if image.ndim == 2:
-            image = image[None, :, :]
-        else:
+        return image
+
+
+class ImageTransformer(object):
+    def __init__(self, image_scale=None, crop_size=None, crop_offset=None):
+        self.image_scale = image_scale
+        self.crop_size = np.asarray(crop_size) if crop_size is not None else None
+        self.crop_offset = np.asarray(crop_offset) if crop_offset is not None else None
+
+    def transform(self, image):
+        need_swap_channels = (image.ndim == 3 and image.shape[0] == 3)
+        if need_swap_channels:
+            image = image.transpose(1, 2, 0)
+        if self.image_scale is not None and self.image_scale != 1.0:
+            image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale)
+        if self.crop_size is not None and tuple(self.crop_size) != image.shape[:2]:
+            h, w = image_shape = np.asarray(image.shape[:2])
+            crop_h, crop_w = self.crop_size
+            if crop_h > h:
+                raise ValueError('crop height %d is larger than image height %d (after scaling)'%(crop_h, h))
+            if crop_w > w:
+                raise ValueError('crop width %d is larger than image width %d (after scaling)'%(crop_w, w))
+            crop_origin = image_shape/2
+            if self.crop_offset is not None:
+                crop_origin += self.crop_offset
+            crop_corner = crop_origin - self.crop_size/2
+            if not (np.all(np.zeros(2) <= crop_corner) and np.all(crop_corner + self.crop_size <= image_shape)):
+                raise IndexError('crop indices out of range')
+            image = image[crop_corner[0]:crop_corner[0] + crop_h,
+                          crop_corner[1]:crop_corner[1] + crop_w,
+                          ...]
+        if need_swap_channels:
             image = image.transpose(2, 0, 1)
         return image
 
@@ -226,7 +254,7 @@ class OgreSimulator(DiscreteVelocitySimulator, ScaleCropImageSimulator):
 
     def observe(self):
         image = self.ogre.getScreenshot()
-        return self._scale_crop(image)
+        return util.obs_from_image(self._scale_crop(image))
 
 
 class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
@@ -296,7 +324,7 @@ class ServoPlatform(DiscreteVelocitySimulator, ScaleCropImageSimulator):
             image, image_time = self.cap.get()
             if image_time > self.last_time:
                 break
-        return self._scale_crop(image)
+        return util.obs_from_image(self._scale_crop(image))
 
     def duration_dof_vel(self, dof_vel):
         """

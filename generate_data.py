@@ -74,6 +74,8 @@ def main():
                                                                               dof_val=sim.dof_values))
                 if args.visualize:
                     vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
+                if done:
+                    break
             if done:
                 break
         except KeyboardInterrupt:

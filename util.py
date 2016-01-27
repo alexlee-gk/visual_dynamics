@@ -165,8 +165,7 @@ def visualize_images_callback(*images, **kwargs):
     window_name = kwargs.get('window_name', 'Image window')
     delay = kwargs.get('delay', 1)
     ret_key = kwargs.get('ret_key', False)
-    vis_image = np.concatenate([image.transpose(1, 2, 0) for image in images], axis=1)
-    vis_image = ((vis_image + 1.0) * 255.0/2.0).astype(np.uint8)
+    vis_image = np.concatenate([image_from_obs(image) for image in images], axis=1)
     if vis_scale != 1:
         vis_rescaled_image = cv2.resize(vis_image, (0, 0), fx=vis_scale, fy=vis_scale, interpolation=cv2.INTER_NEAREST)
     else:
