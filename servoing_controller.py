@@ -41,6 +41,9 @@ def main():
     parser.add_argument('--visualize', '-v', type=int, default=1)
     parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
     parser.add_argument('--output_image_dir', type=str)
+    parser.add_argument('--image_scale', '-f', type=float, default=None)
+    parser.add_argument('--crop_size', type=int, nargs=2, default=None, metavar=('HEIGHT', 'WIDTH'))
+    parser.add_argument('--crop_offset', type=int, nargs=2, default=None, metavar=('HEIGHT_OFFSET', 'WIDTH_OFFSET'))
     args, remaining_args = parser.parse_known_args()
 
     if args.val_hdf5_fname is None:
@@ -50,6 +53,8 @@ def main():
 
     val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
     sim_args = val_container.get_group('sim_args')
+    sim_args.pop('image_scale', None) # for backwards compatibility (simulator no longer has these)
+    sim_args.pop('crop_size', None)
     # parse simulator arguments if specified, and prioritize them in this order: specified arguments, sim_args from the validation data, the default arguments
     if remaining_args:
         subparsers = util_parser.add_simulator_subparsers(parser)
@@ -66,6 +71,13 @@ def main():
         args.create_simulator = dict(square=util_parser.create_square_simulator,
                                      ogre=util_parser.create_ogre_simulator,
                                      servo=util_parser.create_servo_simulator)[args.simulator]
+    # override image tranformer arguments if specified, and sync them
+    image_transformer_args = val_container.get_group('image_transformer_args')
+    for image_transformer_arg in image_transformer_args.keys():
+        if args.__dict__[image_transformer_arg] is None:
+            args.__dict__[image_transformer_arg] = image_transformer_args[image_transformer_arg]
+        else:
+            image_transformer_args[image_transformer_arg] = args.__dict__[image_transformer_arg]
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
@@ -158,6 +170,7 @@ def main():
         return
     else:
         sim = args.create_simulator(args)
+        image_transformer = simulator.ImageTransformer(**image_transformer_args)
 
     if args.target_hdf5_fname:
         target_gen = target_generator.Hdf5TargetGenerator(args.target_hdf5_fname)
@@ -189,12 +202,13 @@ def main():
     for traj_iter in range(args.num_trajs):
         try:
             image_target, dof_values_target = target_gen.get_target()
+            image_target = image_transformer.transform(image_target)
             ctrl.set_target_obs(image_target)
 
             dof_values_init = np.mean(sim.dof_limits, axis=0)
             sim.reset(dof_values_init)
             for step_iter in range(args.num_steps):
-                image = sim.observe()
+                image = image_transformer.transform(sim.observe())
                 action = ctrl.step(image)
                 image_next_pred = feature_predictor.predict(image, action, prediction_name='image_next_pred')
                 action = sim.apply_action(action)
@@ -215,7 +229,7 @@ def main():
                         cv2.imwrite(os.path.join(args.output_image_dir, image_fname), output_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                     if done:
                         break
-            image = sim.observe()
+            image = image_transformer.transform(sim.observe())
             image_pred_error = np.linalg.norm(image_next_pred - feature_predictor.preprocess_input(image))
             image_pred_errors.append(image_pred_error)
             image_error = np.linalg.norm(feature_predictor.preprocess_input(image_target) - feature_predictor.preprocess_input(image))
