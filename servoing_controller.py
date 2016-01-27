@@ -16,7 +16,7 @@ import util_parser
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
-    parser.add_argument('val_hdf5_fname', type=str, default=None)
+    parser.add_argument('val_hdf5_fname', type=str)
     parser.add_argument('--predictor', '-p', type=str, default='small_action_cond_encoder_net')
     parser.add_argument('--pretrained_fname', '--pf', type=str, default=None)
     parser.add_argument('--solverstate_fname', '--sf', type=str, default=None)
@@ -202,7 +202,6 @@ def main():
     for traj_iter in range(args.num_trajs):
         try:
             image_target, dof_values_target = target_gen.get_target()
-            image_target = image_transformer.transform(image_target)
             ctrl.set_target_obs(image_target)
 
             dof_values_init = np.mean(sim.dof_limits, axis=0)
