@@ -2,6 +2,7 @@ from __future__ import division
 
 import numpy as np
 import h5py
+import data_container
 import util
 
 class TargetGenerator(object):
@@ -36,6 +37,24 @@ class Hdf5TargetGenerator(TargetGenerator):
             dof_values_target = hdf5_file['pos'][self.image_iter][()]
             self.image_iter += 1
         return image_target, dof_values_target
+
+
+class DataContainerTargetGenerator(TargetGenerator):
+    def __init__(self, fname):
+        try:
+            self.container = data_container.TrajectoryDataContainer(fname)
+            self.num_images = self.container.num_trajs
+        except ValueError:
+            self.container = data_container.DataContainer(fname)
+            self.num_images = self.container.num_data
+        self.image_iter = 0
+
+    def get_target(self):
+        if isinstance(self.container, data_container.TrajectoryDataContainer):
+            self.image_target, = self.container.get_datum(self.image_iter, 0, ['image'])
+        else:
+            self.image_target, = self.container.get_datum(self.image_iter, ['image'])
+        self.image_iter += 1
 
 
 class InteractiveTargetGenerator(TargetGenerator):

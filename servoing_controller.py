@@ -173,7 +173,7 @@ def main():
         image_transformer = simulator.ImageTransformer(**image_transformer_args)
 
     if args.target_hdf5_fname:
-        target_gen = target_generator.Hdf5TargetGenerator(args.target_hdf5_fname)
+        target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname)
         args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
     else:
         target_gen = target_generator.RandomTargetGenerator(sim)
