@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--train_batch_size', '--train_bs', type=int, default=32)
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--max_iter', type=int, default=20000)
+    parser.add_argument('--base_lr', '--lr', type=float, default=0.001, help='solver parameter')
     parser.add_argument('--num_channel', type=int, help='net parameter')
     parser.add_argument('--y1_dim', type=int, help='net parameter')
     parser.add_argument('--y2_dim', type=int, help='net parameter')
@@ -100,7 +101,7 @@ def main():
         if not args.no_train:
             feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname,
                                     solver_type='ADAM',
-                                    base_lr=0.001, gamma=0.99,
+                                    base_lr=args.base_lr, gamma=0.99,
                                     momentum=0.9, momentum2=0.999,
                                     max_iter=args.max_iter)
     else:
@@ -142,7 +143,7 @@ def main():
                                                                              postfix=args.postfix)
 
         solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
-                                           base_lr=0.001, gamma=0.99,
+                                           base_lr=args.base_lr, gamma=0.99,
                                            momentum=0.9, momentum2=0.999,
                                            max_iter=args.max_iter)
         if not args.no_train:
