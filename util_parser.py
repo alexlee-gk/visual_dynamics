@@ -43,7 +43,9 @@ def create_ogre_simulator(args):
     args.vel_max = args.vel_max[:args.dof]
     sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                   background_color=args.background_color,
-                                  ogrehead=args.ogrehead)
+                                  ogrehead=args.ogrehead,
+                                  random_background_color=args.random_background_color,
+                                  random_ogrehead=args.random_ogrehead)
     return sim
 
 def create_servo_simulator(args):
@@ -77,6 +79,8 @@ def add_simulator_subparsers(parser):
     parser_ogre.add_argument('--dof', type=int, default=5)
     parser_ogre.add_argument('--background_color', type=float, nargs=3, default=[.0]*3, metavar=('R', 'G', 'B'))
     parser_ogre.add_argument('--ogrehead', action='store_true')
+    parser_ogre.add_argument('--random_background_color', action='store_true')
+    parser_ogre.add_argument('--random_ogrehead', type=int, default=0)
     parser_ogre.set_defaults(create_simulator=create_ogre_simulator)
 
     parser_servo = subparsers.add_parser('servo')

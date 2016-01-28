@@ -227,7 +227,7 @@ class NodeTrajectoryManager(object):
 
 
 class OgreSimulator(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False):
+    def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
@@ -248,6 +248,11 @@ class OgreSimulator(DiscreteVelocitySimulator):
             self.ogre.addNode("ogrehead", "ogrehead.mesh", *start) #([far, close], [down, up], [right, left])
             self.ogre.setNodeScale("ogrehead", np.array([.03]*3))
             self.traj_managers.append(NodeTrajectoryManager(self.ogre, "ogrehead", start, end, num_steps))
+        self.random_background_color = random_background_color
+        self.random_ogrehead = random_ogrehead
+        for ogrehead_iter in range(self.random_ogrehead):
+            self.ogre.addNode("ogrehead%d"%ogrehead_iter, "ogrehead.mesh", 0, 0, 0)
+            self.ogre.setNodeScale("ogrehead%d"%ogrehead_iter, np.array([.03]*3))
         self.ogre.setCameraOrientation(self._q0)
 
     @DiscreteVelocitySimulator.dof_values.setter
@@ -267,6 +272,16 @@ class OgreSimulator(DiscreteVelocitySimulator):
             for manager in self.traj_managers:
                 manager.step()
         return vel
+
+    def reset(self, dof_values):
+        super(OgreSimulator, self).reset(dof_values)
+        if self.random_background_color:
+            self.ogre.setBackgroundColor(np.random.random(3))
+        for ogrehead_iter in range(self.random_ogrehead):
+            ogrehead_pos_min = np.array([12, 0, -15])
+            ogrehead_pos_max = np.array([12, 5, 0])
+            ogrehead_pos = ogrehead_pos_min + np.random.random(3) * (ogrehead_pos_max - ogrehead_pos_min)
+            self.ogre.setNodePosition("ogrehead%d"%ogrehead_iter, ogrehead_pos)
 
     def observe(self):
         image = self.ogre.getScreenshot()
