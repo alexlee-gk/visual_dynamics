@@ -203,6 +203,29 @@ class ImageTransformer(object):
         return image
 
 
+class NodeTrajectoryManager(object):
+    def __init__(self, ogre, node_name, start, end, num_steps):
+        self.ogre = ogre
+        self.node_name = node_name
+        self.start = start
+        self.end = end
+        self.num_steps = num_steps
+        self.t = 0.0
+        self.ogre.setNodePosition(self.node_name, self._calculate_position())
+        self.dir = 1.0
+
+    def step(self):
+        self.t += self.dir * (1. / self.num_steps)
+        if not (0 <= self.t <= 1.):
+            self.dir *= -1.
+            self.t += 2. * self.dir * (1. / self.num_steps)
+        self.ogre.setNodePosition(self.node_name, self._calculate_position())
+
+    def _calculate_position(self):
+        assert 0 <= self.t <= 1
+        return (1.0 - self.t) * self.start + self.t * self.end
+
+
 class OgreSimulator(DiscreteVelocitySimulator):
     def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False):
         """
@@ -216,12 +239,15 @@ class OgreSimulator(DiscreteVelocitySimulator):
         self.ogre.init()
         if background_color is not None:
             self.ogre.setBackgroundColor(np.asarray(background_color))
-        self.ogre.addNode("node1", "house.mesh", 0, 0, 0)
+        self.ogre.addNode("house", "house.mesh", 0, 0, 0)
+        self.traj_managers = []
         if ogrehead:
-            self.ogre.addNode("node2", "ogrehead.mesh", 10, 5, -5) #([far, close], [down, up], [right, left])
-            self.ogre.addNode("node3", "ogrehead.mesh", 10, 0, -5)
-            self.ogre.addNode("node4", "ogrehead.mesh", 10, 5, -10)
-            self.ogre.addNode("node5", "ogrehead.mesh", 10, 0, -10)
+            start = np.array([12, 2.5, 0])
+            end = np.array([12, 2.5, -15])
+            num_steps = 30
+            self.ogre.addNode("ogrehead", "ogrehead.mesh", *start) #([far, close], [down, up], [right, left])
+            self.ogre.setNodeScale("ogrehead", np.array([.03]*3))
+            self.traj_managers.append(NodeTrajectoryManager(self.ogre, "ogrehead", start, end, num_steps))
         self.ogre.setCameraOrientation(self._q0)
 
     @DiscreteVelocitySimulator.dof_values.setter
@@ -234,6 +260,13 @@ class OgreSimulator(DiscreteVelocitySimulator):
         quat = quaternion_multiply(*[axis2quat(axis, theta) for axis, theta in zip(np.eye(3), angle)] + [self._q0])
         self.ogre.setCameraPosition(pos)
         self.ogre.setCameraOrientation(quat)
+
+    def apply_action(self, vel):
+        vel = super(OgreSimulator, self).apply_action(vel)
+        if self.traj_managers:
+            for manager in self.traj_managers:
+                manager.step()
+        return vel
 
     def observe(self):
         image = self.ogre.getScreenshot()
