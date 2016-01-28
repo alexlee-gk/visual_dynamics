@@ -178,6 +178,8 @@ def main():
     if args.target_hdf5_fname:
         target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname)
         args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
+    elif args.ogrehead:
+        target_gen = target_generator.OgreNodeTargetGenerator(sim)
     else:
         target_gen = target_generator.RandomTargetGenerator(sim)
     if args.train_target_hdf5_fnames:
@@ -205,6 +207,8 @@ def main():
     for traj_iter in range(args.num_trajs):
         try:
             image_target, dof_values_target = target_gen.get_target()
+            if not args.target_hdf5_fname:
+                image_target = image_transformer.transform(image_target)
             ctrl.set_target_obs(image_target)
 
             dof_values_init = np.mean(sim.dof_limits, axis=0)

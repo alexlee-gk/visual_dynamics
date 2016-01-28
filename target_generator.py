@@ -56,7 +56,7 @@ class OgreNodeTargetGenerator(SimulatorTargetGenerator):
     def get_dof_values_current_target(self):
         node_pos = self.sim.ogre.getNodePosition(self.node_name)
         camera_pos = node_pos + self.relative_pos
-        pos_angle = np.zeros(6)
+        pos_angle = np.zeros(min(6, self.sim.state_dim))
         pos_angle[:min(3, self.sim.state_dim)] = camera_pos[:min(3, self.sim.state_dim)]
         return pos_angle
 
