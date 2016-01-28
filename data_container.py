@@ -1,7 +1,6 @@
 from __future__ import division
 
 import os
-import shutil
 from collections import OrderedDict
 import numpy as np
 import cv2
@@ -12,9 +11,11 @@ import util
 class DataContainer(object):
     def __init__(self, fname, num_data=None, write=False):
         self.fname = fname
-        self.file = h5py.File(self.fname, 'a')
+        self.file = h5py.File(self.fname, 'a' if write else 'r')
         self.write = write
         self.num_data = self._require_value('num_data', num_data)
+        self.num_trajs = self._require_value('num_trajs', self.num_data)
+        self.num_steps = self._require_value('num_steps', 1)
 
     def add_group(self, group_name, group_dict):
         self._check_writable()
@@ -48,6 +49,9 @@ class DataContainer(object):
             datum_dict[name] = self.file[name][datum_iter][()]
         return datum_dict
 
+    def close(self):
+        self.file.close()
+
     def _check_writable(self):
         if not self.write:
             raise RuntimeError('cannot add datum since data is not writable')
@@ -69,7 +73,8 @@ class DataContainer(object):
                 metadata = self.get_group('metadata')
                 if name in metadata and value != metadata[name][()]:
                     raise ValueError('file has %d as %s but %d was given'%(metadata[name][()], name, value))
-            self.add_group('metadata', {name: value})
+            if self.write:
+                self.add_group('metadata', {name: value})
         return value
 
     def shuffle(self):
@@ -88,11 +93,11 @@ class DataContainer(object):
 class TrajectoryDataContainer(DataContainer):
     def __init__(self, fname, num_trajs=None, num_steps=None, write=False):
         self.fname = fname
-        self.file = h5py.File(self.fname, 'a')
+        self.file = h5py.File(self.fname, 'a' if write else 'r')
         self.write = write
         self.num_trajs = self._require_value('num_trajs', num_trajs)
         self.num_steps = self._require_value('num_steps', num_steps)
-        self.num_data  = self.num_trajs * self.num_steps
+        self.num_data = self._require_value('num_data', self.num_trajs * self.num_steps)
 
     def add_datum(self, *iters_datum_dict):
         iters, datum_dict = iters_datum_dict[:-1], iters_datum_dict[-1]
