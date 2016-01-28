@@ -183,7 +183,7 @@ def main():
     else:
         ctrl = controller.ServoingController(feature_predictor)
 
-    if args.output_hdf5_fname:
+    if args.num_trajs and args.num_steps and args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')
         output_hdf5_group = output_hdf5_file.require_group(feature_predictor.net_name + '_' + feature_predictor.postfix)
         if feature_predictor.val_net is not None:
