@@ -129,7 +129,7 @@ class ImageDataContainer(DataContainer):
     def __init__(self, fname, num_data=None, write=False):
         super(ImageDataContainer, self).__init__(fname, num_data=num_data, write=write)
         data_dir = self.required_data_dir(fname)
-        self.image_fname_fmt = os.path.join(data_dir, '%s_%0{:d}d.png'.format(len(str(self.num_data-1))))
+        self.image_fname_fmt = os.path.join(data_dir, '%s_%0{:d}d.jpg'.format(len(str(self.num_data-1))))
 
     def add_datum(self, datum_iter, datum_dict, fmt_args=None):
         other_dict = dict([item for item in datum_dict.items() if not item[0].startswith('image')])
@@ -140,7 +140,7 @@ class ImageDataContainer(DataContainer):
                 image_fname = self.image_fname_fmt%((image_name,) + fmt_args)
             else:
                 image_fname = self.image_fname_fmt%(image_name, datum_iter)
-            cv2.imwrite(image_fname, util.image_from_obs(image))
+            cv2.imwrite(image_fname, util.image_from_obs(image), [cv2.IMWRITE_JPEG_QUALITY, 90])
 
     def get_datum(self, datum_iter, datum_names, fmt_args=None):
         other_names = [name for name in datum_names if not name.startswith('image')]
@@ -186,7 +186,7 @@ class ImageTrajectoryDataContainer(TrajectoryDataContainer, ImageDataContainer):
     def __init__(self, fname, num_trajs=None, num_steps=None, write=False):
         super(ImageTrajectoryDataContainer, self).__init__(fname, num_trajs=num_trajs, num_steps=num_steps, write=write)
         data_dir = self._require_data_dir(fname)
-        self.image_fname_fmt = os.path.join(data_dir, '%s_%0{:d}d_%0{:d}d.png'.format(len(str(self.num_trajs-1)), len(str(self.num_steps-1))))
+        self.image_fname_fmt = os.path.join(data_dir, '%s_%0{:d}d_%0{:d}d.jpg'.format(len(str(self.num_trajs-1)), len(str(self.num_steps-1))))
 
     def add_datum(self, *iters_datum_dict):
         iters, datum_dict = iters_datum_dict[:-1], iters_datum_dict[-1]
