@@ -70,7 +70,7 @@ def add_simulator_subparsers(parser):
     parser_square.set_defaults(create_simulator=create_square_simulator)
 
     parser_ogre = subparsers.add_parser('ogre')
-    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[18, 2, -6, np.deg2rad(-20), np.deg2rad(-20)])
+    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[18, 2, -14, np.deg2rad(-20), np.deg2rad(-20)])
     parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[24, 6, -2, np.deg2rad(20), np.deg2rad(20)])
     parser_ogre.add_argument('--vel_min', type=float, nargs='+', default=[-0.8]*3 + [np.deg2rad(-7.5)]*2)
     parser_ogre.add_argument('--vel_max', type=float, nargs='+', default=[0.8]*3 + [np.deg2rad(7.5)]*2)

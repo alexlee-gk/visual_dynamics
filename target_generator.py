@@ -51,10 +51,11 @@ class DataContainerTargetGenerator(TargetGenerator):
 
     def get_target(self):
         if isinstance(self.container, data_container.TrajectoryDataContainer):
-            self.image_target, = self.container.get_datum(self.image_iter, 0, ['image'])
+            image_target, dof_values_target = self.container.get_datum(self.image_iter, 0, ['image_curr', 'dof_val']).values()
         else:
-            self.image_target, = self.container.get_datum(self.image_iter, ['image'])
+            image_target, dof_values_target = self.container.get_datum(self.image_iter, ['image_curr', 'dof_val']).values()
         self.image_iter += 1
+        return image_target, dof_values_target
 
 
 class InteractiveTargetGenerator(TargetGenerator):
