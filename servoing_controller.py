@@ -78,6 +78,7 @@ def main():
             args.__dict__[image_transformer_arg] = image_transformer_args[image_transformer_arg]
         else:
             image_transformer_args[image_transformer_arg] = args.__dict__[image_transformer_arg]
+    val_container.close()
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
@@ -156,6 +157,7 @@ def main():
                 print 'val_losses', val_losses
 
     if args.simulator == 'none':
+        val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
         for datum_iter in range(val_container.num_data):
             image_curr, image_diff, vel = val_container.get_datum(datum_iter, ['image_curr', 'image_diff', 'vel']).values()
             image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
@@ -167,6 +169,7 @@ def main():
                 vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
                 if done:
                     break
+        val_container.close()
         return
     else:
         sim = args.create_simulator(args)
