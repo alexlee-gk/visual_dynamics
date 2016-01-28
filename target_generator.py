@@ -1,46 +1,72 @@
 from __future__ import division
 
 import numpy as np
-import h5py
 import data_container
 import util
 
+
 class TargetGenerator(object):
+    def __init__(self):
+        self._dof_values_currrent_target = None
+
     def get_target(self):
         raise NotImplementedError
 
+    def get_dof_values_current_target(self):
+        """
+        Returns ground truth dof values for the current target (i.e. the one that get_target() returned last time it was called)
+        """
+        return self._dof_values_currrent_target
 
-class RandomTargetGenerator(TargetGenerator):
+
+class SimulatorTargetGenerator(TargetGenerator):
     def __init__(self, sim):
+        super(SimulatorTargetGenerator, self).__init__()
         self.sim = sim
 
     def get_target(self):
         """
-        Changes the state of the sim as a side effect
+        Changes the state of the sim as a side effect but restores it
         """
-        dof_values_target = self.sim.sample_state()
-        self.sim.reset(dof_values_target)
+        dof_values = self.sim.dof_values
+        self._dof_values_currrent_target = self._get_dof_values_target()
+        self.sim.reset(self._dof_values_currrent_target)
         image_target = self.sim.observe()
-        return image_target, dof_values_target
+        self.sim.reset(dof_values) # restore
+        return image_target, self._dof_values_currrent_target
+
+    def _get_dof_values_target(self):
+        """
+        Generates new ground truth dof values for the target
+        """
+        raise NotImplementedError()
 
 
-class Hdf5TargetGenerator(TargetGenerator):
-    def __init__(self, hdf5_fname):
-        self.hdf5_fname = hdf5_fname
-        with h5py.File(self.hdf5_fname, 'r') as hdf5_file:
-            self.num_images = len(hdf5_file['image_target'])
-        self.image_iter = 0
+class RandomTargetGenerator(SimulatorTargetGenerator):
+    def _get_dof_values_target(self):
+        return self.sim.sample_state()
 
-    def get_target(self):
-        with h5py.File(self.hdf5_fname, 'r') as hdf5_file:
-            image_target = hdf5_file['image_target'][self.image_iter][()]
-            dof_values_target = hdf5_file['pos'][self.image_iter][()]
-            self.image_iter += 1
-        return image_target, dof_values_target
+
+class OgreNodeTargetGenerator(SimulatorTargetGenerator):
+    def __init__(self, sim, node_name=None, relative_pos=None):
+        super(OgreNodeTargetGenerator, self).__init__(sim)
+        self.node_name = node_name or 'ogrehead'
+        self.relative_pos = relative_pos or np.array([6., 0, 0])
+
+    def get_dof_values_current_target(self):
+        node_pos = self.sim.ogre.getNodePosition(self.node_name)
+        camera_pos = node_pos + self.relative_pos
+        pos_angle = np.zeros(6)
+        pos_angle[:min(3, self.sim.state_dim)] = camera_pos[:min(3, self.sim.state_dim)]
+        return pos_angle
+
+    def _get_dof_values_target(self):
+        return self.get_dof_values_current_target() # always the same (relatively)
 
 
 class DataContainerTargetGenerator(TargetGenerator):
     def __init__(self, fname):
+        super(DataContainerTargetGenerator, self).__init__()
         try:
             self.container = data_container.TrajectoryDataContainer(fname)
             self.num_images = self.container.num_trajs
@@ -51,19 +77,19 @@ class DataContainerTargetGenerator(TargetGenerator):
 
     def get_target(self):
         if isinstance(self.container, data_container.TrajectoryDataContainer):
-            image_target, dof_values_target = self.container.get_datum(self.image_iter, 0, ['image_curr', 'dof_val']).values()
+            image_target, self._dof_values_currrent_target = self.container.get_datum(self.image_iter, 0, ['image_curr', 'dof_val']).values()
         else:
-            image_target, dof_values_target = self.container.get_datum(self.image_iter, ['image_curr', 'dof_val']).values()
+            image_target, self._dof_values_currrent_target = self.container.get_datum(self.image_iter, ['image_curr', 'dof_val']).values()
         self.image_iter += 1
-        return image_target, dof_values_target
+        return image_target, self._dof_values_currrent_target
 
 
-class InteractiveTargetGenerator(TargetGenerator):
+class InteractiveTargetGenerator(SimulatorTargetGenerator):
     def __init__(self, sim, vis_scale=1):
-        self.sim = sim
+        super(InteractiveTargetGenerator, self).__init__(sim)
         self.vis_scale = vis_scale
 
-    def get_target(self):
+    def _get_dof_values_target(self):
         dof_vel_min, dof_vel_max = self.sim.dof_vel_limits
         while True:
             image = self.sim.observe()
@@ -82,6 +108,4 @@ class InteractiveTargetGenerator(TargetGenerator):
             elif key == 32: # space
                 break
             self.sim.apply_action(vel)
-        dof_values_target = self.sim.state
-        image_target = self.sim.observe()
-        return image_target, dof_values_target
+        return self.sim.state
