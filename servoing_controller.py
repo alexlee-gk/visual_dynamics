@@ -33,7 +33,7 @@ def main():
     parser.add_argument('--num_downsample', '--numds', type=int, default=0, help='net parameter')
     parser.add_argument('--share_bilinear_weights', '--share', type=int, default=1, help='net parameter')
     parser.add_argument('--ladder_loss', '--ladder', type=int, default=0, help='net parameter')
-    parser.add_argument('--postfix', type=str, default=None)
+    parser.add_argument('--postfix', type=str, default='')
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--target_hdf5_fname', type=str, default=None)
     parser.add_argument('--train_target_hdf5_fnames', type=str, nargs=2, default=None)
@@ -49,6 +49,9 @@ def main():
 
     if args.val_hdf5_fname is None:
         args.val_hdf5_fname = args.train_hdf5_fname.replace('train', 'val')
+    if args.postfix:
+        args.postfix = '_' + args.postfix
+    args.postfix = '_'.join([os.path.basename(args.train_hdf5_fname).split('_')[0], 'lr' + str(args.base_lr)]) + args.postfix
 
     val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
     sim_args = val_container.get_group('sim_args')
@@ -78,9 +81,6 @@ def main():
         else:
             image_transformer_args[image_transformer_arg] = args.__dict__[image_transformer_arg]
     val_container.close()
-
-    if args.postfix is None:
-        args.postfix = os.path.basename(args.train_hdf5_fname).split('_')[0]
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
