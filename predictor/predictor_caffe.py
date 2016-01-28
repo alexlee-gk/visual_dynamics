@@ -245,6 +245,8 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                     test_losses.append(test_loss)
                 # visualization
                 plt.cla()
+                fig = plt.gcf()
+                fig.canvas.set_window_title(self.net_name + '_' + self.postfix)
                 plt.plot(iters, losses, label='train')
                 for i_test, test_losses in enumerate(val_losses):
                     plt.plot(iters, test_losses, label='test %d'%i_test)
