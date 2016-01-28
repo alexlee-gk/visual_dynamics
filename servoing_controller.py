@@ -49,8 +49,6 @@ def main():
 
     if args.val_hdf5_fname is None:
         args.val_hdf5_fname = args.train_hdf5_fname.replace('train', 'val')
-    if args.postfix is None:
-        args.postfix = os.path.basename(args.train_hdf5_fname).split('_')[0]
 
     val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
     sim_args = val_container.get_group('sim_args')
@@ -80,6 +78,9 @@ def main():
         else:
             image_transformer_args[image_transformer_arg] = args.__dict__[image_transformer_arg]
     val_container.close()
+
+    if args.postfix is None:
+        args.postfix = os.path.basename(args.train_hdf5_fname).split('_')[0]
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
