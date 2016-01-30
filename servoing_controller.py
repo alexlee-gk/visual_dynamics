@@ -36,7 +36,6 @@ def main():
     parser.add_argument('--postfix', type=str, default='')
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--target_hdf5_fname', type=str, default=None)
-    parser.add_argument('--train_target_hdf5_fnames', type=str, nargs=2, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -183,14 +182,16 @@ def main():
         target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname)
         args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
     elif args.ogrehead:
-        target_gen = target_generator.OgreNodeTargetGenerator(sim)
+        target_gen = target_generator.OgreNodeTargetGenerator(sim, args.num_trajs)
     else:
-        target_gen = target_generator.RandomTargetGenerator(sim)
-    if args.train_target_hdf5_fnames:
-        pos_image_targets, neg_image_targets = [h5py.File(fname)['image_target'][()] for fname in args.train_target_hdf5_fnames]
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_image_targets, neg_image_targets)
+        target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs)
+
+    if args.ogrehead:
+        pos_target_gen = target_generator.OgreNodeTargetGenerator(sim, 100)
+        neg_target_gen = target_generator.NegativeOgreNodeTargetGenerator(sim, 100)
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, image_transformer=image_transformer, alpha=.75, lambda_=1.)
     else:
-        ctrl = controller.ServoingController(feature_predictor)
+        ctrl = controller.ServoingController(feature_predictor, alpha=.75, lambda_=1.)
 
     if args.num_trajs and args.num_steps and args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')

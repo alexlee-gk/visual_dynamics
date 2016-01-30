@@ -8,6 +8,7 @@ import util
 class TargetGenerator(object):
     def __init__(self):
         self._dof_values_currrent_target = None
+        self.num_images = None
 
     def get_target(self):
         raise NotImplementedError
@@ -20,9 +21,10 @@ class TargetGenerator(object):
 
 
 class SimulatorTargetGenerator(TargetGenerator):
-    def __init__(self, sim):
+    def __init__(self, sim, num_images):
         super(SimulatorTargetGenerator, self).__init__()
         self.sim = sim
+        self.num_images = num_images
 
     def get_target(self):
         """
@@ -48,8 +50,8 @@ class RandomTargetGenerator(SimulatorTargetGenerator):
 
 
 class OgreNodeTargetGenerator(SimulatorTargetGenerator):
-    def __init__(self, sim, node_name=None, relative_pos=None):
-        super(OgreNodeTargetGenerator, self).__init__(sim)
+    def __init__(self, sim, num_images, node_name=None, relative_pos=None):
+        super(OgreNodeTargetGenerator, self).__init__(sim, num_images)
         self.node_name = node_name or 'ogrehead'
         self.relative_pos = relative_pos or np.array([6., 0, 0])
 
@@ -62,6 +64,19 @@ class OgreNodeTargetGenerator(SimulatorTargetGenerator):
 
     def _get_dof_values_target(self):
         return self.get_dof_values_current_target() # always the same (relatively)
+
+
+class NegativeOgreNodeTargetGenerator(OgreNodeTargetGenerator):
+    def get_target(self):
+        dof_values = self.sim.dof_values
+        self._dof_values_currrent_target = self._get_dof_values_target()
+        self.sim.reset(self._dof_values_currrent_target)
+        node_pos = self.sim.ogre.getNodePosition(self.node_name)
+        self.sim.ogre.setNodePosition(self.node_name, np.array([self.sim.dof_values[0] + 10.] + node_pos.tolist()[1:]))
+        image_target = self.sim.observe()
+        self.sim.ogre.setNodePosition(self.node_name, node_pos)
+        self.sim.reset(dof_values) # restore
+        return image_target, self._dof_values_currrent_target
 
 
 class DataContainerTargetGenerator(TargetGenerator):
@@ -85,8 +100,8 @@ class DataContainerTargetGenerator(TargetGenerator):
 
 
 class InteractiveTargetGenerator(SimulatorTargetGenerator):
-    def __init__(self, sim, vis_scale=1):
-        super(InteractiveTargetGenerator, self).__init__(sim)
+    def __init__(self, sim, num_images, vis_scale=1):
+        super(InteractiveTargetGenerator, self).__init__(sim, num_images)
         self.vis_scale = vis_scale
 
     def _get_dof_values_target(self):
