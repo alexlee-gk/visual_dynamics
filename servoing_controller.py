@@ -110,7 +110,9 @@ def main():
         from caffe.proto import caffe_pb2 as pb2
         from predictor import predictor_caffe, net_caffe
         if args.pretrained_fname == 'auto':
-            args.pretrained_fname = str(args.max_iter)
+            args.pretrained_fname = [str(args.max_iter)]
+        elif args.pretrained_fname.startswith('levels'):
+            args.pretrained_fname = [args.pretrained_fname, str(args.max_iter)]
         if args.solverstate_fname == 'auto':
             args.solverstate_fname = str(args.max_iter)
 
