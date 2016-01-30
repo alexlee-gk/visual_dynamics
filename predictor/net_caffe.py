@@ -798,7 +798,7 @@ def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, n
     x_diff_pred = L.Reshape(bilinear_yu_linear_u, shape=dict(dim=list((0,) + x_shape)))
     return x_diff_pred
 
-def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, ladder_loss=True, **kwargs):
+def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, ladder_loss=True, batch_normalization=False, **kwargs):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -853,6 +853,9 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                      convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
                                                             weight_filler=dict(type='gaussian', std=0.01),
                                                             bias_filler=dict(type='constant', value=0)))
+            if batch_normalization:
+                n.tops['bnx%d_1'%level] = \
+                xlevel_1 = L.BatchNorm(xlevel_1, param=[dict(lr_mult=0)]*3)
             n.tops['rx%d_1'%level] = L.ReLU(xlevel_1, in_place=True)
             n.tops['x%d_2'%level] = \
             xlevel_2 = L.Convolution(xlevel_1,
@@ -861,6 +864,9 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                      convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
                                                             weight_filler=dict(type='gaussian', std=0.01),
                                                             bias_filler=dict(type='constant', value=0)))
+            if batch_normalization:
+                n.tops['bnx%d_2'%level] = \
+                xlevel_2 = L.BatchNorm(xlevel_2, param=[dict(lr_mult=0)]*3)
             n.tops['rx%d_2'%level] = L.ReLU(xlevel_2, in_place=True)
             n.tops['x%d'%level] = \
             xlevel = L.Pooling(xlevel_2, pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
@@ -919,6 +925,9 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                  convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
                                                                         weight_filler=dict(type='gaussian', std=0.01),
                                                                         bias_filler=dict(type='constant', value=0)))
+            if batch_normalization:
+                n.tops['bnx%d_next_pred_1'%(level+1)] = \
+                xlevel_next_pred_1 = L.BatchNorm(xlevel_next_pred_1, param=[dict(lr_mult=0)]*3)
             n.tops['rx%d_next_pred_1'%(level+1)] = L.ReLU(xlevel_next_pred_1, in_place=True)
             n.tops['x%d_next_pred_s1'%level] = \
             xlevel_next_pred_s1 = L.Deconvolution(xlevel_next_pred_1,
@@ -928,6 +937,9 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                                          weight_filler=dict(type='gaussian', std=0.01),
                                                                          bias_filler=dict(type='constant', value=0)))
             if level != 0: # or level in xlevels_next_pred_s0:
+                if batch_normalization:
+                    n.tops['bnx%d_next_pred_s1'%level] = \
+                    xlevel_next_pred_s1 = L.BatchNorm(xlevel_next_pred_s1, param=[dict(lr_mult=0)]*3)
                 n.tops['rx%d_next_pred_s1'%level] = L.ReLU(xlevel_next_pred_s1, in_place=True)
             if level in xlevels_next_pred_s0:
                 # sum using fixed coeffs
@@ -993,6 +1005,9 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                               convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
                                                                      weight_filler=dict(type='gaussian', std=0.01),
                                                                      bias_filler=dict(type='constant', value=0)))
+                if batch_normalization:
+                    n.tops['bnx%d_next_1'%level] = \
+                    xlevel_next_1 = L.BatchNorm(xlevel_next_1, param=[dict(lr_mult=0)]*3)
                 n.tops['rx%d_next_1'%level] = L.ReLU(xlevel_next_1, in_place=True)
                 n.tops['x%d_next_2'%level] = \
                 xlevel_next_2 = L.Convolution(xlevel_next_1,
@@ -1001,6 +1016,9 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                               convolution_param=dict(num_output=xlevel_c_dim, kernel_size=3, stride=1, pad=1,
                                                                      weight_filler=dict(type='gaussian', std=0.01),
                                                                      bias_filler=dict(type='constant', value=0)))
+                if batch_normalization:
+                    n.tops['bnx%d_next_2'%level] = \
+                    xlevel_next_2 = L.BatchNorm(xlevel_next_2, param=[dict(lr_mult=0)]*3)
                 n.tops['rx%d_next_2'%level] = L.ReLU(xlevel_next_2, in_place=True)
                 n.tops['x%d_next'%level] = \
                 xlevel_next = L.Pooling(xlevel_next_2, pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
@@ -1019,5 +1037,6 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         net_name += '_numds' + str(num_downsample)
         net_name += '_share' + str(int(share_bilinear_weights))
         net_name += '_ladder' + str(int(ladder_loss))
+        net_name += '_bn' + str(int(batch_normalization))
     net.name = net_name
     return net, weight_fillers
