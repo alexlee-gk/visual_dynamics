@@ -257,7 +257,6 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                     plt.plot(iters, test_losses, label='test %d'%i_test)
                 plt.ylabel('iteration')
                 plt.ylabel('loss')
-                plt.ylim(0, 200)
                 plt.legend()
                 plt.draw()
                 # save to file
