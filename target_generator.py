@@ -63,7 +63,9 @@ class OgreNodeTargetGenerator(SimulatorTargetGenerator):
         return pos_angle
 
     def _get_dof_values_target(self):
-        return self.get_dof_values_current_target() + np.random.random(3) - 0.5 # relatively the same plus some noise
+        dof_values_current_target = self.get_dof_values_current_target()
+        dof_values_current_target[:3] += np.random.random(3) - 0.5 # relatively the same plus some noise
+        return dof_values_current_target
 
 
 class NegativeOgreNodeTargetGenerator(OgreNodeTargetGenerator):
