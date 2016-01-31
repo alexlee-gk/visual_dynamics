@@ -38,8 +38,12 @@ class PWM :
     import Adafruit_GPIO.FT232H as FT232H
     # Temporarily disable FTDI serial drivers.
     FT232H.use_FT232H()
-    # Find the first FT232H device.
-    ft232h = FT232H.FT232H()
+    try:
+        # Find the first FT232H device.
+        ft232h = FT232H.FT232H(index=0)
+    except RuntimeError:
+        # If it is already used, find the second FT232H device.
+        ft232h = FT232H.FT232H(index=1)
     general_call_i2c = FT232H.I2CDevice(ft232h, 0x00)
 
   @classmethod

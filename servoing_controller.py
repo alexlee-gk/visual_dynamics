@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--train_batch_size', '--train_bs', type=int, default=32)
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--max_iter', type=int, default=20000)
+    parser.add_argument('--base_lr', '--lr', type=float, default=0.001, help='solver parameter')
     parser.add_argument('--num_channel', type=int, help='net parameter')
     parser.add_argument('--y1_dim', type=int, help='net parameter')
     parser.add_argument('--y2_dim', type=int, help='net parameter')
@@ -32,10 +33,10 @@ def main():
     parser.add_argument('--num_downsample', '--numds', type=int, default=0, help='net parameter')
     parser.add_argument('--share_bilinear_weights', '--share', type=int, default=1, help='net parameter')
     parser.add_argument('--ladder_loss', '--ladder', type=int, default=0, help='net parameter')
-    parser.add_argument('--postfix', type=str, default=None)
+    parser.add_argument('--batch_normalization', '--bn', type=int, default=0, help='net parameter')
+    parser.add_argument('--postfix', type=str, default='')
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--target_hdf5_fname', type=str, default=None)
-    parser.add_argument('--train_target_hdf5_fnames', type=str, nargs=2, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -48,8 +49,9 @@ def main():
 
     if args.val_hdf5_fname is None:
         args.val_hdf5_fname = args.train_hdf5_fname.replace('train', 'val')
-    if args.postfix is None:
-        args.postfix = os.path.basename(args.train_hdf5_fname).split('_')[0]
+    if args.postfix:
+        args.postfix = '_' + args.postfix
+    args.postfix = '_'.join([os.path.basename(args.train_hdf5_fname).split('_')[0], 'lr' + str(args.base_lr)]) + args.postfix
 
     val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
     sim_args = val_container.get_group('sim_args')
@@ -78,6 +80,7 @@ def main():
             args.__dict__[image_transformer_arg] = image_transformer_args[image_transformer_arg]
         else:
             image_transformer_args[image_transformer_arg] = args.__dict__[image_transformer_arg]
+    val_container.close()
 
     input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
     if args.predictor == 'bilinear':
@@ -99,7 +102,7 @@ def main():
         if not args.no_train:
             feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname,
                                     solver_type='ADAM',
-                                    base_lr=0.001, gamma=0.99,
+                                    base_lr=args.base_lr, gamma=0.99,
                                     momentum=0.9, momentum2=0.999,
                                     max_iter=args.max_iter)
     else:
@@ -108,6 +111,8 @@ def main():
         from predictor import predictor_caffe, net_caffe
         if args.pretrained_fname == 'auto':
             args.pretrained_fname = str(args.max_iter)
+        elif args.pretrained_fname is not None and args.pretrained_fname.startswith('levels'):
+            args.pretrained_fname = [args.pretrained_fname, str(args.max_iter)]
         if args.solverstate_fname == 'auto':
             args.solverstate_fname = str(args.max_iter)
 
@@ -126,7 +131,8 @@ def main():
                               x1_c_dim=args.x1_c_dim,
                               num_downsample=args.num_downsample,
                               share_bilinear_weights=args.share_bilinear_weights,
-                              ladder_loss=args.ladder_loss)
+                              ladder_loss=args.ladder_loss,
+                              batch_normalization=args.batch_normalization)
             net_func = getattr(net_caffe, args.predictor)
             net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
             if args.predictor == 'fcn_action_cond_encoder_net':
@@ -141,7 +147,7 @@ def main():
                                                                              postfix=args.postfix)
 
         solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
-                                           base_lr=0.001, gamma=0.99,
+                                           base_lr=args.base_lr, gamma=0.99,
                                            momentum=0.9, momentum2=0.999,
                                            max_iter=args.max_iter)
         if not args.no_train:
@@ -156,6 +162,7 @@ def main():
                 print 'val_losses', val_losses
 
     if args.simulator == 'none':
+        val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
         for datum_iter in range(val_container.num_data):
             image_curr, image_diff, vel = val_container.get_datum(datum_iter, ['image_curr', 'image_diff', 'vel']).values()
             image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
@@ -167,6 +174,7 @@ def main():
                 vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
                 if done:
                     break
+        val_container.close()
         return
     else:
         sim = args.create_simulator(args)
@@ -175,13 +183,17 @@ def main():
     if args.target_hdf5_fname:
         target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname)
         args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
+    elif args.ogrehead:
+        target_gen = target_generator.OgreNodeTargetGenerator(sim, args.num_trajs)
     else:
-        target_gen = target_generator.RandomTargetGenerator(sim)
-    if args.train_target_hdf5_fnames:
-        pos_image_targets, neg_image_targets = [h5py.File(fname)['image_target'][()] for fname in args.train_target_hdf5_fnames]
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_image_targets, neg_image_targets)
+        target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs)
+
+    if args.ogrehead:
+        pos_target_gen = target_generator.OgreNodeTargetGenerator(sim, 100)
+        neg_target_gen = target_generator.NegativeOgreNodeTargetGenerator(sim, 100)
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, image_transformer=image_transformer, alpha=.75, lambda_=1.)
     else:
-        ctrl = controller.ServoingController(feature_predictor)
+        ctrl = controller.ServoingController(feature_predictor, alpha=.75, lambda_=1.)
 
     if args.num_trajs and args.num_steps and args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')
@@ -202,6 +214,8 @@ def main():
     for traj_iter in range(args.num_trajs):
         try:
             image_target, dof_values_target = target_gen.get_target()
+            if not args.target_hdf5_fname:
+                image_target = image_transformer.transform(image_target)
             ctrl.set_target_obs(image_target)
 
             dof_values_init = np.mean(sim.dof_limits, axis=0)

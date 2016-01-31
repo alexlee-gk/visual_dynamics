@@ -132,7 +132,7 @@ class FT232H(GPIO.BaseGPIO):
     IN   = GPIO.IN
     OUT  = GPIO.OUT
 
-    def __init__(self, vid=FT232H_VID, pid=FT232H_PID, serial=None):
+    def __init__(self, vid=FT232H_VID, pid=FT232H_PID, serial=None, index=None):
         """Create a FT232H object.  Will search for the first available FT232H
         device with the specified USB vendor ID and product ID (defaults to
         FT232H default VID & PID).  Can also specify an optional serial number
@@ -146,12 +146,15 @@ class FT232H(GPIO.BaseGPIO):
             raise RuntimeError('ftdi_new failed! Is libftdi1 installed?')
         # Register handler to close and cleanup FTDI context on program exit.
         atexit.register(self.close)
-        if serial is None:
-            # Open USB connection for specified VID and PID if no serial is specified.
-            self._check(ftdi.usb_open, vid, pid)
-        else:
+        if serial is not None:
             # Open USB connection for VID, PID, serial.
             self._check(ftdi.usb_open_string, 's:{0}:{1}:{2}'.format(vid, pid, serial))
+        elif index is not None:
+            # Open USB connection for VID, PID, index.
+            self._check(ftdi.usb_open_string, 'i:{0}:{1}:{2}'.format(vid, pid, index))
+        else:
+            # Open USB connection for specified VID and PID if no serial is specified.
+            self._check(ftdi.usb_open, vid, pid)
         # Reset device.
         self._check(ftdi.usb_reset)
         # Disable flow control. Commented out because it is unclear if this is necessary.

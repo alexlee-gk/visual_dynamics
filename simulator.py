@@ -242,8 +242,8 @@ class OgreSimulator(DiscreteVelocitySimulator):
         self.ogre.addNode("house", "house.mesh", 0, 0, 0)
         self.traj_managers = []
         if ogrehead:
-            start = np.array([12, 2.5, 0])
-            end = np.array([12, 2.5, -15])
+            start = np.array([12, 2.5, -2])
+            end = np.array([12, 2.5, -14])
             num_steps = 30
             self.ogre.addNode("ogrehead", "ogrehead.mesh", *start) #([far, close], [down, up], [right, left])
             self.ogre.setNodeScale("ogrehead", np.array([.03]*3))

@@ -77,8 +77,17 @@ class ServoingController(Controller):
 
 
 class SpecializedServoingController(ServoingController):
-    def __init__(self, feature_predictor, pos_image_targets, neg_image_targets, alpha=1.0, vel_max=None, lambda_=0.0):
+    def __init__(self, feature_predictor, pos_target_generator, neg_target_generator, image_transformer=None, alpha=1.0, vel_max=None, lambda_=0.0):
         from sklearn import linear_model
+        pos_image_targets = []
+        neg_image_targets = []
+        for target_generator, image_targets in zip([pos_target_generator, neg_target_generator], [pos_image_targets, neg_image_targets]):
+            for _ in range(target_generator.num_images):
+                image_targets.append(target_generator.get_target()[0])
+                target_generator.sim.apply_action(np.zeros(target_generator.sim.state_dim))
+        if image_transformer:
+            pos_image_targets = np.asarray([image_transformer.transform(image) for image in pos_image_targets])
+            neg_image_targets = np.asarray([image_transformer.transform(image) for image in neg_image_targets])
         Y_train = np.r_[feature_predictor.feature_from_input(pos_image_targets),
                         feature_predictor.feature_from_input(neg_image_targets)]
         label_train = np.r_[np.ones(len(pos_image_targets), dtype=np.int),
@@ -86,5 +95,6 @@ class SpecializedServoingController(ServoingController):
         regr = linear_model.LogisticRegression(penalty='l1', C=10e6)
         regr.fit(Y_train, label_train)
         w = np.squeeze(regr.coef_)
+        w = np.array(w > 0, dtype=np.float)
         print "%d out of %d weights are non-zero"%((w != 0).sum(), len(w))
         super(SpecializedServoingController, self).__init__(feature_predictor, alpha=alpha, vel_max=vel_max, lambda_=lambda_, w=w)
