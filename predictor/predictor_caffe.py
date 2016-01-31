@@ -125,11 +125,13 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         with open(deploy_fname, 'w') as f:
             f.write(str(self.deploy_net_param))
 
-        if type(pretrained_file) == list:
-            snapshot_prefix = self.get_snapshot_prefix()
-            if len(pretrained_file) == 2:
+        if pretrained_file is not None:
+            if type(pretrained_file) == list:
+                snapshot_prefix = self.get_snapshot_prefix()
                 snapshot_prefix = '_'.join([pretrained_file[0] if token.startswith('levels') else token for token in snapshot_prefix.split('_')])
-            pretrained_file = snapshot_prefix + '_iter_' + pretrained_file[-1] + '.caffemodel'
+                pretrained_file = snapshot_prefix + '_iter_' + pretrained_file[-1] + '.caffemodel'
+            if not pretrained_file.endswith('.caffemodel'):
+                pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.caffemodel'
         CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=self.output_names[0])
         self.output_names = [name for name in self.output_names if name in self.blobs]
 
