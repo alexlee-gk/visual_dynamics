@@ -814,8 +814,9 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
     x, u = n.image_curr, n.vel
 
     weight_fillers = OrderedDict()
-    ds_kernel = cv2.getGaussianKernel(ksize=2, sigma=-1)
-    ds_weight_filler = ds_kernel.dot(ds_kernel.T)
+    if num_downsample:
+        ds_kernel = cv2.getGaussianKernel(ksize=2, sigma=-1)
+        ds_weight_filler = ds_kernel.dot(ds_kernel.T)
 
     # preprocess
     x0 = x
