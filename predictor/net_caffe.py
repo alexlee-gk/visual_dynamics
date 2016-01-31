@@ -856,7 +856,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                             bias_filler=dict(type='constant', value=0)))
             if batch_normalization:
                 n.tops['bnx%d_1'%level] = \
-                xlevel_1 = L.BatchNorm(xlevel_1, param=[dict(lr_mult=0)]*3)
+                xlevel_1 = L.BatchNorm(xlevel_1, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
             n.tops['rx%d_1'%level] = L.ReLU(xlevel_1, in_place=True)
             n.tops['x%d_2'%level] = \
             xlevel_2 = L.Convolution(xlevel_1,
@@ -867,7 +867,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                             bias_filler=dict(type='constant', value=0)))
             if batch_normalization:
                 n.tops['bnx%d_2'%level] = \
-                xlevel_2 = L.BatchNorm(xlevel_2, param=[dict(lr_mult=0)]*3)
+                xlevel_2 = L.BatchNorm(xlevel_2, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
             n.tops['rx%d_2'%level] = L.ReLU(xlevel_2, in_place=True)
             n.tops['x%d'%level] = \
             xlevel = L.Pooling(xlevel_2, pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
@@ -928,7 +928,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                                         bias_filler=dict(type='constant', value=0)))
             if batch_normalization:
                 n.tops['bnx%d_next_pred_1'%(level+1)] = \
-                xlevel_next_pred_1 = L.BatchNorm(xlevel_next_pred_1, param=[dict(lr_mult=0)]*3)
+                xlevel_next_pred_1 = L.BatchNorm(xlevel_next_pred_1, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
             n.tops['rx%d_next_pred_1'%(level+1)] = L.ReLU(xlevel_next_pred_1, in_place=True)
             n.tops['x%d_next_pred_s1'%level] = \
             xlevel_next_pred_s1 = L.Deconvolution(xlevel_next_pred_1,
@@ -940,7 +940,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
             if level != 0: # or level in xlevels_next_pred_s0:
                 if batch_normalization:
                     n.tops['bnx%d_next_pred_s1'%level] = \
-                    xlevel_next_pred_s1 = L.BatchNorm(xlevel_next_pred_s1, param=[dict(lr_mult=0)]*3)
+                    xlevel_next_pred_s1 = L.BatchNorm(xlevel_next_pred_s1, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
                 n.tops['rx%d_next_pred_s1'%level] = L.ReLU(xlevel_next_pred_s1, in_place=True)
             if level in xlevels_next_pred_s0:
                 # sum using fixed coeffs
@@ -1008,7 +1008,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                                      bias_filler=dict(type='constant', value=0)))
                 if batch_normalization:
                     n.tops['bnx%d_next_1'%level] = \
-                    xlevel_next_1 = L.BatchNorm(xlevel_next_1, param=[dict(lr_mult=0)]*3)
+                    xlevel_next_1 = L.BatchNorm(xlevel_next_1, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
                 n.tops['rx%d_next_1'%level] = L.ReLU(xlevel_next_1, in_place=True)
                 n.tops['x%d_next_2'%level] = \
                 xlevel_next_2 = L.Convolution(xlevel_next_1,
@@ -1019,7 +1019,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                                                                      bias_filler=dict(type='constant', value=0)))
                 if batch_normalization:
                     n.tops['bnx%d_next_2'%level] = \
-                    xlevel_next_2 = L.BatchNorm(xlevel_next_2, param=[dict(lr_mult=0)]*3)
+                    xlevel_next_2 = L.BatchNorm(xlevel_next_2, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
                 n.tops['rx%d_next_2'%level] = L.ReLU(xlevel_next_2, in_place=True)
                 n.tops['x%d_next'%level] = \
                 xlevel_next = L.Pooling(xlevel_next_2, pool=P.Pooling.MAX, kernel_size=2, stride=2, pad=0)
