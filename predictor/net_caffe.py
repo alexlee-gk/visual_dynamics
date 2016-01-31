@@ -1009,7 +1009,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         for level in levels:
             if level == 0:
                 continue
-            n.tops['x%d_next_loss'%level] = L.EuclideanLoss(xlevels_next[level], xlevels_next_pred[level], loss_weight=1e-3)
+            n.tops['x%d_next_loss'%level] = L.EuclideanLoss(xlevels_next[level], xlevels_next_pred[level], loss_weight=1.)
 
     net = n.to_proto()
     if net_name is None:
