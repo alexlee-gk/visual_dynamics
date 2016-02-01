@@ -798,7 +798,7 @@ def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, n
     x_diff_pred = L.Reshape(bilinear_yu_linear_u, shape=dict(dim=list((0,) + x_shape)))
     return x_diff_pred
 
-def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, ladder_loss=True, batch_normalization=False, **kwargs):
+def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, ladder_loss=True, batch_normalization=False, concat=False, **kwargs):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -930,38 +930,55 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
                 n.tops['bnx%d_next_pred_1'%(level+1)] = \
                 xlevel_next_pred_1 = L.BatchNorm(xlevel_next_pred_1, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
             n.tops['rx%d_next_pred_1'%(level+1)] = L.ReLU(xlevel_next_pred_1, in_place=True)
-            n.tops['x%d_next_pred_s1'%level] = \
-            xlevel_next_pred_s1 = L.Deconvolution(xlevel_next_pred_1,
+            if concat:
+                if level in xlevels_next_pred_s0:
+                    n.tops['cx%d_next_pred_1'%(level+1)] = \
+                    xlevel_next_pred_1 = L.Concat(xlevels_next_pred_s0[level], xlevel_next_pred_1)
+                n.tops['x%d_next_pred'%level] = \
+                xlevel_next_pred= L.Deconvolution(xlevel_next_pred_1,
                                                   param=[dict(lr_mult=1, decay_mult=1),
                                                          dict(lr_mult=1, decay_mult=1)],
                                                   convolution_param=dict(num_output=xlevelm1_c_dim, kernel_size=3, stride=1, pad=1,
                                                                          weight_filler=dict(type='gaussian', std=0.01),
                                                                          bias_filler=dict(type='constant', value=0)))
-            if level != 0: # or level in xlevels_next_pred_s0:
-                if batch_normalization:
-                    n.tops['bnx%d_next_pred_s1'%level] = \
-                    xlevel_next_pred_s1 = L.BatchNorm(xlevel_next_pred_s1, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
-                n.tops['rx%d_next_pred_s1'%level] = L.ReLU(xlevel_next_pred_s1, in_place=True)
-            if level in xlevels_next_pred_s0:
-                # sum using fixed coeffs
-                # n.tops['x%d_next_pred'%level] = \
-                # xlevel_next_pred = L.Eltwise(xlevels_next_pred_s0[level], xlevel_next_pred_s1, operation=P.Eltwise.SUM, coeff=[.5, .5])
-                # workaround to sum using learnable coeffs
-                xlevel_shape = xlevels_shape[level]
-                re_xlevel_next_pred_s0 = n.tops['re_x%d_next_pred_s0'%level] = L.Reshape(xlevels_next_pred_s0[level], shape=dict(dim=list((0, 1, -1))))
-                re_xlevel_next_pred_s1 = n.tops['re_x%d_next_pred_s1'%level] = L.Reshape(xlevel_next_pred_s1, shape=dict(dim=list((0, 1, -1))))
-                re_xlevel_next_pred_s01 = n.tops['re_x%d_next_pred_s01'%level] = L.Concat(re_xlevel_next_pred_s0, re_xlevel_next_pred_s1)
-                n.tops['re_x%d_next_pred'%level] = \
-                re_xlevel_next_pred = L.Convolution(re_xlevel_next_pred_s01,
-                                                    param=[dict(lr_mult=1, decay_mult=1)],
-                                                    convolution_param=dict(num_output=1, kernel_size=1, stride=1, pad=0,
-                                                                           bias_term=False,
-                                                                           weight_filler=dict(type='constant', value=0.5),
-                                                                           engine=P.Convolution.CAFFE))
-                xlevel_next_pred = n.tops['re_x%d_next_pred'%level] = L.Reshape(re_xlevel_next_pred, shape=dict(dim=list((0,) + xlevel_shape)))
+                if level != 0: # or level in xlevels_next_pred_s0:
+                    if batch_normalization:
+                        n.tops['bnx%d_next_pred'%level] = \
+                        xlevel_next_pred = L.BatchNorm(xlevel_next_pred, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
+                    n.tops['rx%d_next_pred'%level] = L.ReLU(xlevel_next_pred, in_place=True)
             else:
-                n.tops['x%d_next_pred'%level] = n.tops.pop('x%d_next_pred_s1'%level)
-                xlevel_next_pred = xlevel_next_pred_s1
+                n.tops['x%d_next_pred_s1'%level] = \
+                xlevel_next_pred_s1 = L.Deconvolution(xlevel_next_pred_1,
+                                                      param=[dict(lr_mult=1, decay_mult=1),
+                                                             dict(lr_mult=1, decay_mult=1)],
+                                                      convolution_param=dict(num_output=xlevelm1_c_dim, kernel_size=3, stride=1, pad=1,
+                                                                             weight_filler=dict(type='gaussian', std=0.01),
+                                                                             bias_filler=dict(type='constant', value=0)))
+                if level != 0: # or level in xlevels_next_pred_s0:
+                    if batch_normalization:
+                        n.tops['bnx%d_next_pred_s1'%level] = \
+                        xlevel_next_pred_s1 = L.BatchNorm(xlevel_next_pred_s1, param=[dict(lr_mult=0)]*3, batch_norm_param=dict(use_global_stats=(phase == caffe.TRAIN)))
+                    n.tops['rx%d_next_pred_s1'%level] = L.ReLU(xlevel_next_pred_s1, in_place=True)
+                if level in xlevels_next_pred_s0:
+                    # sum using fixed coeffs
+                    # n.tops['x%d_next_pred'%level] = \
+                    # xlevel_next_pred = L.Eltwise(xlevels_next_pred_s0[level], xlevel_next_pred_s1, operation=P.Eltwise.SUM, coeff=[.5, .5])
+                    # workaround to sum using learnable coeffs
+                    xlevel_shape = xlevels_shape[level]
+                    re_xlevel_next_pred_s0 = n.tops['re_x%d_next_pred_s0'%level] = L.Reshape(xlevels_next_pred_s0[level], shape=dict(dim=list((0, 1, -1))))
+                    re_xlevel_next_pred_s1 = n.tops['re_x%d_next_pred_s1'%level] = L.Reshape(xlevel_next_pred_s1, shape=dict(dim=list((0, 1, -1))))
+                    re_xlevel_next_pred_s01 = n.tops['re_x%d_next_pred_s01'%level] = L.Concat(re_xlevel_next_pred_s0, re_xlevel_next_pred_s1)
+                    n.tops['re_x%d_next_pred'%level] = \
+                    re_xlevel_next_pred = L.Convolution(re_xlevel_next_pred_s01,
+                                                        param=[dict(lr_mult=1, decay_mult=1)],
+                                                        convolution_param=dict(num_output=1, kernel_size=1, stride=1, pad=0,
+                                                                               bias_term=False,
+                                                                               weight_filler=dict(type='constant', value=0.5),
+                                                                               engine=P.Convolution.CAFFE))
+                    xlevel_next_pred = n.tops['re_x%d_next_pred'%level] = L.Reshape(re_xlevel_next_pred, shape=dict(dim=list((0,) + xlevel_shape)))
+                else:
+                    n.tops['x%d_next_pred'%level] = n.tops.pop('x%d_next_pred_s1'%level)
+                    xlevel_next_pred = xlevel_next_pred_s1
         xlevels_next_pred[level] = xlevel_next_pred
 
     x_next_pred = n.image_next_pred = L.TanH(xlevels_next_pred[0])
@@ -1039,5 +1056,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         net_name += '_share' + str(int(share_bilinear_weights))
         net_name += '_ladder' + str(int(ladder_loss))
         net_name += '_bn' + str(int(batch_normalization))
+        if concat:
+            net_name += '_concat' + str(int(concat))
     net.name = net_name
     return net, weight_fillers

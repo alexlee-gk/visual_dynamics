@@ -34,6 +34,7 @@ def main():
     parser.add_argument('--share_bilinear_weights', '--share', type=int, default=1, help='net parameter')
     parser.add_argument('--ladder_loss', '--ladder', type=int, default=0, help='net parameter')
     parser.add_argument('--batch_normalization', '--bn', type=int, default=0, help='net parameter')
+    parser.add_argument('--concat', type=int, default=0, help='net parameter')
     parser.add_argument('--postfix', type=str, default='')
     parser.add_argument('--output_hdf5_fname', '-o', type=str)
     parser.add_argument('--target_hdf5_fname', type=str, default=None)
@@ -132,7 +133,8 @@ def main():
                               num_downsample=args.num_downsample,
                               share_bilinear_weights=args.share_bilinear_weights,
                               ladder_loss=args.ladder_loss,
-                              batch_normalization=args.batch_normalization)
+                              batch_normalization=args.batch_normalization,
+                              concat=args.concat)
             net_func = getattr(net_caffe, args.predictor)
             net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
             if args.predictor == 'fcn_action_cond_encoder_net':
