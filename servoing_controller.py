@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--max_iter', type=int, default=20000)
     parser.add_argument('--base_lr', '--lr', type=float, default=0.001, help='solver parameter')
+    parser.add_argument('--solver_type', type=str, default='adam', choices=['sgd', 'adam'], help='solver parameter')
     parser.add_argument('--num_channel', type=int, help='net parameter')
     parser.add_argument('--y1_dim', type=int, help='net parameter')
     parser.add_argument('--y2_dim', type=int, help='net parameter')
@@ -52,7 +53,10 @@ def main():
         args.val_hdf5_fname = args.train_hdf5_fname.replace('train', 'val')
     if args.postfix:
         args.postfix = '_' + args.postfix
-    args.postfix = '_'.join([os.path.basename(args.train_hdf5_fname).split('_')[0], 'lr' + str(args.base_lr)]) + args.postfix
+    solver_params = ['lr' + str(args.base_lr)]
+    if args.solver_type != 'adam':
+        solver_params.append('solvertype' + args.solver_type)
+    args.postfix = '_'.join([os.path.basename(args.train_hdf5_fname).split('_')[0]] + solver_params) + args.postfix
 
     val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
     sim_args = val_container.get_group('sim_args')
@@ -147,11 +151,19 @@ def main():
                                                                              input_shapes,
                                                                              pretrained_file=args.pretrained_fname,
                                                                              postfix=args.postfix)
+        if args.solver_type == 'sgd':
+            solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.SGD,
+                                               base_lr=args.base_lr, gamma=0.99,
+                                               momentum=0.9,
+                                               max_iter=args.max_iter)
+        elif args.solver_type == 'adam':
+            solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
+                                               base_lr=args.base_lr, gamma=0.99,
+                                               momentum=0.9, momentum2=0.999,
+                                               max_iter=args.max_iter)
+        else:
+            raise ValueError('Solver type %s is not supported'%args.solver_type)
 
-        solver_param = pb2.SolverParameter(solver_type=pb2.SolverParameter.ADAM,
-                                           base_lr=args.base_lr, gamma=0.99,
-                                           momentum=0.9, momentum2=0.999,
-                                           max_iter=args.max_iter)
         if not args.no_train:
             feature_predictor.train(args.train_hdf5_fname,
                                     val_hdf5_fname=args.val_hdf5_fname,
