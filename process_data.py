@@ -1,6 +1,7 @@
 from __future__ import division
 
 import argparse
+import numpy as np
 import cv2
 import data_container
 import util
@@ -45,8 +46,12 @@ def main():
                                   crop_offset=args.crop_offset)
     image_transformer = simulator.ImageTransformer(**image_transformer_args)
 
+    assert np.allclose(-sim_args['vel_min'], sim_args['vel_max']) # assume vel limits are symmetric, otherwise also keep track of bias
+    vel_scale = sim_args['vel_max']
+    vel_inv_scale = 1. / vel_scale
     if args.output:
         output_traj_container = data_container.TrajectoryDataContainer(args.output, num_trajs_total, num_steps_all, write=True)
+        sim_args['vel_scale'] = vel_scale
         output_traj_container.add_group('sim_args', sim_args)
         output_traj_container.add_group('image_transformer_args', image_transformer_args)
     else:
@@ -69,7 +74,7 @@ def main():
                         output_traj_container.add_datum(traj_iter_total + traj_iter, step_iter, dict(image_curr=image,
                                                                                                      image_diff=image_diff,
                                                                                                      dof_val=dof_val,
-                                                                                                     vel=vel))
+                                                                                                     vel=vel_inv_scale * vel))
                     if args.visualize:
                         vis_image, done = util.visualize_images_callback(image, image_next, image_diff/2, vis_scale=args.vis_scale, delay=0)
                     if done:

@@ -120,7 +120,7 @@ class SquareSimulator(object):
 
 
 class DiscreteVelocitySimulator(Simulator):
-    def __init__(self, dof_limits, dof_vel_limits, dtype=None):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dtype=None):
         dof_min, dof_max = dof_limits
         vel_min, vel_max = dof_vel_limits
         assert len(dof_min) == len(dof_max)
@@ -128,6 +128,10 @@ class DiscreteVelocitySimulator(Simulator):
         self.dof_limits = [np.asarray(dof_limit, dtype=dtype) for dof_limit in dof_limits]
         self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=dtype) for dof_vel_limit in dof_vel_limits]
         self._dof_values = np.mean(self.dof_limits, axis=0)
+        if dof_vel_scale is None:
+            self.dof_vel_scale = np.ones(self.state_dim)
+        else:
+            self.dof_vel_scale = dof_vel_scale
 
     @property
     def dof_values(self):
@@ -140,8 +144,8 @@ class DiscreteVelocitySimulator(Simulator):
 
     def apply_action(self, vel):
         dof_values_prev = self.dof_values.copy()
-        self.dof_values += vel
-        vel = self.dof_values - dof_values_prev # recompute vel because of clipping
+        self.dof_values += self.dof_vel_scale * vel
+        vel = (self.dof_values - dof_values_prev) / self.dof_vel_scale # recompute vel because of clipping
         return vel
 
     def reset(self, dof_values):
@@ -227,11 +231,11 @@ class NodeTrajectoryManager(object):
 
 
 class OgreSimulator(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
         self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
 
         import pygre
@@ -289,13 +293,13 @@ class OgreSimulator(DiscreteVelocitySimulator):
 
 
 class ServoPlatform(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits,
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
                  camera_id=0):
         """
         DOFs are pan, tilt
         """
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale, dtype=np.int)
         # camera initialization
         if isinstance(camera_id, basestring):
             if camera_id.isdigit():

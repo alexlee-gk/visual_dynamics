@@ -42,6 +42,7 @@ def create_ogre_simulator(args):
     args.vel_min = args.vel_min[:args.dof]
     args.vel_max = args.vel_max[:args.dof]
     sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                  args.vel_scale,
                                   background_color=args.background_color,
                                   ogrehead=args.ogrehead,
                                   random_background_color=args.random_background_color,
@@ -50,6 +51,7 @@ def create_ogre_simulator(args):
 
 def create_servo_simulator(args):
     sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                  args.vel_scale,
                                   pwm_channels=args.pwm_channels,
                                   camera_id=args.camera_id)
     return sim
@@ -76,6 +78,7 @@ def add_simulator_subparsers(parser):
     parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[24, 6, -2, np.deg2rad(20), np.deg2rad(20)])
     parser_ogre.add_argument('--vel_min', type=float, nargs='+', default=[-0.8]*3 + [np.deg2rad(-7.5)]*2)
     parser_ogre.add_argument('--vel_max', type=float, nargs='+', default=[0.8]*3 + [np.deg2rad(7.5)]*2)
+    parser_ogre.add_argument('--vel_scale', type=float, nargs='+', default=[1.]*5)
     parser_ogre.add_argument('--dof', type=int, default=5)
     parser_ogre.add_argument('--background_color', type=float, nargs=3, default=[.0]*3, metavar=('R', 'G', 'B'))
     parser_ogre.add_argument('--ogrehead', action='store_true')
@@ -88,6 +91,7 @@ def add_simulator_subparsers(parser):
     parser_servo.add_argument('--dof_max', type=float, nargs='+', default=(610, 560))
     parser_servo.add_argument('--vel_min', type=float, nargs='+', default=(-50, -50))
     parser_servo.add_argument('--vel_max', type=float, nargs='+', default=(50, 50))
+    parser_servo.add_argument('--vel_scale', type=float, nargs='+', default=(1, 1))
     parser_servo.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=(0, 1))
     parser_servo.add_argument('--camera_id', '-i', type=str, default='C')
     parser_servo.set_defaults(create_simulator=create_servo_simulator)
