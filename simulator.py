@@ -306,6 +306,12 @@ class CarNodeTrajectoryManager(object):
         self._dof_acc = np.zeros(state_dim)
         self.dof_values = np.asarray(dof_values_init, dtype=float)
 
+    def reset(self, dof_values, dof_vel):
+        state_dim = len(dof_values)
+        self._dof_vel = np.asarray(dof_vel, dtype=float)
+        self._dof_acc = np.zeros(state_dim)
+        self.dof_values = np.asarray(dof_values, dtype=float)
+
     @property
     def dof_values(self):
         return self._dof_values.copy()
@@ -348,7 +354,7 @@ class CarNodeTrajectoryManager(object):
 
 
 class CityOgreSimulator(OgreSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, simulate_car=False):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, simulate_car=True):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
         self._q0 = np.array([1., 0., 0., 0.])
 
@@ -382,7 +388,8 @@ class CityOgreSimulator(OgreSimulator):
     def sample_state(self):
         car_dof_min, car_dof_max = [np.array([-51-6, 10.7, -275]), np.array([-51+6, 10.7, 225])]
         car_dof_values = car_dof_min + np.random.random_sample(car_dof_min.shape) * (car_dof_max - car_dof_min)
-        self.ogre.setNodePosition("car", car_dof_values)
+        car_dof_vel = [0, 0, -1]
+        self.traj_managers[0].reset(car_dof_values, car_dof_vel)
         # constrain sampled state to be in the 45 deg line of sight
         val = 5 + np.random.random_sample(1) * 90
         dof_values = np.array([-51, 10.7 + val, car_dof_values[2] + val, -np.pi/4, 0])
