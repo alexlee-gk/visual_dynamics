@@ -348,7 +348,7 @@ class CarNodeTrajectoryManager(object):
 
 
 class CityOgreSimulator(OgreSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, car=True):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, simulate_car=False):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
         self._q0 = np.array([1., 0., 0., 0.])
 
@@ -357,11 +357,12 @@ class CityOgreSimulator(OgreSimulator):
         self.ogre.init()
         self.ogre.addNode("city", "_urban-level-02-medium-3ds_3DS.mesh", 0, 0, 0)
         self.traj_managers = []
-        if car:
-            node_name = "car"
-            self.ogre.addNode(node_name, "camaro2_3ds.mesh", 0, 0, 0)
-            self.ogre.setNodeScale(node_name, np.array([0.3]*3))
-            self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
+        node_name = "car"
+        self.ogre.addNode(node_name, "camaro2_3ds.mesh", -51, 10.7, 225)
+        self.ogre.setNodeScale(node_name, np.array([0.3]*3))
+        self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
+        self.simulate_car = simulate_car
+        if self.simulate_car:
             dof_values_init = [-51, 10.7, 225]
             dof_vel_init = [0, 0, -1]
             dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
@@ -377,6 +378,15 @@ class CityOgreSimulator(OgreSimulator):
         image = self.ogre.getScreenshot()
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         return util.obs_from_image(image)
+
+    def sample_state(self):
+        car_dof_min, car_dof_max = [np.array([-51-6, 10.7, -275]), np.array([-51+6, 10.7, 225])]
+        car_dof_values = car_dof_min + np.random.random_sample(car_dof_min.shape) * (car_dof_max - car_dof_min)
+        self.ogre.setNodePosition("car", car_dof_values)
+        # constrain sampled state to be in the 45 deg line of sight
+        val = 5 + np.random.random_sample(1) * 90
+        dof_values = np.array([-51, 10.7 + val, car_dof_values[2] + val, -np.pi/4, 0])
+        return dof_values
 
 
 class ServoPlatform(DiscreteVelocitySimulator):
