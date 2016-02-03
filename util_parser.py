@@ -49,6 +49,15 @@ def create_ogre_simulator(args):
                                   random_ogrehead=args.random_ogrehead)
     return sim
 
+def create_car_simulator(args):
+    args.dof_min = args.dof_min[:args.dof]
+    args.dof_max = args.dof_max[:args.dof]
+    args.vel_min = args.vel_min[:args.dof]
+    args.vel_max = args.vel_max[:args.dof]
+    sim = simulator.CityOgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                  args.vel_scale)
+    return sim
+
 def create_servo_simulator(args):
     sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                   args.vel_scale,
@@ -85,6 +94,15 @@ def add_simulator_subparsers(parser):
     parser_ogre.add_argument('--random_background_color', action='store_true')
     parser_ogre.add_argument('--random_ogrehead', type=int, default=0)
     parser_ogre.set_defaults(create_simulator=create_ogre_simulator)
+
+    parser_ogre = subparsers.add_parser('car')
+    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[-51-50, 10.7+5, -275, -np.pi/4, -np.pi/2])
+    parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[-51+50, 10.7+100, 225+100, np.pi/4, 0])
+    parser_ogre.add_argument('--vel_min', type=float, nargs='+', default=[-20]*3 + [-np.pi/8]*2)
+    parser_ogre.add_argument('--vel_max', type=float, nargs='+', default=[20]*3 + [np.pi/8]*2)
+    parser_ogre.add_argument('--vel_scale', type=float, nargs='+', default=[1.]*5)
+    parser_ogre.add_argument('--dof', type=int, default=5)
+    parser_ogre.set_defaults(create_simulator=create_car_simulator)
 
     parser_servo = subparsers.add_parser('servo')
     parser_servo.add_argument('--dof_min', type=float, nargs='+', default=(230, 220))

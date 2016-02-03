@@ -292,6 +292,93 @@ class OgreSimulator(DiscreteVelocitySimulator):
         return util.obs_from_image(image)
 
 
+class CarNodeTrajectoryManager(object):
+    def __init__(self, ogre, node_name, dof_values_init, dof_vel_init, dof_limits, dof_vel_limits, dof_acc_limits):
+        self.ogre = ogre
+        self.node_name = node_name
+        state_dim = len(dof_values_init)
+        for limit in dof_limits + dof_vel_limits + dof_acc_limits:
+            assert len(limit) == state_dim
+        self.dof_limits = [np.asarray(dof_limit) for dof_limit in dof_limits]
+        self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=float) for dof_vel_limit in dof_vel_limits]
+        self.dof_acc_limits = [np.asarray(dof_acc_limit, dtype=float) for dof_acc_limit in dof_acc_limits]
+        self._dof_vel = np.asarray(dof_vel_init, dtype=float)
+        self._dof_acc = np.zeros(state_dim)
+        self.dof_values = np.asarray(dof_values_init, dtype=float)
+
+    @property
+    def dof_values(self):
+        return self._dof_values.copy()
+
+    @dof_values.setter
+    def dof_values(self, next_dof_values):
+        self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
+        self.ogre.setNodePosition(self.node_name, self._dof_values)
+
+    @property
+    def dof_vel(self):
+        return self._dof_vel.copy()
+
+    @dof_vel.setter
+    def dof_vel(self, next_dof_vel):
+        self._dof_vel = np.clip(next_dof_vel, self.dof_vel_limits[0], self.dof_vel_limits[1])
+
+    @property
+    def dof_acc(self):
+        return self._dof_acc.copy()
+
+    @dof_acc.setter
+    def dof_acc(self, next_dof_acc):
+        self._dof_acc = np.clip(next_dof_acc, self.dof_acc_limits[0], self.dof_acc_limits[1])
+
+    def apply_action(self, next_acc):
+        dof_values_prev = self.dof_values.copy()
+        dof_vel_prev = self.dof_vel.copy()
+        self.dof_acc = next_acc
+        self.dof_vel += self.dof_acc
+        self.dof_values += self.dof_vel
+        # update with actual values
+        self.dof_vel = self.dof_values - dof_values_prev
+        self.dof_acc = self.dof_vel - dof_vel_prev
+
+    def step(self):
+        dof_acc_min, dof_acc_max = self.dof_acc_limits
+        acc = dof_acc_min + np.random.random_sample(dof_acc_min.shape) * (dof_acc_max - dof_acc_min)
+        self.apply_action(acc)
+
+
+class CityOgreSimulator(OgreSimulator):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, car=True):
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
+        self._q0 = np.array([1., 0., 0., 0.])
+
+        import pygre
+        self.ogre = pygre.Pygre()
+        self.ogre.init()
+        self.ogre.addNode("city", "_urban-level-02-medium-3ds_3DS.mesh", 0, 0, 0)
+        self.traj_managers = []
+        if car:
+            node_name = "car"
+            self.ogre.addNode(node_name, "camaro2_3ds.mesh", 0, 0, 0)
+            self.ogre.setNodeScale(node_name, np.array([0.3]*3))
+            self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
+            dof_values_init = [-51, 10.7, 225]
+            dof_vel_init = [0, 0, -1]
+            dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
+            dof_vel_limits = [[-1, 0, -10], [1, 0, -1]]
+            dof_acc_limits = [[-.1, 0, 0], [.1, 0, 0]]
+            self.traj_managers.append(CarNodeTrajectoryManager(self.ogre, node_name, dof_values_init, dof_vel_init, dof_limits, dof_vel_limits, dof_acc_limits))
+        self.ogre.setCameraOrientation(self._q0)
+
+    def reset(self, dof_values):
+        DiscreteVelocitySimulator.reset(self, dof_values)
+
+    def observe(self):
+        image = self.ogre.getScreenshot()
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        return util.obs_from_image(image)
+
+
 class ServoPlatform(DiscreteVelocitySimulator):
     def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
