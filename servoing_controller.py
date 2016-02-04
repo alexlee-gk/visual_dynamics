@@ -233,24 +233,30 @@ def main():
         image_transformer = simulator.ImageTransformer(**image_transformer_args)
 
     if args.target_hdf5_fname:
-        target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname, image_transformer)
+        target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname, image_transformer=image_transformer)
         args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
     elif args.simulator == 'ogre' and args.ogrehead:
-        target_gen = target_generator.OgreNodeTargetGenerator(sim, args.num_trajs)
+        target_gen = target_generator.OgreNodeTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
     elif args.simulator == 'servo':
-        target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5', image_transformer)
+        target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5', image_transformer=image_transformer)
         args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
+    elif args.simulator == 'city':
+        target_gen = target_generator.CityNodeTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
     else:
-        target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs)
+        target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
 
     if args.simulator == 'ogre' and args.ogrehead:
-        pos_target_gen = target_generator.OgreNodeTargetGenerator(sim, 100)
-        neg_target_gen = target_generator.NegativeOgreNodeTargetGenerator(sim, 100)
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, image_transformer=image_transformer, alpha=args.alpha, lambda_=args.lambda_)
+        pos_target_gen = target_generator.OgreNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+        neg_target_gen = target_generator.NegativeOgreNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
     elif args.simulator == 'servo':
         pos_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5')
         neg_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_not_tangerine.h5')
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, image_transformer=image_transformer, alpha=args.alpha, lambda_=args.lambda_)
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
+    elif args.simulator == 'city':
+        pos_target_gen = target_generator.CityNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+        neg_target_gen = target_generator.NegativeCityNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
     else:
         ctrl = controller.ServoingController(feature_predictor, alpha=args.alpha, lambda_=args.lambda_)
 
