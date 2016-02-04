@@ -158,7 +158,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         self.train_net = None
         self.val_net = None
 
-    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=32):
+    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=32, visualize_response_maps=False):
         hdf5_txt_fnames = []
         for hdf5_fname in [train_hdf5_fname, val_hdf5_fname]:
             if hdf5_fname is not None:
@@ -211,7 +211,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
             if not solverstate_fname.endswith('.solverstate'):
                 solverstate_fname = self.get_snapshot_prefix() + '_iter_' + solverstate_fname + '.solverstate'
             solver.restore(solverstate_fname)
-        self.solve(solver, solver_param)
+        self.solve(solver, solver_param, visualize_response_maps=visualize_response_maps)
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 blob.data[...] = solver_blob.data
@@ -220,7 +220,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         if val_hdf5_fname is not None:
             self.val_net = solver.test_nets[0]
 
-    def solve(self, solver, solver_param):
+    def solve(self, solver, solver_param, visualize_response_maps=False):
         # prepare visualization and files
         loss_fig_fname = os.path.join(self.get_model_dir(), 'loss.pdf')
         loss_txt_fname = os.path.join(self.get_model_dir(), 'loss.txt')
@@ -242,6 +242,11 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
             solver.step(1)
             if iter_ % solver_param.display == 0:
                 iters.append(iter_)
+                # visualize response maps of first image in batch
+                if visualize_response_maps:
+                    from servoing_controller import vis_response_maps
+                    image_curr = solver.net.blobs['image_curr'].data[0].copy()
+                    vis_response_maps(self.features_from_input(image_curr), image=image_curr)
                 # training loss
                 loss = 0.0
                 for blob_name, loss_weight in solver.net.blob_loss_weights.items():
@@ -267,8 +272,8 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                             test_loss += loss_weight * mean_score
                     test_losses.append(test_loss)
                 # visualization
+                fig = plt.figure(2)
                 plt.cla()
-                fig = plt.gcf()
                 fig.canvas.set_window_title(self.net_name + '_' + self.postfix)
                 plt.plot(iters, losses, label='train')
                 for i_test, test_losses in enumerate(val_losses):

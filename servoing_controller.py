@@ -32,20 +32,26 @@ def vis_square(data, padsize=1, padval=0):
     data = data.reshape((n * data.shape[1], n * data.shape[3]) + data.shape[4:])
     return data
 
-def vis_response_maps(xlevels, w=None):
+def vis_response_maps(xlevels, w=None, image=None):
     plt.ion()
     plt.figure(1, figsize=(18, 6))
     if w is None:
         is_w_ones = True
     else:
         is_w_ones = np.all(w == 1)
-    for i, xlevel in enumerate(xlevels.values()):
-        plt.subplot(1 if is_w_ones else 2, len(xlevels), i+1)
-        plt.imshow(vis_square(xlevel))
-        if not is_w_ones:
-            plt.subplot(1 if is_w_ones else 2, len(xlevels), len(xlevels)+i+1)
-            plt.imshow(vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape)))
-            w = w[xlevel.size:]
+    for i, xlevel in enumerate(([image] if image is not None else []) + xlevels.values()):
+        plt.subplot(1 if is_w_ones else 2, len(xlevels) + int(image is not None), i+1)
+        if image is not None and i == 0:
+            plt.imshow(util.image_from_obs(xlevel))
+        else:
+            if xlevel.shape[0] == 3:
+                plt.imshow(util.image_from_obs(xlevel))
+            else:
+                plt.imshow(vis_square(xlevel))
+            if not is_w_ones:
+                plt.subplot(1 if is_w_ones else 2, len(xlevels), len(xlevels)+i+1)
+                plt.imshow(vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape)))
+                w = w[xlevel.size:]
     plt.draw()
 
 def main():
@@ -77,6 +83,7 @@ def main():
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
+    parser.add_argument('--visualize_response_maps', '--vis_response_maps', '--vis_rm', type=int, default=0)
     parser.add_argument('--vis_scale', '-s', type=int, default=10, metavar='S', help='rescale image by S for visualization')
     parser.add_argument('--output_image_dir', type=str)
     parser.add_argument('--image_scale', '-f', type=float, default=None)
@@ -206,7 +213,8 @@ def main():
                                     val_hdf5_fname=args.val_hdf5_fname,
                                     solverstate_fname=args.solverstate_fname,
                                     solver_param=solver_param,
-                                    batch_size=args.train_batch_size)
+                                    batch_size=args.train_batch_size,
+                                    visualize_response_maps=args.visualize_response_maps)
 
             if feature_predictor.val_net is not None:
                 val_losses = {blob_name: np.asscalar(blob.data) for blob_name, blob in feature_predictor.val_net.blobs.items() if blob_name.endswith('loss')}
@@ -223,7 +231,7 @@ def main():
                 image_next = feature_predictor.preprocess_input(image_next)
                 image_pred_error = (image_next_pred - image_next)/2.0
                 vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
-                vis_response_maps(feature_predictor.features_from_input(image_curr))
+                vis_response_maps(feature_predictor.features_from_input(image_curr), image=image_curr)
                 if done:
                     break
         val_container.close()
@@ -276,7 +284,6 @@ def main():
     pos_errors = []
     angle_errors = []
     iter_ = 0
-    visualize_response_maps = True
     for traj_iter in range(args.num_trajs):
         try:
             image_target, dof_values_target = target_gen.get_target()
@@ -297,8 +304,8 @@ def main():
                                                                           feature_predictor.preprocess_input(image_target),
                                                                           vis_scale=args.vis_scale, delay=100, ret_key=True)
                     if key == ord('t'):
-                        visualize_response_maps = not visualize_response_maps
-                    if args.visualize and visualize_response_maps:
+                        args.visualize_response_maps = not args.visualize_response_maps
+                    if args.visualize and args.visualize_response_maps:
                         vis_response_maps(feature_predictor.features_from_input(image), ctrl.w)
                     if args.output_image_dir:
                         if vis_image.ndim == 2:
