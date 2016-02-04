@@ -841,7 +841,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         x0 = L.Convolution(x0,
                            param=[dict(lr_mult=0, decay_mult=0)],
                            convolution_param=dict(num_output=x0_shape[0], kernel_size=2, stride=2, pad=0,
-                                                  bias_term=False))
+                                                  group=x0_shape[0], bias_term=False))
         weight_fillers['x0_ds%d'%(i_ds+1)] = [ds_weight_filler]
         x0_shape = (x0_shape[0], x0_shape[1]//2, x0_shape[2]//2)
     if num_downsample > 0:
@@ -1012,7 +1012,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         x0_next = L.Convolution(x0_next,
                                 param=[dict(lr_mult=0, decay_mult=0)],
                                 convolution_param=dict(num_output=x0_shape[0], kernel_size=2, stride=2, pad=0,
-                                                       bias_term=False))
+                                                       group=x0_shape[0], bias_term=False))
         weight_fillers['x0_next_ds%d'%(i_ds+1)] = [ds_weight_filler]
     if num_downsample > 0:
         n.x0_next = n.tops.pop('x0_next_ds%d'%num_downsample)
