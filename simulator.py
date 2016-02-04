@@ -144,7 +144,7 @@ class DiscreteVelocitySimulator(Simulator):
 
     def apply_action(self, vel):
         dof_values_prev = self.dof_values.copy()
-        self.dof_values += self.dof_vel_scale * vel
+        self.dof_values += (self.dof_vel_scale * vel).astype(self.dof_values.dtype)
         vel = (self.dof_values - dof_values_prev) / self.dof_vel_scale # recompute vel because of clipping
         return vel
 
@@ -399,11 +399,13 @@ class CityOgreSimulator(OgreSimulator):
 class ServoPlatform(DiscreteVelocitySimulator):
     def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
-                 camera_id=0):
+                 camera_id=0,
+                 delay=True):
         """
         DOFs are pan, tilt
         """
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale, dtype=np.int)
+        self.delay = delay
         # camera initialization
         if isinstance(camera_id, basestring):
             if camera_id.isdigit():
@@ -422,7 +424,8 @@ class ServoPlatform(DiscreteVelocitySimulator):
             self.use_pwm = True
             self.dof_values = self._dof_values
             duration = self.duration_dof_vel(np.diff(self.dof_limits, axis=0).max())
-            time.sleep(duration + self.pwm_extra_delay)
+            if self.delay:
+                time.sleep(duration + self.pwm_extra_delay)
             self.last_time = self.cap.get_time()
         except Exception as e:
             self.use_pwm = False
@@ -445,15 +448,14 @@ class ServoPlatform(DiscreteVelocitySimulator):
                 finish_time = time.time() + self.duration_dof_vel(dof_change)
                 finish_times.append(finish_time)
             duration = time.time() - np.max(finish_times)
-            time.sleep(max(0, duration + self.pwm_extra_delay))
+            if self.delay:
+                time.sleep(max(0, duration + self.pwm_extra_delay))
             self.last_time = self.cap.get_time()
-
-    def apply_action(self, vel):
-        return super(ServoPlatform, self).apply_action(np.round(vel).astype(np.int))
 
     def reset(self, dof_values):
         self.dof_values = dof_values
-        time.sleep(2.5)
+        if self.delay:
+            time.sleep(2.5)
 
     def observe(self):
         while True:
