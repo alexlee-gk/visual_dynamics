@@ -13,6 +13,41 @@ import data_container
 import util
 import util_parser
 
+import matplotlib
+from matplotlib import pyplot as plt
+# take an array of shape (n, height, width) or (n, height, width, channels)
+# and visualize each (height, width) thing in a grid of size approx. sqrt(n) by sqrt(n)
+def vis_square(data, padsize=1, padval=0):
+    data = data.copy()
+    data -= data.min()
+    data /= data.max()
+
+    # force the number of filters to be square
+    n = int(np.ceil(np.sqrt(data.shape[0])))
+    padding = ((0, n ** 2 - data.shape[0]), (0, padsize), (0, padsize)) + ((0, 0),) * (data.ndim - 3)
+    data = np.pad(data, padding, mode='constant', constant_values=(padval, padval))
+
+    # tile the filters into an image
+    data = data.reshape((n, n) + data.shape[1:]).transpose((0, 2, 1, 3) + tuple(range(4, data.ndim + 1)))
+    data = data.reshape((n * data.shape[1], n * data.shape[3]) + data.shape[4:])
+    return data
+
+def vis_response_maps(xlevels, w=None):
+    plt.ion()
+    plt.figure(1, figsize=(18, 6))
+    if w is None:
+        is_w_ones = True
+    else:
+        is_w_ones = np.all(w == 1)
+    for i, xlevel in enumerate(xlevels.values()):
+        plt.subplot(1 if is_w_ones else 2, len(xlevels), i+1)
+        plt.imshow(vis_square(xlevel))
+        if not is_w_ones:
+            plt.subplot(1 if is_w_ones else 2, len(xlevels), len(xlevels)+i+1)
+            plt.imshow(vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape)))
+            w = w[xlevel.size:]
+    plt.draw()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
@@ -188,6 +223,7 @@ def main():
                 image_next = feature_predictor.preprocess_input(image_next)
                 image_pred_error = (image_next_pred - image_next)/2.0
                 vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
+                vis_response_maps(feature_predictor.features_from_input(image_curr))
                 if done:
                     break
         val_container.close()
@@ -234,6 +270,7 @@ def main():
     pos_errors = []
     angle_errors = []
     iter_ = 0
+    visualize_response_maps = True
     for traj_iter in range(args.num_trajs):
         try:
             image_target, dof_values_target = target_gen.get_target()
@@ -244,26 +281,31 @@ def main():
             for step_iter in range(args.num_steps):
                 image = image_transformer.transform(sim.observe())
                 action = ctrl.step(image)
-                image_next_pred = feature_predictor.predict(image, action, prediction_name='image_next_pred')
                 action = sim.apply_action(action)
 
                 # visualization
                 if args.visualize or args.output_image_dir:
-                    vis_image, done = util.visualize_images_callback(feature_predictor.preprocess_input(image),
-                                                                     image_next_pred,
-                                                                     feature_predictor.preprocess_input(image_target),
-                                                                     vis_scale=args.vis_scale, delay=100)
+                    image_next_pred = feature_predictor.predict(image, action, prediction_name='image_next_pred')
+                    vis_image, done, key = util.visualize_images_callback(feature_predictor.preprocess_input(image),
+                                                                          image_next_pred,
+                                                                          feature_predictor.preprocess_input(image_target),
+                                                                          vis_scale=args.vis_scale, delay=100, ret_key=True)
+                    if key == ord('t'):
+                        visualize_response_maps = not visualize_response_maps
+                    if args.visualize and visualize_response_maps:
+                        vis_response_maps(feature_predictor.features_from_input(image), ctrl.w)
                     if args.output_image_dir:
                         if vis_image.ndim == 2:
                             output_image = np.concatenate([vis_image]*3, axis=2)
                         else:
                             output_image = vis_image
-                        image_fname = feature_predictor.net_name + feature_predictor.postfix + '_%04d.png'%iter_
+                        image_fname = feature_predictor.net_name + '_' + feature_predictor.postfix + '_%04d.png'%iter_
                         iter_ += 1
                         cv2.imwrite(os.path.join(args.output_image_dir, image_fname), output_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                     if done:
                         break
             image = image_transformer.transform(sim.observe())
+            image_next_pred = feature_predictor.predict(image, action, prediction_name='image_next_pred')
             image_pred_error = np.linalg.norm(image_next_pred - feature_predictor.preprocess_input(image))
             image_pred_errors.append(image_pred_error)
             image_error = np.linalg.norm(feature_predictor.preprocess_input(image_target) - feature_predictor.preprocess_input(image))
