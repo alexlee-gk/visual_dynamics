@@ -47,6 +47,8 @@ def main():
     parser.add_argument('--image_scale', '-f', type=float, default=None)
     parser.add_argument('--crop_size', type=int, nargs=2, default=None, metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--crop_offset', type=int, nargs=2, default=None, metavar=('HEIGHT_OFFSET', 'WIDTH_OFFSET'))
+    parser.add_argument('--alpha', type=float, default=1.0, help='controller parameter')
+    parser.add_argument('--lambda_', '--lambda', type=float, default=0.0, help='controller parameter')
     args, remaining_args = parser.parse_known_args()
 
     if args.val_hdf5_fname is None:
@@ -195,19 +197,26 @@ def main():
         image_transformer = simulator.ImageTransformer(**image_transformer_args)
 
     if args.target_hdf5_fname:
-        target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname)
+        target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname, image_transformer)
         args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
-    elif args.ogrehead:
+    elif args.simulator == 'ogre' and args.ogrehead:
         target_gen = target_generator.OgreNodeTargetGenerator(sim, args.num_trajs)
+    elif args.simulator == 'servo':
+        target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5', image_transformer)
+        args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
     else:
         target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs)
 
-    if args.ogrehead:
+    if args.simulator == 'ogre' and args.ogrehead:
         pos_target_gen = target_generator.OgreNodeTargetGenerator(sim, 100)
         neg_target_gen = target_generator.NegativeOgreNodeTargetGenerator(sim, 100)
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, image_transformer=image_transformer, alpha=.75, lambda_=1.)
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, image_transformer=image_transformer, alpha=args.alpha, lambda_=args.lambda_)
+    elif args.simulator == 'servo':
+        pos_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5')
+        neg_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_not_tangerine.h5')
+        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, image_transformer=image_transformer, alpha=args.alpha, lambda_=args.lambda_)
     else:
-        ctrl = controller.ServoingController(feature_predictor, alpha=.75, lambda_=1.)
+        ctrl = controller.ServoingController(feature_predictor, alpha=args.alpha, lambda_=args.lambda_)
 
     if args.num_trajs and args.num_steps and args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')
@@ -228,8 +237,6 @@ def main():
     for traj_iter in range(args.num_trajs):
         try:
             image_target, dof_values_target = target_gen.get_target()
-            if not args.target_hdf5_fname:
-                image_target = image_transformer.transform(image_target)
             ctrl.set_target_obs(image_target)
 
             dof_values_init = np.mean(sim.dof_limits, axis=0)

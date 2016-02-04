@@ -82,22 +82,26 @@ class NegativeOgreNodeTargetGenerator(OgreNodeTargetGenerator):
 
 
 class DataContainerTargetGenerator(TargetGenerator):
-    def __init__(self, fname):
+    def __init__(self, fname, image_transformer=None):
         super(DataContainerTargetGenerator, self).__init__()
         try:
-            self.container = data_container.TrajectoryDataContainer(fname)
+            self.container = data_container.ImageTrajectoryDataContainer(fname)
             self.num_images = self.container.num_trajs
         except ValueError:
             self.container = data_container.DataContainer(fname)
             self.num_images = self.container.num_data
         self.image_iter = 0
+        self.image_transformer = image_transformer
 
     def get_target(self):
+        datum_names = ['image_target', 'pos']
         if isinstance(self.container, data_container.TrajectoryDataContainer):
-            image_target, self._dof_values_currrent_target = self.container.get_datum(self.image_iter, 0, ['image_curr', 'dof_val']).values()
+            image_target, self._dof_values_currrent_target = self.container.get_datum(self.image_iter, 0, datum_names).values()
         else:
-            image_target, self._dof_values_currrent_target = self.container.get_datum(self.image_iter, ['image_curr', 'dof_val']).values()
+            image_target, self._dof_values_currrent_target = self.container.get_datum(self.image_iter, datum_names).values()
         self.image_iter += 1
+        if self.image_transformer:
+            image_target = self.image_transformer.transform(image_target)
         return image_target, self._dof_values_currrent_target
 
 
