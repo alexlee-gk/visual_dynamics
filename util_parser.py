@@ -58,11 +58,12 @@ def create_city_simulator(args):
                                   args.vel_scale)
     return sim
 
-def create_servo_simulator(args):
+def create_servo_simulator(args, **kwargs):
     sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                   args.vel_scale,
                                   pwm_channels=args.pwm_channels,
-                                  camera_id=args.camera_id)
+                                  camera_id=args.camera_id,
+                                  **kwargs)
     return sim
 
 def get_sim_args(parser, args):

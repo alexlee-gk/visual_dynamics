@@ -79,7 +79,7 @@ def main():
         args.__dict__.update(sim_args)
         args.create_simulator = dict(square=util_parser.create_square_simulator,
                                      ogre=util_parser.create_ogre_simulator,
-                                     servo=util_parser.create_servo_simulator)[args.simulator]
+                                     servo=lambda args: util_parser.create_servo_simulator(args, delay=False))[args.simulator]
     # override image tranformer arguments if specified, and sync them
     image_transformer_args = val_container.get_group('image_transformer_args')
     for image_transformer_arg in image_transformer_args.keys():
