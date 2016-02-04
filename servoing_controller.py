@@ -77,7 +77,7 @@ def main():
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
-    parser.add_argument('--vis_scale', '-r', type=int, default=10, metavar='R', help='rescale image by R for visualization')
+    parser.add_argument('--vis_scale', '-s', type=int, default=10, metavar='S', help='rescale image by S for visualization')
     parser.add_argument('--output_image_dir', type=str)
     parser.add_argument('--image_scale', '-f', type=float, default=None)
     parser.add_argument('--crop_size', type=int, nargs=2, default=None, metavar=('HEIGHT', 'WIDTH'))

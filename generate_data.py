@@ -17,7 +17,7 @@ def main():
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=0)
-    parser.add_argument('--vis_scale', '-s', type=int, default=10, metavar='R', help='rescale image by R for visualization')
+    parser.add_argument('--vis_scale', '-s', type=int, default=1, metavar='S', help='rescale image by S for visualization')
     subparsers = util_parser.add_simulator_subparsers(parser)
     parser_servo = subparsers.choices['servo']
     parser_servo.add_argument('--background_window', '-b', action='store_true')
@@ -73,7 +73,7 @@ def main():
                         traj_container.add_datum(traj_iter, step_iter+1, dict(image=image_next,
                                                                               dof_val=sim.dof_values))
                 if args.visualize:
-                    vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale)
+                    vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale, delay=0)
                 if done:
                     break
             if done:

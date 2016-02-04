@@ -14,7 +14,7 @@ def main():
     parser.add_argument('--traj_container', type=str, default='ImageTrajectoryDataContainer')
     parser.add_argument('--output', '-o', type=str, default=None)
     parser.add_argument('--visualize', '-v', type=int, default=0)
-    parser.add_argument('--vis_scale', '-s', type=int, default=10, metavar='R', help='rescale image by R for visualization')
+    parser.add_argument('--vis_scale', '-s', type=int, default=10, metavar='S', help='rescale image by S for visualization')
     parser.add_argument('--image_scale', '-f', type=float, default=0.125)
     parser.add_argument('--crop_size', type=int, nargs=2, default=[32, 32], metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--crop_offset', type=int, nargs=2, default=[0, 0], metavar=('HEIGHT_OFFSET', 'WIDTH_OFFSET'))
