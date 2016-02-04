@@ -391,10 +391,17 @@ class CityOgreSimulator(OgreSimulator):
         car_dof_vel = [0, 0, -1]
         self.traj_managers[0].reset(car_dof_values, car_dof_vel)
         # constrain sampled state to be in the 45 deg line of sight
-        val = 5 + np.random.random_sample(1) * 90
+        val = 5 + np.random.random_sample(1) * 50
         dof_values = np.array([-51, 10.7 + val, car_dof_values[2] + val, -np.pi/4, 0])
         return dof_values
 
+    @staticmethod
+    def look_at(target_pos, camera_pos):
+        ax = target_pos - camera_pos
+        pan = np.arctan2(-ax[0], -ax[2])
+        tilt = np.arcsin(ax[1] / np.linalg.norm(ax))
+        dof_values = np.concatenate([camera_pos, np.array([tilt, pan])])
+        return dof_values
 
 class ServoPlatform(DiscreteVelocitySimulator):
     def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None,

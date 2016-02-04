@@ -97,8 +97,8 @@ def add_simulator_subparsers(parser):
     parser_ogre.set_defaults(create_simulator=create_ogre_simulator)
 
     parser_ogre = subparsers.add_parser('city')
-    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[-51-50, 10.7+5, -275, -np.pi/4-np.pi/8, -np.pi/8])
-    parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[-51+50, 10.7+100, 225+100, -np.pi/4+np.pi/8, np.pi/8])
+    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[-51-25, 10.7, -275, -np.pi/2, -np.pi/2])
+    parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[-51+25, 10.7+50, 225+50, 0, np.pi/2])
     parser_ogre.add_argument('--vel_min', type=float, nargs='+', default=[-2]*3 + [-np.pi/32]*2)
     parser_ogre.add_argument('--vel_max', type=float, nargs='+', default=[2]*3 + [np.pi/32]*2)
     parser_ogre.add_argument('--vel_scale', type=float, nargs='+', default=[1.]*5)

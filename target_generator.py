@@ -21,10 +21,11 @@ class TargetGenerator(object):
 
 
 class SimulatorTargetGenerator(TargetGenerator):
-    def __init__(self, sim, num_images):
+    def __init__(self, sim, num_images, image_transformer=None):
         super(SimulatorTargetGenerator, self).__init__()
         self.sim = sim
         self.num_images = num_images
+        self.image_transformer = image_transformer
 
     def get_target(self):
         """
@@ -35,6 +36,8 @@ class SimulatorTargetGenerator(TargetGenerator):
         self.sim.reset(self._dof_values_currrent_target)
         image_target = self.sim.observe()
         self.sim.reset(dof_values) # restore
+        if self.image_transformer:
+            image_target = self.image_transformer.transform(image_target)
         return image_target, self._dof_values_currrent_target
 
     def _get_dof_values_target(self):
@@ -50,8 +53,8 @@ class RandomTargetGenerator(SimulatorTargetGenerator):
 
 
 class OgreNodeTargetGenerator(SimulatorTargetGenerator):
-    def __init__(self, sim, num_images, node_name=None, relative_pos=None):
-        super(OgreNodeTargetGenerator, self).__init__(sim, num_images)
+    def __init__(self, sim, num_images, image_transformer=None, node_name=None, relative_pos=None):
+        super(OgreNodeTargetGenerator, self).__init__(sim, num_images, image_transformer=image_transformer)
         self.node_name = node_name or 'ogrehead'
         self.relative_pos = relative_pos or np.array([6., 0, 0])
 
@@ -78,6 +81,46 @@ class NegativeOgreNodeTargetGenerator(OgreNodeTargetGenerator):
         image_target = self.sim.observe()
         self.sim.ogre.setNodePosition(self.node_name, node_pos)
         self.sim.reset(dof_values) # restore
+        if self.image_transformer:
+            image_target = self.image_transformer.transform(image_target)
+        return image_target, self._dof_values_currrent_target
+
+
+class CityNodeTargetGenerator(SimulatorTargetGenerator):
+    def __init__(self, sim, num_images, image_transformer=None, node_name=None, relative_pos=None):
+        super(CityNodeTargetGenerator, self).__init__(sim, num_images, image_transformer=image_transformer)
+        self.node_name = node_name or 'car'
+        self.relative_pos = relative_pos or np.array([6., 0, 0])
+
+    def get_dof_values_current_target(self):
+        car_dof_min, car_dof_max = [np.array([-51-6, 10.7, -275]), np.array([-51+6, 10.7, 225])]
+        car_dof_values = car_dof_min + np.random.random_sample(car_dof_min.shape) * (car_dof_max - car_dof_min)
+        car_dof_vel = [0, 0, -1]
+        self.sim.traj_managers[0].reset(car_dof_values, car_dof_vel)
+        car_pos = car_dof_values
+        cam_radius = 10 + np.random.random_sample(1)[0] * 25
+        cam_angle = self.sim.dof_limits[0][4] + np.random.random_sample(1)[0] * (self.sim.dof_limits[1][4] - self.sim.dof_limits[0][4])
+        cam_height = np.random.random_sample(1)[0] * 25
+        camera_pos = car_pos + np.array([cam_radius * np.sin(cam_angle), cam_height, cam_radius * np.cos(cam_angle)])
+        dof_values = self.sim.look_at(car_pos, camera_pos)
+        return dof_values
+
+    def _get_dof_values_target(self):
+        return self.get_dof_values_current_target()
+
+
+class NegativeCityNodeTargetGenerator(CityNodeTargetGenerator):
+    def get_target(self):
+        dof_values = self.sim.dof_values
+        self._dof_values_currrent_target = self._get_dof_values_target()
+        self.sim.reset(self._dof_values_currrent_target)
+        node_pos = self.sim.ogre.getNodePosition(self.node_name)
+        self.sim.ogre.setNodePosition(self.node_name, node_pos + np.array([0, -12, 0]))
+        image_target = self.sim.observe()
+        self.sim.ogre.setNodePosition(self.node_name, node_pos)
+        self.sim.reset(dof_values) # restore
+        if self.image_transformer:
+            image_target = self.image_transformer.transform(image_target)
         return image_target, self._dof_values_currrent_target
 
 
@@ -106,8 +149,8 @@ class DataContainerTargetGenerator(TargetGenerator):
 
 
 class InteractiveTargetGenerator(SimulatorTargetGenerator):
-    def __init__(self, sim, num_images, vis_scale=1):
-        super(InteractiveTargetGenerator, self).__init__(sim, num_images)
+    def __init__(self, sim, num_images, image_transformer=None, vis_scale=1):
+        super(InteractiveTargetGenerator, self).__init__(sim, num_images, image_transformer=image_transformer)
         self.vis_scale = vis_scale
 
     def _get_dof_values_target(self):
