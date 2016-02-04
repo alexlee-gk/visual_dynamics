@@ -293,7 +293,7 @@ class OgreSimulator(DiscreteVelocitySimulator):
 
 
 class CarNodeTrajectoryManager(object):
-    def __init__(self, ogre, node_name, dof_values_init, dof_vel_init, dof_limits, dof_vel_limits, dof_acc_limits):
+    def __init__(self, ogre, node_name, dof_values_init, dof_vel_init, dof_limits, dof_vel_limits, dof_acc_limits, max_travel_distance=np.inf):
         self.ogre = ogre
         self.node_name = node_name
         state_dim = len(dof_values_init)
@@ -302,15 +302,19 @@ class CarNodeTrajectoryManager(object):
         self.dof_limits = [np.asarray(dof_limit) for dof_limit in dof_limits]
         self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=float) for dof_vel_limit in dof_vel_limits]
         self.dof_acc_limits = [np.asarray(dof_acc_limit, dtype=float) for dof_acc_limit in dof_acc_limits]
-        self._dof_vel = np.asarray(dof_vel_init, dtype=float)
-        self._dof_acc = np.zeros(state_dim)
-        self.dof_values = np.asarray(dof_values_init, dtype=float)
+        self.reset(dof_values_init, dof_vel_init)
+        self.max_travel_distance = max_travel_distance
 
     def reset(self, dof_values, dof_vel):
         state_dim = len(dof_values)
         self._dof_vel = np.asarray(dof_vel, dtype=float)
         self._dof_acc = np.zeros(state_dim)
         self.dof_values = np.asarray(dof_values, dtype=float)
+        self._dof_values_reset = np.asarray(dof_values, dtype=float).copy()
+
+    @property
+    def distance_traveled(self):
+        return abs(self._dof_values[2] - self._dof_values_reset[2])
 
     @property
     def dof_values(self):
@@ -348,9 +352,10 @@ class CarNodeTrajectoryManager(object):
         self.dof_acc = self.dof_vel - dof_vel_prev
 
     def step(self):
-        dof_acc_min, dof_acc_max = self.dof_acc_limits
-        acc = dof_acc_min + np.random.random_sample(dof_acc_min.shape) * (dof_acc_max - dof_acc_min)
-        self.apply_action(acc)
+        if self.distance_traveled < self.max_travel_distance:
+            dof_acc_min, dof_acc_max = self.dof_acc_limits
+            acc = dof_acc_min + np.random.random_sample(dof_acc_min.shape) * (dof_acc_max - dof_acc_min)
+            self.apply_action(acc)
 
 
 class CityOgreSimulator(OgreSimulator):
