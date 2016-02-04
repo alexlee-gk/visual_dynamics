@@ -3,6 +3,7 @@ from __future__ import division
 import os
 import re
 import numpy as np
+from collections import OrderedDict
 import matplotlib.pyplot as plt
 import caffe
 from caffe.proto import caffe_pb2 as pb2
@@ -269,7 +270,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         return super(CaffeNetFeaturePredictor, self).predict(*inputs, **kwargs)
 
     def jacobian_control(self, X, U):
-        return self.jacobian(self.inputs[1], X, U)
+        return self.jacobian(self.inputs[1], X, U), self.feature_from_input(X)
 
     def feature_from_input(self, X, input_name='image_curr', output_name='y'):
         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
@@ -358,12 +359,19 @@ class BilinearNetFeaturePredictor(CaffeNetFeaturePredictor):
             A = self.params.values()[0][0].data.reshape((y_dim, y_dim, -1))
             B = self.params.values()[1][0].data
             jac = np.einsum("kij,i->kj", A, y) + B
-            return jac
+            return jac, y
         else:
-            return np.asarray([self.jacobian_control(x, None) for x in X])
+            jac, y = zip(*[self.jacobian_control(x, None) for x in X])
+            jac = np.asarray(jac)
+            y = np.asarray(y)
+            return jac, y
 
 class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
-    def jacobian_control(self, X, U):
+    def __init__(self, *args, **kwargs):
+        super(FcnActionCondEncoderNetFeaturePredictor, self).__init__(*args, **kwargs)
+        self._xlevel_shapes = None
+
+    def mean_feature_from_input(self, X):
         if X.shape == self.x_shape:
             levels = []
             for key in self.blobs.keys():
@@ -373,15 +381,62 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
                     levels.append(int(match.group(1)))
             levels = sorted(levels)
 
-            ylevels = []
-            jaclevels = []
+            zlevels = []
             for level in levels:
                 output_name = 'x%d'%level
                 if output_name == 'x0' and output_name not in self.blobs:
                     xlevel = X
                 else:
                     xlevel = self.feature_from_input(X, output_name=output_name)
-                ylevels.append(xlevel.flatten())
+                zlevel = np.asarray([channel.mean() for channel in xlevel])
+                zlevels.append(zlevel)
+            z = np.concatenate(zlevels)
+            return z
+        else:
+            return np.asarray([self.mean_feature_from_input(x) for x in X])
+
+    def features_from_input(self, x):
+        assert x.shape == self.x_shape
+        is_first_time = self._xlevel_shapes is None
+        if is_first_time:
+            levels = []
+            for key in self.blobs.keys():
+                match = re.match('bilinear(\d+)_re_y$', key)
+                if match:
+                    assert len(match.groups()) == 1
+                    levels.append(int(match.group(1)))
+            levels = sorted(levels)
+
+            xlevels_first = OrderedDict()
+            self._xlevel_shapes = OrderedDict()
+            for level in levels:
+                output_name = 'x%d'%level
+                if output_name == 'x0' and output_name not in self.blobs:
+                    xlevel = x
+                else:
+                    xlevel = self.feature_from_input(x, output_name=output_name)
+                xlevels_first[output_name] = xlevel
+                self._xlevel_shapes[output_name] = xlevel.shape
+
+        y = self.feature_from_input(x)
+        xlevels = OrderedDict()
+        y_index = 0
+        for output_name, shape in self._xlevel_shapes.items():
+            xlevels[output_name] = y[y_index:y_index+np.prod(shape)].reshape(shape)
+            y_index += np.prod(shape)
+
+        if is_first_time:
+            for xlevel, xlevel_first in zip(xlevels.values(), xlevels_first.values()):
+                assert np.allclose(xlevel_first, xlevel)
+        return xlevels
+
+    def jacobian_control(self, X, U):
+        if X.shape == self.x_shape:
+            xlevels = self.features_from_input(X)
+            jaclevels = []
+            ylevels = []
+            for output_name, xlevel in xlevels.items():
+                level = int(output_name[1:])
                 xlevel_c_dim = xlevel.shape[0]
                 y_dim = np.prod(xlevel.shape[1:])
                 u_dim, = self.u_shape
@@ -400,9 +455,12 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
                 jaclevel += B + c[..., None]
                 jaclevel = jaclevel.reshape(xlevel_c_dim * y_dim, u_dim)
                 jaclevels.append(jaclevel)
-            y = np.concatenate(ylevels)
-            assert np.allclose(y, self.feature_from_input(X)) # make sure the order of features in the hierarchy are consistent
+                ylevels.append(xlevel.flatten())
             jac = np.concatenate(jaclevels)
-            return jac
+            y = np.concatenate(ylevels)
+            return jac, y
         else:
-            return np.asarray([self.jacobian_control(x, None) for x in X])
+            jac, y = zip(*[self.jacobian_control(x, None) for x in X])
+            jac = np.asarray(jac)
+            y = np.asarray(y)
+            return jac, y

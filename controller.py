@@ -35,10 +35,8 @@ class ServoingController(Controller):
     def step(self, image):
         if self.image_target is not None:
             x = image
-            y = self.predictor.feature_from_input(x)
-
             # use model to optimize for action
-            J = self.predictor.jacobian_control(x, None)
+            J, y = self.predictor.jacobian_control(x, None)
             if self.w is not None:
                 JW = J * self.w[:, None]
             else:
