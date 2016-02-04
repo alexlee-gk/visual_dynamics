@@ -126,14 +126,31 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         with open(deploy_fname, 'w') as f:
             f.write(str(self.deploy_net_param))
 
+        copy_weights_later = False
         if pretrained_file is not None:
             if type(pretrained_file) == list:
                 snapshot_prefix = self.get_snapshot_prefix()
-                snapshot_prefix = '_'.join([pretrained_file[0] if token.startswith('levels') else token for token in snapshot_prefix.split('_')])
+                snapshot_prefix.split('_')
+                this_levels = [token for token in snapshot_prefix.split('_') if token.startswith('levels')][0]
+                pretrained_levels = pretrained_file[0]
+                snapshot_prefix = '_'.join([pretrained_levels if token.startswith('levels') else token for token in snapshot_prefix.split('_')])
                 pretrained_file = snapshot_prefix + '_iter_' + pretrained_file[-1] + '.caffemodel'
-            if not pretrained_file.endswith('.caffemodel'):
+                if this_levels != pretrained_levels:
+                    copy_weights_later = True
+            if not copy_weights_later and not pretrained_file.endswith('.caffemodel'):
                 pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.caffemodel'
-        CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=self.output_names[0])
+        CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file if not copy_weights_later else None, prediction_name=self.output_names[0])
+        if copy_weights_later:
+            deploy_fname = '_'.join([pretrained_levels if token.startswith('levels') else token for token in deploy_fname.split('_')])
+            pretrained_net = caffe.Net(deploy_fname, pretrained_file, caffe.TEST)
+            for param_name, param in self.params.items():
+                if param_name in pretrained_net.params:
+                    for blob, pretrained_blob in zip(param, pretrained_net.params[param_name]):
+                        if pretrained_blob.data.shape == blob.data.shape:
+                            blob.data[...] = pretrained_blob.data
+                        else:
+                            blob.data[-pretrained_blob.data.shape[0]:, ...] = pretrained_blob.data # copy for second slice because of the concat layer
+                            blob.data[:-pretrained_blob.data.shape[0], ...] *= 0.0
         self.output_names = [name for name in self.output_names if name in self.blobs]
 
         self.set_weight_fillers(self.params, weight_fillers)
