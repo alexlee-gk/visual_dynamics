@@ -42,16 +42,28 @@ def create_ogre_simulator(args):
     args.vel_min = args.vel_min[:args.dof]
     args.vel_max = args.vel_max[:args.dof]
     sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                  args.vel_scale,
                                   background_color=args.background_color,
                                   ogrehead=args.ogrehead,
                                   random_background_color=args.random_background_color,
                                   random_ogrehead=args.random_ogrehead)
     return sim
 
-def create_servo_simulator(args):
+def create_city_simulator(args):
+    args.dof_min = args.dof_min[:args.dof]
+    args.dof_max = args.dof_max[:args.dof]
+    args.vel_min = args.vel_min[:args.dof]
+    args.vel_max = args.vel_max[:args.dof]
+    sim = simulator.CityOgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                  args.vel_scale)
+    return sim
+
+def create_servo_simulator(args, **kwargs):
     sim = simulator.ServoPlatform([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
+                                  args.vel_scale,
                                   pwm_channels=args.pwm_channels,
-                                  camera_id=args.camera_id)
+                                  camera_id=args.camera_id,
+                                  **kwargs)
     return sim
 
 def get_sim_args(parser, args):
@@ -76,6 +88,7 @@ def add_simulator_subparsers(parser):
     parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[24, 6, -2, np.deg2rad(20), np.deg2rad(20)])
     parser_ogre.add_argument('--vel_min', type=float, nargs='+', default=[-0.8]*3 + [np.deg2rad(-7.5)]*2)
     parser_ogre.add_argument('--vel_max', type=float, nargs='+', default=[0.8]*3 + [np.deg2rad(7.5)]*2)
+    parser_ogre.add_argument('--vel_scale', type=float, nargs='+', default=[1.]*5)
     parser_ogre.add_argument('--dof', type=int, default=5)
     parser_ogre.add_argument('--background_color', type=float, nargs=3, default=[.0]*3, metavar=('R', 'G', 'B'))
     parser_ogre.add_argument('--ogrehead', action='store_true')
@@ -83,11 +96,21 @@ def add_simulator_subparsers(parser):
     parser_ogre.add_argument('--random_ogrehead', type=int, default=0)
     parser_ogre.set_defaults(create_simulator=create_ogre_simulator)
 
+    parser_ogre = subparsers.add_parser('city')
+    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[-51-25, 10.7, -275, -np.pi/2, -np.pi/2])
+    parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[-51+25, 10.7+50, 225+50, 0, np.pi/2])
+    parser_ogre.add_argument('--vel_min', type=float, nargs='+', default=[-2]*3 + [-np.pi/32]*2)
+    parser_ogre.add_argument('--vel_max', type=float, nargs='+', default=[2]*3 + [np.pi/32]*2)
+    parser_ogre.add_argument('--vel_scale', type=float, nargs='+', default=[1.]*5)
+    parser_ogre.add_argument('--dof', type=int, default=5)
+    parser_ogre.set_defaults(create_simulator=create_city_simulator)
+
     parser_servo = subparsers.add_parser('servo')
     parser_servo.add_argument('--dof_min', type=float, nargs='+', default=(230, 220))
     parser_servo.add_argument('--dof_max', type=float, nargs='+', default=(610, 560))
     parser_servo.add_argument('--vel_min', type=float, nargs='+', default=(-50, -50))
     parser_servo.add_argument('--vel_max', type=float, nargs='+', default=(50, 50))
+    parser_servo.add_argument('--vel_scale', type=float, nargs='+', default=(1, 1))
     parser_servo.add_argument('--pwm_channels', '-c', nargs='+', type=int, default=(0, 1))
     parser_servo.add_argument('--camera_id', '-i', type=str, default='C')
     parser_servo.set_defaults(create_simulator=create_servo_simulator)

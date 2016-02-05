@@ -3,6 +3,7 @@ from __future__ import division
 import os
 import re
 import numpy as np
+from collections import OrderedDict
 import matplotlib.pyplot as plt
 import caffe
 from caffe.proto import caffe_pb2 as pb2
@@ -125,14 +126,31 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         with open(deploy_fname, 'w') as f:
             f.write(str(self.deploy_net_param))
 
+        copy_weights_later = False
         if pretrained_file is not None:
             if type(pretrained_file) == list:
                 snapshot_prefix = self.get_snapshot_prefix()
-                snapshot_prefix = '_'.join([pretrained_file[0] if token.startswith('levels') else token for token in snapshot_prefix.split('_')])
+                snapshot_prefix.split('_')
+                this_levels = [token for token in snapshot_prefix.split('_') if token.startswith('levels')][0]
+                pretrained_levels = pretrained_file[0]
+                snapshot_prefix = '_'.join([pretrained_levels if token.startswith('levels') else token for token in snapshot_prefix.split('_')])
                 pretrained_file = snapshot_prefix + '_iter_' + pretrained_file[-1] + '.caffemodel'
-            if not pretrained_file.endswith('.caffemodel'):
+                if this_levels != pretrained_levels:
+                    copy_weights_later = True
+            if not copy_weights_later and not pretrained_file.endswith('.caffemodel'):
                 pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.caffemodel'
-        CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file, prediction_name=self.output_names[0])
+        CaffeNetPredictor.__init__(self, deploy_fname, pretrained_file=pretrained_file if not copy_weights_later else None, prediction_name=self.output_names[0])
+        if copy_weights_later:
+            deploy_fname = '_'.join([pretrained_levels if token.startswith('levels') else token for token in deploy_fname.split('_')])
+            pretrained_net = caffe.Net(deploy_fname, pretrained_file, caffe.TEST)
+            for param_name, param in self.params.items():
+                if param_name in pretrained_net.params:
+                    for blob, pretrained_blob in zip(param, pretrained_net.params[param_name]):
+                        if pretrained_blob.data.shape == blob.data.shape:
+                            blob.data[...] = pretrained_blob.data
+                        else:
+                            blob.data[-pretrained_blob.data.shape[0]:, ...] = pretrained_blob.data # copy for second slice because of the concat layer
+                            blob.data[:-pretrained_blob.data.shape[0], ...] *= 0.0
         self.output_names = [name for name in self.output_names if name in self.blobs]
 
         self.set_weight_fillers(self.params, weight_fillers)
@@ -140,7 +158,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         self.train_net = None
         self.val_net = None
 
-    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=32):
+    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None, solver_param=None, batch_size=32, visualize_response_maps=False):
         hdf5_txt_fnames = []
         for hdf5_fname in [train_hdf5_fname, val_hdf5_fname]:
             if hdf5_fname is not None:
@@ -193,7 +211,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
             if not solverstate_fname.endswith('.solverstate'):
                 solverstate_fname = self.get_snapshot_prefix() + '_iter_' + solverstate_fname + '.solverstate'
             solver.restore(solverstate_fname)
-        self.solve(solver, solver_param)
+        self.solve(solver, solver_param, visualize_response_maps=visualize_response_maps)
         for param_name, param in self.params.items():
             for blob, solver_blob in zip(param, solver.net.params[param_name]):
                 blob.data[...] = solver_blob.data
@@ -202,7 +220,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         if val_hdf5_fname is not None:
             self.val_net = solver.test_nets[0]
 
-    def solve(self, solver, solver_param):
+    def solve(self, solver, solver_param, visualize_response_maps=False):
         # prepare visualization and files
         loss_fig_fname = os.path.join(self.get_model_dir(), 'loss.pdf')
         loss_txt_fname = os.path.join(self.get_model_dir(), 'loss.txt')
@@ -224,6 +242,11 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
             solver.step(1)
             if iter_ % solver_param.display == 0:
                 iters.append(iter_)
+                # visualize response maps of first image in batch
+                if visualize_response_maps:
+                    from servoing_controller import vis_response_maps
+                    image_curr = solver.net.blobs['image_curr'].data[0].copy()
+                    vis_response_maps(self.features_from_input(image_curr), image=image_curr)
                 # training loss
                 loss = 0.0
                 for blob_name, loss_weight in solver.net.blob_loss_weights.items():
@@ -249,8 +272,8 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                             test_loss += loss_weight * mean_score
                     test_losses.append(test_loss)
                 # visualization
+                fig = plt.figure(2)
                 plt.cla()
-                fig = plt.gcf()
                 fig.canvas.set_window_title(self.net_name + '_' + self.postfix)
                 plt.plot(iters, losses, label='train')
                 for i_test, test_losses in enumerate(val_losses):
@@ -269,7 +292,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         return super(CaffeNetFeaturePredictor, self).predict(*inputs, **kwargs)
 
     def jacobian_control(self, X, U):
-        return self.jacobian(self.inputs[1], X, U)
+        return self.jacobian(self.inputs[1], X, U), self.feature_from_input(X)
 
     def feature_from_input(self, X, input_name='image_curr', output_name='y'):
         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
@@ -358,12 +381,19 @@ class BilinearNetFeaturePredictor(CaffeNetFeaturePredictor):
             A = self.params.values()[0][0].data.reshape((y_dim, y_dim, -1))
             B = self.params.values()[1][0].data
             jac = np.einsum("kij,i->kj", A, y) + B
-            return jac
+            return jac, y
         else:
-            return np.asarray([self.jacobian_control(x, None) for x in X])
+            jac, y = zip(*[self.jacobian_control(x, None) for x in X])
+            jac = np.asarray(jac)
+            y = np.asarray(y)
+            return jac, y
 
 class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
-    def jacobian_control(self, X, U):
+    def __init__(self, *args, **kwargs):
+        super(FcnActionCondEncoderNetFeaturePredictor, self).__init__(*args, **kwargs)
+        self._xlevel_shapes = None
+
+    def mean_feature_from_input(self, X):
         if X.shape == self.x_shape:
             levels = []
             for key in self.blobs.keys():
@@ -373,15 +403,62 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
                     levels.append(int(match.group(1)))
             levels = sorted(levels)
 
-            ylevels = []
-            jaclevels = []
+            zlevels = []
             for level in levels:
                 output_name = 'x%d'%level
                 if output_name == 'x0' and output_name not in self.blobs:
                     xlevel = X
                 else:
                     xlevel = self.feature_from_input(X, output_name=output_name)
-                ylevels.append(xlevel.flatten())
+                zlevel = np.asarray([channel.mean() for channel in xlevel])
+                zlevels.append(zlevel)
+            z = np.concatenate(zlevels)
+            return z
+        else:
+            return np.asarray([self.mean_feature_from_input(x) for x in X])
+
+    def features_from_input(self, x):
+        assert x.shape == self.x_shape
+        is_first_time = self._xlevel_shapes is None
+        if is_first_time:
+            levels = []
+            for key in self.blobs.keys():
+                match = re.match('bilinear(\d+)_re_y$', key)
+                if match:
+                    assert len(match.groups()) == 1
+                    levels.append(int(match.group(1)))
+            levels = sorted(levels)
+
+            xlevels_first = OrderedDict()
+            self._xlevel_shapes = OrderedDict()
+            for level in levels:
+                output_name = 'x%d'%level
+                if output_name == 'x0' and output_name not in self.blobs:
+                    xlevel = x
+                else:
+                    xlevel = self.feature_from_input(x, output_name=output_name)
+                xlevels_first[output_name] = xlevel
+                self._xlevel_shapes[output_name] = xlevel.shape
+
+        y = self.feature_from_input(x)
+        xlevels = OrderedDict()
+        y_index = 0
+        for output_name, shape in self._xlevel_shapes.items():
+            xlevels[output_name] = y[y_index:y_index+np.prod(shape)].reshape(shape)
+            y_index += np.prod(shape)
+
+        if is_first_time:
+            for xlevel, xlevel_first in zip(xlevels.values(), xlevels_first.values()):
+                assert np.allclose(xlevel_first, xlevel)
+        return xlevels
+
+    def jacobian_control(self, X, U):
+        if X.shape == self.x_shape:
+            xlevels = self.features_from_input(X)
+            jaclevels = []
+            ylevels = []
+            for output_name, xlevel in xlevels.items():
+                level = int(output_name[1:])
                 xlevel_c_dim = xlevel.shape[0]
                 y_dim = np.prod(xlevel.shape[1:])
                 u_dim, = self.u_shape
@@ -400,9 +477,12 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
                 jaclevel += B + c[..., None]
                 jaclevel = jaclevel.reshape(xlevel_c_dim * y_dim, u_dim)
                 jaclevels.append(jaclevel)
-            y = np.concatenate(ylevels)
-            assert np.allclose(y, self.feature_from_input(X)) # make sure the order of features in the hierarchy are consistent
+                ylevels.append(xlevel.flatten())
             jac = np.concatenate(jaclevels)
-            return jac
+            y = np.concatenate(ylevels)
+            return jac, y
         else:
-            return np.asarray([self.jacobian_control(x, None) for x in X])
+            jac, y = zip(*[self.jacobian_control(x, None) for x in X])
+            jac = np.asarray(jac)
+            y = np.asarray(y)
+            return jac, y

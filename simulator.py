@@ -120,7 +120,7 @@ class SquareSimulator(object):
 
 
 class DiscreteVelocitySimulator(Simulator):
-    def __init__(self, dof_limits, dof_vel_limits, dtype=None):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dtype=None):
         dof_min, dof_max = dof_limits
         vel_min, vel_max = dof_vel_limits
         assert len(dof_min) == len(dof_max)
@@ -128,6 +128,10 @@ class DiscreteVelocitySimulator(Simulator):
         self.dof_limits = [np.asarray(dof_limit, dtype=dtype) for dof_limit in dof_limits]
         self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=dtype) for dof_vel_limit in dof_vel_limits]
         self._dof_values = np.mean(self.dof_limits, axis=0)
+        if dof_vel_scale is None:
+            self.dof_vel_scale = np.ones(self.state_dim)
+        else:
+            self.dof_vel_scale = dof_vel_scale
 
     @property
     def dof_values(self):
@@ -140,8 +144,8 @@ class DiscreteVelocitySimulator(Simulator):
 
     def apply_action(self, vel):
         dof_values_prev = self.dof_values.copy()
-        self.dof_values += vel
-        vel = self.dof_values - dof_values_prev # recompute vel because of clipping
+        self.dof_values += (self.dof_vel_scale * vel).astype(self.dof_values.dtype)
+        vel = (self.dof_values - dof_values_prev) / self.dof_vel_scale # recompute vel because of clipping
         return vel
 
     def reset(self, dof_values):
@@ -227,11 +231,11 @@ class NodeTrajectoryManager(object):
 
 
 class OgreSimulator(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
         self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
 
         import pygre
@@ -288,14 +292,132 @@ class OgreSimulator(DiscreteVelocitySimulator):
         return util.obs_from_image(image)
 
 
+class CarNodeTrajectoryManager(object):
+    def __init__(self, ogre, node_name, dof_values_init, dof_vel_init, dof_limits, dof_vel_limits, dof_acc_limits, max_travel_distance=np.inf):
+        self.ogre = ogre
+        self.node_name = node_name
+        state_dim = len(dof_values_init)
+        for limit in dof_limits + dof_vel_limits + dof_acc_limits:
+            assert len(limit) == state_dim
+        self.dof_limits = [np.asarray(dof_limit) for dof_limit in dof_limits]
+        self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=float) for dof_vel_limit in dof_vel_limits]
+        self.dof_acc_limits = [np.asarray(dof_acc_limit, dtype=float) for dof_acc_limit in dof_acc_limits]
+        self.reset(dof_values_init, dof_vel_init)
+        self.max_travel_distance = max_travel_distance
+
+    def reset(self, dof_values, dof_vel):
+        state_dim = len(dof_values)
+        self._dof_vel = np.asarray(dof_vel, dtype=float)
+        self._dof_acc = np.zeros(state_dim)
+        self.dof_values = np.asarray(dof_values, dtype=float)
+        self._dof_values_reset = np.asarray(dof_values, dtype=float).copy()
+
+    @property
+    def distance_traveled(self):
+        return abs(self._dof_values[2] - self._dof_values_reset[2])
+
+    @property
+    def dof_values(self):
+        return self._dof_values.copy()
+
+    @dof_values.setter
+    def dof_values(self, next_dof_values):
+        self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
+        self.ogre.setNodePosition(self.node_name, self._dof_values)
+
+    @property
+    def dof_vel(self):
+        return self._dof_vel.copy()
+
+    @dof_vel.setter
+    def dof_vel(self, next_dof_vel):
+        self._dof_vel = np.clip(next_dof_vel, self.dof_vel_limits[0], self.dof_vel_limits[1])
+
+    @property
+    def dof_acc(self):
+        return self._dof_acc.copy()
+
+    @dof_acc.setter
+    def dof_acc(self, next_dof_acc):
+        self._dof_acc = np.clip(next_dof_acc, self.dof_acc_limits[0], self.dof_acc_limits[1])
+
+    def apply_action(self, next_acc):
+        dof_values_prev = self.dof_values.copy()
+        dof_vel_prev = self.dof_vel.copy()
+        self.dof_acc = next_acc
+        self.dof_vel += self.dof_acc
+        self.dof_values += self.dof_vel
+        # update with actual values
+        self.dof_vel = self.dof_values - dof_values_prev
+        self.dof_acc = self.dof_vel - dof_vel_prev
+
+    def step(self):
+        if self.distance_traveled < self.max_travel_distance:
+            dof_acc_min, dof_acc_max = self.dof_acc_limits
+            acc = dof_acc_min + np.random.random_sample(dof_acc_min.shape) * (dof_acc_max - dof_acc_min)
+            self.apply_action(acc)
+
+
+class CityOgreSimulator(OgreSimulator):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, simulate_car=True):
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
+        self._q0 = np.array([1., 0., 0., 0.])
+
+        import pygre
+        self.ogre = pygre.Pygre()
+        self.ogre.init()
+        self.ogre.addNode("city", "_urban-level-02-medium-3ds_3DS.mesh", 0, 0, 0)
+        self.traj_managers = []
+        node_name = "car"
+        self.ogre.addNode(node_name, "camaro2_3ds.mesh", -51, 10.7, 225)
+        self.ogre.setNodeScale(node_name, np.array([0.3]*3))
+        self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
+        self.simulate_car = simulate_car
+        if self.simulate_car:
+            dof_values_init = [-51, 10.7, 225]
+            dof_vel_init = [0, 0, -1]
+            dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
+            dof_vel_limits = [[-1, 0, -10], [1, 0, -1]]
+            dof_acc_limits = [[-.1, 0, 0], [.1, 0, 0]]
+            self.traj_managers.append(CarNodeTrajectoryManager(self.ogre, node_name, dof_values_init, dof_vel_init, dof_limits, dof_vel_limits, dof_acc_limits))
+        self.ogre.setCameraOrientation(self._q0)
+
+    def reset(self, dof_values):
+        DiscreteVelocitySimulator.reset(self, dof_values)
+
+    def observe(self):
+        image = self.ogre.getScreenshot()
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        return util.obs_from_image(image)
+
+    def sample_state(self):
+        car_dof_min, car_dof_max = [np.array([-51-6, 10.7, -275]), np.array([-51+6, 10.7, 225])]
+        car_dof_values = car_dof_min + np.random.random_sample(car_dof_min.shape) * (car_dof_max - car_dof_min)
+        car_dof_vel = [0, 0, -1]
+        self.traj_managers[0].reset(car_dof_values, car_dof_vel)
+        # constrain sampled state to be in the 45 deg line of sight
+        val = 5 + np.random.random_sample(1) * 50
+        dof_values = np.array([-51, 10.7 + val, car_dof_values[2] + val, -np.pi/4, 0])
+        return dof_values
+
+    @staticmethod
+    def look_at(target_pos, camera_pos):
+        ax = target_pos - camera_pos
+        pan = np.arctan2(-ax[0], -ax[2])
+        tilt = np.arcsin(ax[1] / np.linalg.norm(ax))
+        dof_values = np.concatenate([camera_pos, np.array([tilt, pan])])
+        return dof_values
+
 class ServoPlatform(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits,
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
-                 camera_id=0):
+                 camera_id=0,
+                 delay=True):
         """
         DOFs are pan, tilt
         """
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale, dtype=np.int)
+        self.delay = delay
         # camera initialization
         if isinstance(camera_id, basestring):
             if camera_id.isdigit():
@@ -314,7 +436,8 @@ class ServoPlatform(DiscreteVelocitySimulator):
             self.use_pwm = True
             self.dof_values = self._dof_values
             duration = self.duration_dof_vel(np.diff(self.dof_limits, axis=0).max())
-            time.sleep(duration + self.pwm_extra_delay)
+            if self.delay:
+                time.sleep(duration + self.pwm_extra_delay)
             self.last_time = self.cap.get_time()
         except Exception as e:
             self.use_pwm = False
@@ -337,15 +460,14 @@ class ServoPlatform(DiscreteVelocitySimulator):
                 finish_time = time.time() + self.duration_dof_vel(dof_change)
                 finish_times.append(finish_time)
             duration = time.time() - np.max(finish_times)
-            time.sleep(max(0, duration + self.pwm_extra_delay))
+            if self.delay:
+                time.sleep(max(0, duration + self.pwm_extra_delay))
             self.last_time = self.cap.get_time()
-
-    def apply_action(self, vel):
-        return super(ServoPlatform, self).apply_action(np.round(vel).astype(np.int))
 
     def reset(self, dof_values):
         self.dof_values = dof_values
-        time.sleep(2.5)
+        if self.delay:
+            time.sleep(2.5)
 
     def observe(self):
         while True:
