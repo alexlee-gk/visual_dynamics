@@ -1060,3 +1060,83 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
             net_name += '_concat' + str(int(concat))
     net.name = net_name
     return net, weight_fillers
+
+def paper_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, net_name=None, phase=None, **kwargs):
+    x_shape, u_shape = input_shapes
+    assert len(x_shape) == 3
+    assert len(u_shape) == 1
+    u_dim = u_shape[0]
+    y_dim = 2048
+
+    n = caffe.NetSpec()
+    data_kwargs = dict(name='data', ntop=3, batch_size=batch_size, source=hdf5_txt_fname, shuffle=True)
+    if phase is not None:
+        data_kwargs.update(dict(include=dict(phase=phase)))
+    n.image_curr, n.image_diff, n.vel = L.HDF5Data(**data_kwargs)
+
+    # encoding
+    n.conv1 = L.Convolution(n.image_curr, name='conv1', num_output=64, kernel_size=8, pad_h=0, pad_w=1,stride=2)
+    n.relu1 = L.ReLU(n.conv1, name='relu1', in_place=True)
+    n.conv2 = L.Convolution(n.conv1, name='conv2', num_output=128, kernel_size=6, pad=1, stride=2)
+    n.relu2 = L.ReLU(n.conv2, name='relu2', in_place=True)
+    n.conv3 = L.Convolution(n.conv2, name='conv3', num_output=128, kernel_size=6, pad=1, stride=2)
+    n.relu3 = L.ReLU(n.conv3, name='relu3', in_place=True)
+    n.conv4 = L.Convolution(n.conv3, name='conv4', num_output=128, kernel_size=4, pad=0, stride=2)
+    n.relu4 = L.ReLU(n.conv4, name='relu4', in_place=True)
+
+    n.y0 = L.InnerProduct(n.conv4, num_output=y_dim, weight_filler=dict(type='xavier'))
+    n.y = L.InnerProduct(n.y0, num_output=y_dim, weight_filler=dict(type='xavier'))
+
+    # bilinear
+    n.y_diff_pred = ImageBilinearChannelwise(n, n.y, n.vel, (y_dim,), u_dim,
+                                             dict(param=[dict(lr_mult=1, decay_mult=1),
+                                                         dict(lr_mult=0, decay_mult=0),
+                                                         dict(lr_mult=1, decay_mult=1)],
+                                                  bilinear_filler=dict(type='gaussian', std=0.001),
+                                                  linear_filler=dict(type='constant', value=0),
+                                                  bias_filler=dict(type='constant', value=0)),
+                                             axis=1)
+    n.y_next_pred = L.Eltwise(n.y, n.y_diff_pred, operation=P.Eltwise.SUM)
+
+    # decoding
+    n.y_next_pred0 = L.InnerProduct(n.y_next_pred, num_output=y_dim, weight_filler=dict(type='xavier'))
+    n.y_next_pred1 = L.InnerProduct(n.y_next_pred0, num_output=y_dim, weight_filler=dict(type='xavier'))
+    n.relu5 = L.ReLU(n.y_next_pred1, name='relu5', in_place=True)
+
+    n.deconv4 = L.Deconvolution(n.y_next_pred1,
+                                param=[dict(lr_mult=1, decay_mult=1),
+                                       dict(lr_mult=1, decay_mult=1)],
+                                convolution_param=dict(num_output=128, kernel_size=4, pad=0, stride=2,
+                                                       weight_filler=dict(type='gaussian', std=0.01),
+                                                       bias_filler=dict(type='constant', value=0)))
+    n.derelu4 = L.ReLU(n.deconv4, name='derelu4', in_place=True)
+    n.deconv3 = L.Deconvolution(n.deconv4,
+                                param=[dict(lr_mult=1, decay_mult=1),
+                                       dict(lr_mult=1, decay_mult=1)],
+                                convolution_param=dict(num_output=128, kernel_size=6, pad=1, stride=2,
+                                                       weight_filler=dict(type='gaussian', std=0.01),
+                                                       bias_filler=dict(type='constant', value=0)))
+    n.derelu3 = L.ReLU(n.deconv3, name='derelu3', in_place=True)
+    n.deconv2 = L.Deconvolution(n.deconv3,
+                                param=[dict(lr_mult=1, decay_mult=1),
+                                       dict(lr_mult=1, decay_mult=1)],
+                                convolution_param=dict(num_output=128, kernel_size=6, pad=1, stride=2,
+                                                       weight_filler=dict(type='gaussian', std=0.01),
+                                                       bias_filler=dict(type='constant', value=0)))
+    n.derelu2 = L.ReLU(n.deconv2, name='derelu2', in_place=True)
+    n.image_next_pred = L.Deconvolution(n.deconv2,
+                                param=[dict(lr_mult=1, decay_mult=1),
+                                       dict(lr_mult=1, decay_mult=1)],
+                                convolution_param=dict(num_output=3, kernel_size=8, pad_h=0, pad_w=1, stride=2,
+                                                       weight_filler=dict(type='gaussian', std=0.01),
+                                                       bias_filler=dict(type='constant', value=0)))
+
+    n.image_next = L.Eltwise(n.image_curr, n.image_diff, operation=P.Eltwise.SUM)
+
+    n.x_next_loss = L.EuclideanLoss(n.image_next, n.image_next_pred)
+
+    net = n.to_proto()
+    if net_name is None:
+        net_name = 'ActionCondEncoderNet2'
+    net.name = net_name
+    return net, None
