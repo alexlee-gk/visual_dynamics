@@ -75,24 +75,56 @@ class ServoingController(Controller):
 
 
 class SpecializedServoingController(ServoingController):
-    def __init__(self, feature_predictor, pos_target_generator, neg_target_generator, image_transformer=None, alpha=1.0, vel_max=None, lambda_=0.0):
+    def __init__(self, feature_predictor, pos_target_generator, neg_target_generator, alpha=1.0, vel_max=None, lambda_=0.0, pool_channels=True):
         from sklearn import linear_model
         pos_image_targets = []
         neg_image_targets = []
         for target_generator, image_targets in zip([pos_target_generator, neg_target_generator], [pos_image_targets, neg_image_targets]):
             for _ in range(target_generator.num_images):
                 image_targets.append(target_generator.get_target()[0])
-                target_generator.sim.apply_action(np.zeros(target_generator.sim.state_dim))
-        if image_transformer:
-            pos_image_targets = np.asarray([image_transformer.transform(image) for image in pos_image_targets])
-            neg_image_targets = np.asarray([image_transformer.transform(image) for image in neg_image_targets])
-        Y_train = np.r_[feature_predictor.feature_from_input(pos_image_targets),
-                        feature_predictor.feature_from_input(neg_image_targets)]
-        label_train = np.r_[np.ones(len(pos_image_targets), dtype=np.int),
-                            np.zeros(len(neg_image_targets), dtype=np.int)]
-        regr = linear_model.LogisticRegression(penalty='l1', C=10e6)
-        regr.fit(Y_train, label_train)
-        w = np.squeeze(regr.coef_)
-        w = np.array(w > 0, dtype=np.float)
-        print "%d out of %d weights are non-zero"%((w != 0).sum(), len(w))
+        pos_image_targets = np.asarray(pos_image_targets)
+        neg_image_targets = np.asarray(neg_image_targets)
+        if pool_channels:
+            Z_train = np.r_[feature_predictor.mean_feature_from_input(pos_image_targets),
+                            feature_predictor.mean_feature_from_input(neg_image_targets)]
+            xlevels = feature_predictor.features_from_input(pos_image_targets[0])
+            if 'x0' in xlevels and len(xlevels) > 1:
+                image_dim = pos_image_targets.shape[1]
+                Z_train = Z_train[:, image_dim:]
+            label_train = np.r_[np.ones(len(pos_image_targets), dtype=np.int),
+                                np.zeros(len(neg_image_targets), dtype=np.int)]
+            regr = linear_model.LogisticRegression(penalty='l1', C=10e4)
+            regr.fit(Z_train, label_train)
+            w = np.squeeze(regr.coef_)
+            w = np.maximum(w, 0)
+            print "%d out of %d weights are non-zero"%((w != 0).sum(), len(w))
+            w_new = []
+            for output_name, xlevel in xlevels.items():
+                if output_name == 'x0' and len(xlevels) > 1:
+                    w_new.append(np.zeros(np.prod(xlevel.shape)))
+                else:
+                    w_new.append(np.repeat(w[:xlevel.shape[0]], np.prod(xlevel.shape[1:])))
+                    w = w[xlevel.shape[0]:]
+            w = np.concatenate(w_new)
+        else:
+            Y_train = np.r_[feature_predictor.feature_from_input(pos_image_targets),
+                            feature_predictor.feature_from_input(neg_image_targets)]
+            xlevels = feature_predictor.features_from_input(pos_image_targets[0])
+            if 'x0' in xlevels and len(xlevels) > 1:
+                image_dim = np.prod(pos_image_targets.shape[1:])
+                Y_train = Y_train[:, image_dim:]
+            label_train = np.r_[np.ones(len(pos_image_targets), dtype=np.int),
+                                np.zeros(len(neg_image_targets), dtype=np.int)]
+            regr = linear_model.LogisticRegression(penalty='l1', C=10e4)
+            regr.fit(Y_train, label_train)
+            w = np.squeeze(regr.coef_)
+            inds = w.argsort()
+            w_top = np.zeros_like(w)
+            w_top[inds[-25:]] = w[inds[-25:]]
+            w_top /= w_top.max()
+            w = w_top
+            print "%d out of %d weights are non-zero"%((w != 0).sum(), len(w))
+            if 'x0' in xlevels and len(xlevels) > 1:
+                w = np.r_[np.zeros(image_dim), w]
+        self.w = w
         super(SpecializedServoingController, self).__init__(feature_predictor, alpha=alpha, vel_max=vel_max, lambda_=lambda_, w=w)
