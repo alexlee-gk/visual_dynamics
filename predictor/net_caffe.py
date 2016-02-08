@@ -894,6 +894,7 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
     xlevels_next_pred_s0 = OrderedDict() # 0th summand
     ylevels = OrderedDict()
     ylevels_diff_pred = OrderedDict()
+    ylevels_next_pred = OrderedDict()
     for level in levels:
         xlevel, xlevel_shape = xlevels[level], xlevels_shape[level]
         n.tops['x%d_diff_pred_s0'%level] = \
@@ -912,10 +913,12 @@ def fcn_action_cond_encoder_net(input_shapes, hdf5_txt_fname='', batch_size=1, n
         ylevels[level] = n.tops['y%d'%level] = L.Flatten(xlevel)
         ylevels_diff_pred[level] = n.tops['y%d_diff_pred'%level] = L.Flatten(xlevel_diff_pred_s0)
         xlevels_next_pred_s0[level] = n.tops['x%d_next_pred_s0'%level] = L.Eltwise(xlevel, xlevel_diff_pred_s0, operation=P.Eltwise.SUM)
+        ylevels_next_pred[level] = n.tops['y%d_next_pred'%level] = L.Flatten(xlevels_next_pred_s0[level])
 
     # features
     n.y = L.Concat(*ylevels.values(), concat_param=dict(axis=1))
-    n.y_diff_pred = L.Concat(*ylevels_diff_pred.values(), concat_param=dict(axis=1))
+    n.y_diff_pred = L.Concat(*ylevels_diff_pred.values(), concat_param=dict(axis=1)) # FIXME: maybe should use merged y
+    n.y_next_pred = L.Concat(*ylevels_next_pred.values(), concat_param=dict(axis=1))
 
     # decoding
     xlevels_next_pred = OrderedDict()
