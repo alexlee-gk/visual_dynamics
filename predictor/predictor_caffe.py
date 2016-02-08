@@ -486,3 +486,64 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
             jac = np.asarray(jac)
             y = np.asarray(y)
             return jac, y
+
+class EnsembleNetFeaturePredictor(CaffeNetFeaturePredictor):
+    def __init__(self, predictors):
+        self.predictors = predictors
+        # use name of first predictor
+        self.net_name = 'ensemble_' + self.predictors[0].net_name
+        self.postfix = 'ensemble_' + self.predictors[0].postfix
+
+    def predict(self, *inputs, **kwargs):
+        predictions = []
+        for predictor in self.predictors:
+            prediction = predictor.predict(*inputs, **kwargs)
+            predictions.append(prediction)
+        predictions = np.concatenate(predictions, axis=1)
+        return predictions
+
+    def preprocess_input(self, X):
+        outs = []
+        for predictor in self.predictors:
+            out = predictor.preprocess_input(X)
+            outs.append(out)
+        outs = np.concatenate(outs, axis=1)
+        return outs
+
+    def mean_feature_from_input(self, X):
+        zs = []
+        for predictor in self.predictors:
+            z = predictor.mean_feature_from_input(X)
+            zs.append(z)
+        zs = np.concatenate(zs)
+        return zs
+
+    def feature_from_input(self, x):
+        ys = []
+        for predictor in self.predictors:
+            y = predictor.feature_from_input(x)
+            ys.append(y)
+        ys = np.concatenate(ys)
+        return ys
+
+    def features_from_input(self, x):
+        xlevels = OrderedDict()
+        for i, predictor in enumerate(self.predictors):
+            predictor_xlevels = predictor.features_from_input(x)
+            for output_name, xlevel in predictor_xlevels:
+                if output_name == 'x0' and output_name not in xlevels:
+                    xlevels[output_name] = xlevel
+                else:
+                    xlevels[output_name + '_%d'%i] = xlevel
+        return xlevels
+
+    def jacobian_control(self, X, U):
+        jacs = []
+        ys = []
+        for predictor in self.predictors:
+            jac, y = predictor.jacobian_control(X, U)
+            jacs.append(jac)
+            ys.append(y)
+        jacs = np.concatenate(jacs, axis=0)
+        ys = np.concatenate(ys, axis=0)
+        return jacs, ys
