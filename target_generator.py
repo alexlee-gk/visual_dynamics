@@ -98,8 +98,10 @@ class CityNodeTargetGenerator(SimulatorTargetGenerator):
         car_dof_vel = [0, 0, -1]
         self.sim.traj_managers[0].reset(car_dof_values, car_dof_vel)
         car_pos = car_dof_values
-        cam_radius = 5 + np.random.random_sample(1)[0] * 25
-        cam_angle = self.sim.dof_limits[0][4] + np.random.random_sample(1)[0] * (self.sim.dof_limits[1][4] - self.sim.dof_limits[0][4])
+        cam_radius = 10 + np.random.random_sample(1)[0] * 25
+        cam_pan_min = max(self.sim.dof_limits[0][4], -np.pi/4)
+        cam_pan_max = min(self.sim.dof_limits[1][4], np.pi/4)
+        cam_angle = cam_pan_min + np.random.random_sample(1)[0] * (cam_pan_max - cam_pan_min)
         cam_height = np.random.random_sample(1)[0] * 25
         camera_pos = car_pos + np.array([cam_radius * np.sin(cam_angle), cam_height, cam_radius * np.cos(cam_angle)])
         dof_values = self.sim.look_at(car_pos, camera_pos)

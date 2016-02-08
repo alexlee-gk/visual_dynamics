@@ -547,3 +547,6 @@ class EnsembleNetFeaturePredictor(CaffeNetFeaturePredictor):
         jacs = np.concatenate(jacs, axis=0)
         ys = np.concatenate(ys, axis=0)
         return jacs, ys
+
+    def train(self, *args, **kwargs):
+        raise NotImplementedError

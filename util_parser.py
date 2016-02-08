@@ -55,7 +55,7 @@ def create_city_simulator(args):
     args.vel_min = args.vel_min[:args.dof]
     args.vel_max = args.vel_max[:args.dof]
     sim = simulator.CityOgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                  args.vel_scale)
+                                      args.vel_scale)
     return sim
 
 def create_servo_simulator(args, **kwargs):

@@ -13,7 +13,6 @@ import data_container
 import util
 import util_parser
 
-import matplotlib
 from matplotlib import pyplot as plt
 # take an array of shape (n, height, width) or (n, height, width, channels)
 # and visualize each (height, width) thing in a grid of size approx. sqrt(n) by sqrt(n)
@@ -39,13 +38,14 @@ def vis_response_maps(xlevels, w=None, image=None):
         is_w_ones = True
     else:
         is_w_ones = np.all(w == 1)
+        w = w.copy()
     for i, xlevel in enumerate(([image] if image is not None else []) + xlevels.values()):
         plt.subplot(1 if is_w_ones else 2, len(xlevels) + int(image is not None), i+1)
         if image is not None and i == 0:
-            plt.imshow(util.image_from_obs(xlevel))
+            plt.imshow(cv2.cvtColor(util.image_from_obs(xlevel), cv2.COLOR_BGR2RGB))
         else:
             if xlevel.shape[0] == 3:
-                plt.imshow(util.image_from_obs(xlevel))
+                plt.imshow(cv2.cvtColor(util.image_from_obs(xlevel), cv2.COLOR_BGR2RGB))
             else:
                 plt.imshow(vis_square(xlevel))
             if not is_w_ones:
@@ -55,6 +55,7 @@ def vis_response_maps(xlevels, w=None, image=None):
     plt.draw()
 
 def main():
+    np.random.seed(0)
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
     parser.add_argument('val_hdf5_fname', type=str)
@@ -78,8 +79,6 @@ def main():
     parser.add_argument('--batch_normalization', '--bn', type=int, default=0, help='net parameter')
     parser.add_argument('--concat', type=int, default=0, help='net parameter')
     parser.add_argument('--postfix', type=str, default='')
-    parser.add_argument('--output_hdf5_fname', '-o', type=str)
-    parser.add_argument('--target_hdf5_fname', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=1)
@@ -91,6 +90,11 @@ def main():
     parser.add_argument('--crop_offset', type=int, nargs=2, default=None, metavar=('HEIGHT_OFFSET', 'WIDTH_OFFSET'))
     parser.add_argument('--alpha', type=float, default=1.0, help='controller parameter')
     parser.add_argument('--lambda_', '--lambda', type=float, default=0.0, help='controller parameter')
+    parser.add_argument('--output_hdf5_fname', '-o', type=str)
+    parser.add_argument('--traj_container', type=str, default='ImageTrajectoryDataContainer')
+    parser.add_argument('--output_results_dir', type=str)
+    parser.add_argument('--dof_limit_factor', type=float, default=1.0, help='experiment parameter')
+    parser.add_argument('--experiment', '--exp', type=int, default=0, help='experiment parameter')
     args, remaining_args = parser.parse_known_args()
 
     if args.val_hdf5_fname is None:
@@ -183,13 +187,26 @@ def main():
                               ladder_loss=args.ladder_loss,
                               batch_normalization=args.batch_normalization,
                               concat=args.concat)
-            net_func = getattr(net_caffe, args.predictor)
-            net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
+            if args.predictor != 'ensemble':
+                net_func = getattr(net_caffe, args.predictor)
+                net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
             if args.predictor == 'fcn_action_cond_encoder_net':
                 feature_predictor = predictor_caffe.FcnActionCondEncoderNetFeaturePredictor(net_func_with_kwargs,
                                                                                             input_shapes,
                                                                                             pretrained_file=args.pretrained_fname,
                                                                                             postfix=args.postfix)
+            elif args.predictor == 'ensemble':
+                predictors = []
+                for level in [0, 1, 2, 3]:
+                    net_kwargs.update(dict(levels=[level]))
+                    net_func = getattr(net_caffe, 'fcn_action_cond_encoder_net')
+                    net_func_with_kwargs = lambda *args, **kwargs: net_func(*args, **dict(net_kwargs.items() + kwargs.items()))
+                    feature_predictor = predictor_caffe.FcnActionCondEncoderNetFeaturePredictor(net_func_with_kwargs,
+                                                                                                input_shapes,
+                                                                                                pretrained_file=args.pretrained_fname,
+                                                                                                postfix=args.postfix)
+                    predictors.append(feature_predictor)
+                feature_predictor = predictor_caffe.EnsembleNetFeaturePredictor(predictors)
             else:
                 feature_predictor = predictor_caffe.CaffeNetFeaturePredictor(net_func_with_kwargs,
                                                                              input_shapes,
@@ -226,12 +243,12 @@ def main():
             image_curr, image_diff, vel = val_container.get_datum(datum_iter, ['image_curr', 'image_diff', 'vel']).values()
             image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
             if args.visualize:
+                vis_response_maps(feature_predictor.features_from_input(image_curr), image=image_curr)
                 image_next = image_curr + image_diff
                 image_curr = feature_predictor.preprocess_input(image_curr)
                 image_next = feature_predictor.preprocess_input(image_next)
                 image_pred_error = (image_next_pred - image_next)/2.0
                 vis_image, done = util.visualize_images_callback(image_curr, image_next_pred, image_next, image_pred_error, vis_scale=args.vis_scale, delay=0)
-                vis_response_maps(feature_predictor.features_from_input(image_curr), image=image_curr)
                 if done:
                     break
         val_container.close()
@@ -240,33 +257,41 @@ def main():
         sim = args.create_simulator(args)
         image_transformer = simulator.ImageTransformer(**image_transformer_args)
 
-    if args.target_hdf5_fname:
-        target_gen = target_generator.DataContainerTargetGenerator(args.target_hdf5_fname, image_transformer=image_transformer)
-        args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
-    elif args.simulator == 'ogre' and args.ogrehead:
-        target_gen = target_generator.OgreNodeTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
-    elif args.simulator == 'servo':
-        target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5', image_transformer=image_transformer)
-        args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
-    elif args.simulator == 'city':
-        target_gen = target_generator.CityNodeTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
-    else:
-        target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
+    if args.experiment == 0 and args.simulator == 'city':
+        # use static car for first experiment
+        sim.traj_managers[0].dof_vel_limits[0] *= 0
+        sim.traj_managers[0].dof_vel_limits[1] *= 0
 
-    if args.simulator == 'ogre' and args.ogrehead:
-        pos_target_gen = target_generator.OgreNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
-        neg_target_gen = target_generator.NegativeOgreNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
-    elif args.simulator == 'servo':
-        pos_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5')
-        neg_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_not_tangerine.h5')
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
-    elif args.simulator == 'city':
-        pos_target_gen = target_generator.CityNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
-        neg_target_gen = target_generator.NegativeCityNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
-        ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
+    if args.experiment == 0:
+        target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
     else:
+        if args.simulator == 'ogre' and args.ogrehead:
+            target_gen = target_generator.OgreNodeTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
+        elif args.simulator == 'servo':
+            target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5', image_transformer=image_transformer)
+            args.num_trajs = target_gen.num_images # override num_trajs to match the number of target images
+        elif args.simulator == 'city':
+            target_gen = target_generator.CityNodeTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
+        else:
+            target_gen = target_generator.RandomTargetGenerator(sim, args.num_trajs, image_transformer=image_transformer)
+
+    if args.experiment == 0:
         ctrl = controller.ServoingController(feature_predictor, alpha=args.alpha, lambda_=args.lambda_)
+    else:
+        if args.simulator == 'ogre' and args.ogrehead:
+            pos_target_gen = target_generator.OgreNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+            neg_target_gen = target_generator.NegativeOgreNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+            ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
+        elif args.simulator == 'servo':
+            pos_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_tangerine.h5', image_transformer=image_transformer)
+            neg_target_gen = target_generator.DataContainerTargetGenerator('target_original_data/servo_not_tangerine.h5', image_transformer=image_transformer)
+            ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
+        elif args.simulator == 'city':
+            pos_target_gen = target_generator.CityNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+            neg_target_gen = target_generator.NegativeCityNodeTargetGenerator(sim, 100, image_transformer=image_transformer)
+            ctrl = controller.SpecializedServoingController(feature_predictor, pos_target_gen, neg_target_gen, alpha=args.alpha, lambda_=args.lambda_)
+        else:
+            ctrl = controller.ServoingController(feature_predictor, alpha=args.alpha, lambda_=args.lambda_)
 
     if args.num_trajs and args.num_steps and args.output_hdf5_fname:
         output_hdf5_file = h5py.File(args.output_hdf5_fname, 'a')
@@ -277,28 +302,56 @@ def main():
                 dset = val_losses_group.require_dataset(key, (1,), type(value), exact=True)
                 dset[...] = value
 
-    np.random.seed(0)
+    if args.output_results_dir:
+        TrajectoryDataContainer = getattr(data_container, args.traj_container)
+        if not issubclass(TrajectoryDataContainer, data_container.TrajectoryDataContainer):
+            raise ValueError('trajectory data container %s'%args.traj_container)
+        traj_container_fname = feature_predictor.net_name + '_' + feature_predictor.postfix + '_experiment%d'%args.experiment
+        if args.experiment == 0:
+            traj_container_fname += '_factor' + str(args.dof_limit_factor)
+        traj_container_fname += '.h5'
+        traj_container_fname = os.path.join(args.output_results_dir, traj_container_fname)
+        traj_container = TrajectoryDataContainer(traj_container_fname, args.num_trajs, args.num_steps+1, write=True)
+        traj_container.add_group('sim_args', sim_args)
+    else:
+        traj_container = None
+
     done = False
     image_pred_errors = []
     image_errors = []
     pos_errors = []
     angle_errors = []
+    dof_values_errors = []
     iter_ = 0
     for traj_iter in range(args.num_trajs):
         try:
+            # generate target image
             image_target, dof_values_target = target_gen.get_target()
             ctrl.set_target_obs(image_target)
-
-            dof_values_init = np.mean(sim.dof_limits, axis=0)
+            # generate initial state
+            sim.reset(dof_values_target)
+            reset_action = args.dof_limit_factor * (sim.dof_vel_limits[0] + np.random.random_sample(sim.dof_vel_limits[0].shape) * (sim.dof_vel_limits[1] - sim.dof_vel_limits[0]))
+            dof_values_init = sim.dof_values + reset_action
             sim.reset(dof_values_init)
+
             for step_iter in range(args.num_steps):
+                dof_values = sim.dof_values.copy()
                 image = image_transformer.transform(sim.observe())
                 action = ctrl.step(image)
                 action = sim.apply_action(action)
 
+                if traj_container or args.visualize or args.output_image_dir:
+                    image_next_pred = feature_predictor.predict(image, action, prediction_name='image_next_pred')
+                if traj_container:
+                    datum = dict(image_curr=image,
+                                 image_next_pred=image_next_pred,
+                                 dof_val=dof_values,
+                                 vel=action)
+                    if args.experiment == 1 and args.simulator == 'city':
+                        datum.update(dict(car_dof_values=sim.traj_managers[0].dof_values))
+                    traj_container.add_datum(traj_iter, step_iter, datum)
                 # visualization
                 if args.visualize or args.output_image_dir:
-                    image_next_pred = feature_predictor.predict(image, action, prediction_name='image_next_pred')
                     vis_image, done, key = util.visualize_images_callback(feature_predictor.preprocess_input(image),
                                                                           image_next_pred,
                                                                           feature_predictor.preprocess_input(image_target),
@@ -328,6 +381,8 @@ def main():
             pos_errors.append(pos_error)
             angle_error = dof_values_target[3:] - dof_values[3:]
             angle_errors.append(angle_error)
+            dof_values_error = (dof_values_target - dof_values) ** 2
+            dof_values_errors.append(dof_values_error)
             print 'image_pred_error:', image_pred_error
             print 'image_error:', image_error
             print 'pos_error:', pos_error
@@ -341,6 +396,20 @@ def main():
                 print 'image_error_mean:', image_error_mean
                 print 'pos_error_mean:', pos_error_mean
                 print 'angle_error_mean:', angle_error_mean, 'deg:', np.rad2deg(angle_error_mean)
+            if traj_container:
+                datum = dict(image_curr=image,
+                             dof_val=sim.dof_values,
+                             image_target=image_target,
+                             error_image=image_error,
+                             dof_values_target=dof_values_target,
+                             dof_values_error=np.linalg.norm(dof_values_error))
+                if args.experiment == 1 and args.simulator == 'city':
+                    datum.update(dict(car_dof_values=sim.traj_managers[0].dof_values))
+                traj_container.add_datum(traj_iter, step_iter+1, datum)
+                if traj_iter == args.num_trajs-1:
+                    stat_results = dict(dof_values_error_mean=np.mean(dof_values_errors, axis=0),
+                                        image_error_mean=image_error_mean)
+                    traj_container.add_group('stat_results', stat_results)
             if args.output_hdf5_fname:
                 for key, value in dict(image=image,
                                        image_pred_error=image_pred_error,
