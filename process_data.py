@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--image_scale', '-f', type=float, default=0.125)
     parser.add_argument('--crop_size', type=int, nargs=2, default=[32, 32], metavar=('HEIGHT', 'WIDTH'))
     parser.add_argument('--crop_offset', type=int, nargs=2, default=[0, 0], metavar=('HEIGHT_OFFSET', 'WIDTH_OFFSET'))
+    parser.add_argument('--num_trajs_max', type=int, default=np.inf)
     args = parser.parse_args()
 
     TrajectoryDataContainer = getattr(data_container, args.traj_container)
@@ -40,6 +41,7 @@ def main():
         if sim_args is None:
             sim_args = traj_container.get_group('sim_args')
         traj_containers.append(traj_container)
+    num_trajs_total = min(num_trajs_total, args.num_trajs_max)
 
     image_transformer_args = dict(image_scale=args.image_scale,
                                   crop_size=args.crop_size,
@@ -71,19 +73,19 @@ def main():
                     image_next = image_transformer.transform(image_next)
                     image_diff = image_next - image
                     if output_traj_container:
-                        output_traj_container.add_datum(traj_iter_total + traj_iter, step_iter, dict(image_curr=image,
-                                                                                                     image_diff=image_diff,
-                                                                                                     dof_val=dof_val,
-                                                                                                     vel=vel_inv_scale * vel))
+                        output_traj_container.add_datum(traj_iter_total, step_iter, dict(image_curr=image,
+                                                                                         image_diff=image_diff,
+                                                                                         dof_val=dof_val,
+                                                                                         vel=vel_inv_scale * vel))
                     if args.visualize:
                         vis_image, done = util.visualize_images_callback(image, image_next, image_diff/2, vis_scale=args.vis_scale, delay=0)
                     if done:
                         break
-                if done:
+                traj_iter_total += 1
+                if done or traj_iter_total >= num_trajs_total:
                     break
-            if done:
+            if done or traj_iter_total >= num_trajs_total:
                 break
-            traj_iter_total += traj_container.num_trajs
     except KeyboardInterrupt:
         pass
 
