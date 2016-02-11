@@ -5,52 +5,113 @@ import numpy as np
 import theano.tensor as T
 import lasagne
 import lasagne.layers as L
+from lasagne.layers.dnn import dnn
 from lasagne import init
 from lasagne.utils import as_tuple
 
 
-class Deconv2DLayer(L.Conv2DLayer):
-    def __init__(self, incoming, channels, filter_size, stride=(1, 1),
-                 pad=0, W=init.GlorotUniform(), b=init.Constant(0.),
-                 nonlinearity=lasagne.nonlinearities.rectify, **kwargs):
-        self.original_channels = channels
-        self.original_filter = as_tuple(filter_size, 2)
-        self.original_stride = as_tuple(stride, 2)
+# deconv_length and Deconv2DLayer adapted from https://github.com/ebenolson/Lasagne/blob/deconv/lasagne/layers/dnn.py
+def deconv_length(output_length, filter_size, stride, pad=0):
+    if output_length is None:
+        return None
+
+    output_length = output_length * stride
+    if pad == 'valid':
+        input_length = output_length + filter_size - 1
+    elif pad == 'full':
+        input_length = output_length - filter_size + 1
+    elif pad == 'same':
+        input_length = output_length
+    elif isinstance(pad, int):
+        input_length = output_length - 2 * pad + filter_size - stride
+    else:
+        raise ValueError('Invalid pad: {0}'.format(pad))
+
+    return input_length
+
+class Deconv2DLayer(L.Layer):
+    def __init__(self, incoming, num_filters, filter_size, stride=(2, 2),
+                 pad=0, untie_biases=False, W=init.GlorotUniform(),
+                 b=init.Constant(0.), nonlinearity=lasagne.nonlinearities.rectify,
+                 flip_filters=False, **kwargs):
+        super(Deconv2DLayer, self).__init__(incoming, **kwargs)
+        if nonlinearity is None:
+            self.nonlinearity = lasagne.nonlinearities.identity
+        else:
+            self.nonlinearity = nonlinearity
+
+        self.num_filters = num_filters
+        self.filter_size = as_tuple(filter_size, 2)
+        self.stride = as_tuple(stride, 2)
+        self.untie_biases = untie_biases
+        self.flip_filters = flip_filters
 
         if pad == 'valid':
-            self.original_pad = (0, 0)
-        elif pad in ('full', 'same'):
-            self.original_pad = pad
+            self.pad = (0, 0)
+        elif pad == 'full':
+            self.pad = 'full'
+        elif pad == 'same':
+            if any(s % 2 == 0 for s in self.filter_size):
+                raise NotImplementedError(
+                    '`same` padding requires odd filter size.')
+            self.pad = (self.filter_size[0] // 2, self.filter_size[1] // 2)
         else:
-            self.original_pad = as_tuple(pad, 2, int)
+            self.pad = as_tuple(pad, 2, int)
 
-        super(Deconv2DLayer, self).__init__(incoming, channels, filter_size,
-                                            stride=(1,1), pad='full', W=W, b=b,
-                                            nonlinearity=nonlinearity, **kwargs)
+        self.W = self.add_param(W, self.get_W_shape(), name="W")
+        if b is None:
+            self.b = None
+        else:
+            if self.untie_biases:
+                biases_shape = (num_filters, self.output_shape[2],
+                                self.output_shape[3])
+            else:
+                biases_shape = (num_filters,)
+            self.b = self.add_param(b, biases_shape, name="b",
+                                    regularizable=False)
+
+    def get_W_shape(self):
+        num_input_channels = self.input_shape[1]
+        return (num_input_channels, self.num_filters, self.filter_size[0],
+                self.filter_size[1])
 
     def get_output_shape_for(self, input_shape):
-        _, _, width, height = input_shape
-        original_width = ((width - 1) * self.original_stride[0]) - 2 * self.original_pad[0] + self.original_filter[0]
-        original_height = ((height - 1) * self.original_stride[1]) - 2 * self.original_pad[1] + self.original_filter[1]
-        return (input_shape[0], self.original_channels, original_width, original_height)
+        batch_size = input_shape[0]
+        pad = self.pad if isinstance(self.pad, tuple) else (self.pad,) * 2
+
+        output_rows = deconv_length(input_shape[2],
+                                    self.filter_size[0],
+                                    self.stride[0],
+                                    pad[0])
+
+        output_columns = deconv_length(input_shape[3],
+                                       self.filter_size[1],
+                                       self.stride[1],
+                                       pad[1])
+
+        return (batch_size, self.num_filters, output_rows, output_columns)
 
     def get_output_for(self, input, **kwargs):
-        # first we upsample to compensate for strides
-        if self.original_stride != 1:
-            _, _, width, height = input.shape
-            unstrided_width = width * self.original_stride[0]
-            unstrided_height = height * self.original_stride[1]
-            placeholder = T.zeros((input.shape[0], input.shape[1], unstrided_width, unstrided_height))
-            upsampled = T.set_subtensor(placeholder[:, :, ::self.original_stride[0], ::self.original_stride[1]], input)
+        # by default we assume 'cross', consistent with corrmm.
+        conv_mode = 'conv' if self.flip_filters else 'cross'
+
+        image = T.alloc(0., input.shape[0], *self.output_shape[1:])
+        conved = dnn.dnn_conv(img=image,
+                              kerns=self.W,
+                              subsample=self.stride,
+                              border_mode=self.pad,
+                              conv_mode=conv_mode
+                              )
+
+        grad = T.grad(conved.sum(), wrt=image, known_grads={conved: input})
+
+        if self.b is None:
+            activation = grad
+        elif self.untie_biases:
+            activation = grad + self.b.dimshuffle('x', 0, 1, 2)
         else:
-            upsampled = input
-        # then we conv to deconv
-        deconv = super(Deconv2DLayer, self).get_output_for(upsampled, input_shape=(None, self.input_shape[1], self.input_shape[2]*self.original_stride[0], self.input_shape[3]*self.original_stride[1]), **kwargs)
-        # lastly we cut off original padding
-        pad = self.original_pad
-        _, _, original_width, original_height = self.get_output_shape_for(input.shape)
-        t = deconv[:, :, pad[0]:(pad[0] + original_width), pad[1]:(pad[1] + original_height)]
-        return t
+            activation = grad + self.b.dimshuffle('x', 0, 'x', 'x')
+        return self.nonlinearity(activation)
 
 
 class BilinearLayer(L.MergeLayer):
@@ -170,86 +231,130 @@ def build_small_action_cond_encoder_net(input_shapes):
     pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
     return net_name, input_vars, pred_layers, loss
 
-def build_fcn_action_cond_encoder_net(input_shapes, levels=None):
+def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, ladder_loss=True, batch_normalization=False, concat=False, tanh=True):
+    if not share_bilinear_weights:
+        raise NotImplementedError
     x_shape, u_shape = input_shapes
-    x_c_dim = x_shape[0]
-    x1_c_dim = 16
+    assert len(x_shape) == 3
+    assert len(u_shape) == 1
     levels = levels or [3]
     levels = sorted(set(levels))
 
     X_var = T.tensor4('X')
     U_var = T.matrix('U')
+    X_diff_var = T.tensor4('X_diff')
+    X_next_var = X_var + X_diff_var
 
     l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var)
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
 
+    # preprocess
+    if num_downsample > 0:
+        raise NotImplementedError
+    l_x0 = l_x
+    x0_shape = x_shape
+
     # encoding
-    l_xlevels = {}
+    l_xlevels = OrderedDict()
+    l_ylevels = OrderedDict()
     for level in range(levels[-1]+1):
         if level == 0:
-            l_xlevel = l_x
+            l_xlevel = l_x0
         else:
             if level == 1:
+                xlevelm1_c_dim = x0_shape[0]
                 xlevel_c_dim = x1_c_dim
             else:
-                xlevel_c_dim *= 2
+                xlevelm1_c_dim = xlevel_c_dim
+                xlevel_c_dim = 2 * xlevelm1_c_dim
             l_xlevel_1 = L.Conv2DLayer(l_xlevels[level-1], xlevel_c_dim, filter_size=3, stride=1, pad=1,
-                                       W=init.Normal(std=0.01),
+                                       W=lasagne.init.Normal(std=0.01), b=lasagne.init.Constant(0.0),
                                        nonlinearity=lasagne.nonlinearities.rectify)
+            if batch_normalization:
+                l_xlevel_1 = L.batch_norm(l_xlevel_1)
             l_xlevel_2 = L.Conv2DLayer(l_xlevel_1, xlevel_c_dim, filter_size=3, stride=1, pad=1,
-                                       W=init.Normal(std=0.01),
+                                       W=init.Normal(std=0.01), b=lasagne.init.Constant(0.0),
                                        nonlinearity=lasagne.nonlinearities.rectify)
+            if batch_normalization:
+                l_xlevel_2 = L.batch_norm(l_xlevel_2)
             l_xlevel = L.MaxPool2DLayer(l_xlevel_2, pool_size=2, stride=2, pad=0)
         l_xlevels[level] = l_xlevel
+        l_ylevels[level] = L.FlattenLayer(l_xlevel)
+    l_y = L.ConcatLayer(l_ylevels.values())
 
     # bilinear
-    l_xlevels_next_pred_0 = {}
-    l_ylevels = OrderedDict()
-    l_ylevels_diff_pred = OrderedDict()
+    l_xlevels_next_pred_s0 = OrderedDict()
     for level in levels:
-        l_ylevel = l_xlevels[level]
-        l_ylevels[level] = l_ylevel
-        l_ylevel_diff_pred = BilinearLayer([l_ylevel, l_u], b=None, axis=2)
-        l_ylevels_diff_pred[level] = l_ylevel_diff_pred
-        l_ylevel_next_pred = L.ElemwiseMergeLayer([l_ylevel, l_ylevel_diff_pred], T.add)
-        l_xlevel_next_pred = l_ylevel_next_pred
-        l_xlevels_next_pred_0[level] = l_xlevel_next_pred
+        l_xlevel = l_xlevels[level]
+        l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=2) # TODO: add linear term in y
+        l_xlevel_next_pred_s0 = L.ElemwiseMergeLayer([l_xlevel, l_xlevel_diff_pred], T.add)
+        l_xlevels_next_pred_s0[level] = l_xlevel_next_pred_s0
 
     # decoding
-    l_xlevels_next_pred = {}
+    l_xlevels_next_pred = OrderedDict()
+    l_ylevels_diff_pred = OrderedDict()
     for level in range(levels[-1]+1)[::-1]:
         if level == levels[-1]:
-            l_xlevel_next_pred = l_xlevels_next_pred_0[level]
+            l_xlevel_next_pred = l_xlevels_next_pred_s0[level]
         else:
-            l_xlevel_next_pred_2 = Deconv2DLayer(l_xlevels_next_pred[level+1], xlevel_c_dim, filter_size=2, stride=2, pad=0,
-                                             W=init.Normal(std=0.01),
-                                             nonlinearity=None) # TODO initialize with bilinear # TODO should rectify?
-            l_xlevel_next_pred_1 = Deconv2DLayer(l_xlevel_next_pred_2, xlevel_c_dim, filter_size=3, stride=1, pad=1,
-                                             W=init.Normal(std=0.01),
-                                             nonlinearity=lasagne.nonlinearities.rectify)
             if level == 0:
-                xlevel_c_dim = x_c_dim
+                xlevel_c_dim = x1_c_dim
+                xlevelm1_c_dim = x0_shape[0]
+            elif level < levels[-1]-1:
+                xlevel_c_dim = xlevelm1_c_dim
+                xlevelm1_c_dim = xlevel_c_dim // 2
+            l_xlevel_next_pred_2 = Deconv2DLayer(l_xlevels_next_pred[level+1], xlevel_c_dim, filter_size=2, stride=2, pad=0,
+                                                 W=init.Normal(std=0.01), b=lasagne.init.Constant(0.0),
+                                                 nonlinearity=None) # TODO initialize with bilinear weights # TODO should rectify? # TODO: channel-wise (groups) # TODO: no bias term
+            l_xlevel_next_pred_1 = Deconv2DLayer(l_xlevel_next_pred_2, xlevel_c_dim, filter_size=3, stride=1, pad=1,
+                                                 W=init.Normal(std=0.01), b=lasagne.init.Constant(0.0),
+                                                 nonlinearity=lasagne.nonlinearities.rectify)
+            if batch_normalization:
+                l_xlevel_next_pred_1 = L.batch_norm(l_xlevel_next_pred_1)
+            if concat:
+                if level in l_xlevels_next_pred_s0:
+                    l_xlevel_next_pred_1 = L.ConcatLayer([l_xlevels_next_pred_s0[level], l_xlevel_next_pred_1])
+                l_xlevel_next_pred = Deconv2DLayer(l_xlevel_next_pred_1, xlevelm1_c_dim, filter_size=3, stride=1, pad=1,
+                                                   W=init.Normal(std=0.01), b=lasagne.init.Constant(0.0),
+                                                   nonlinearity=lasagne.nonlinearities.tanh if (level == 0 and tanh) else lasagne.nonlinearities.rectify)
+                if batch_normalization: # TODO batch normat level 0?
+                    l_xlevel_next_pred = L.batch_norm(l_xlevel_next_pred)
             else:
-                xlevel_c_dim = xlevel_c_dim // 2
-            l_xlevel_next_pred_1 = Deconv2DLayer(l_xlevel_next_pred_1, xlevel_c_dim, filter_size=3, stride=1, pad=1,
-                                          W=init.Normal(std=0.01),
-                                          nonlinearity=lasagne.nonlinearities.rectify if level > 0 else lasagne.nonlinearities.tanh)
-            if level in l_xlevels_next_pred_0:
-                l_xlevel_next_pred = L.ElemwiseSumLayer([l_xlevels_next_pred_0[level], l_xlevel_next_pred_1], coeffs=[0.5, 0.5]) # TODO should be learned
-            else:
-                l_xlevel_next_pred = l_xlevel_next_pred_1
+                l_xlevel_next_pred_s1 = Deconv2DLayer(l_xlevel_next_pred_1, xlevelm1_c_dim, filter_size=3, stride=1, pad=1,
+                                                      W=init.Normal(std=0.01), b=lasagne.init.Constant(0.0),
+                                                      nonlinearity=None)
+                if batch_normalization:
+                    l_xlevel_next_pred_s1 = L.batch_norm(l_xlevel_next_pred_s1)
+                if level in l_xlevels_next_pred_s0:
+                    l_xlevel_next_pred = L.ElemwiseSumLayer([l_xlevels_next_pred_s0[level], l_xlevel_next_pred_s1], coeffs=[0.5, 0.5]) # TODO weights should be learned
+                else:
+                    l_xlevel_next_pred = l_xlevel_next_pred_s1
+                l_xlevel_next_pred = L.NonlinearityLayer(l_xlevel_next_pred, nonlinearity=lasagne.nonlinearities.tanh if (level == 0 and tanh) else lasagne.nonlinearities.rectify)
         l_xlevels_next_pred[level] = l_xlevel_next_pred
-
-    l_x_next_pred = l_xlevels_next_pred[0]
-    l_y = L.ConcatLayer(l_ylevels.values())
+        l_ylevels_diff_pred[level] = L.FlattenLayer(L.ElemwiseSumLayer([l_xlevel_next_pred, l_xlevels[level]], coeffs=[1.0, -1.0]))
     l_y_diff_pred = L.ConcatLayer(l_ylevels_diff_pred.values())
 
-    X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
-    X_diff_var = T.tensor4('X_diff')
-    X_next_var = X_var + X_diff_var
-    loss = ((X_next_var - X_next_pred_var) ** 2).mean(axis=0).sum() / 2.
+    l_x0_next_pred = l_xlevels_next_pred[0]
+    X0_next_pred_var = lasagne.layers.get_output(l_x0_next_pred)
 
-    net_name = 'FcnActionCondEncoderNet_levels' + ''.join(str(level) for level in levels)
+    # preprocess
+    X0_next_var = X_next_var
+
+    loss = ((X0_next_var - X0_next_pred_var) ** 2).mean(axis=0).sum() / 2.
+
+    if ladder_loss:
+        raise NotImplementedError
+
+    net_name = 'FcnActionCondEncoderNet'
+    net_name +='_levels' + ''.join([str(level) for level in levels])
+    net_name += '_x1cdim' + str(x1_c_dim)
+    net_name += '_numds' + str(num_downsample)
+    net_name += '_share' + str(int(share_bilinear_weights))
+    net_name += '_ladder' + str(int(ladder_loss))
+    net_name += '_bn' + str(int(batch_normalization))
+    if concat:
+        net_name += '_concat' + str(int(concat))
+
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
-    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
+    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x0_next_pred)]) # TODO distinction between x and preprocessed x0
     return net_name, input_vars, pred_layers, loss
