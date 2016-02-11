@@ -218,5 +218,51 @@ def main():
         print "\tall close", np.allclose(jac_cbn, jac_b)
         print "\tnorm", np.linalg.norm(jac_cbn - jac_b)
 
+
+    if 'theano' in args.backends:
+        # predictors with axis=2
+        input_shapes_c = [(1,) + input_shapes[0][1:], input_shapes[1]] # shape per channel
+        y_dim = np.prod(input_shapes[0])
+        y_dim_c = np.prod(input_shapes_c[0])
+        u_dim, = input_shapes[1]
+
+        predictor_b_c = BilinearFeaturePredictor(*input_shapes_c)
+        predictor_tbn_ax2 = predictor_theano.TheanoNetFeaturePredictor(*net_theano.build_bilinear_net(input_shapes, axis=2))
+
+        # set parameters to the first ones of predictor_b
+        predictor_b_c.Q = predictor_b.Q[:y_dim_c, :y_dim_c, :]
+        predictor_b_c.R = predictor_b.R[:y_dim_c, :]
+        predictor_b_c.S = predictor_b.S[:y_dim_c, :y_dim_c]
+        predictor_b_c.b = predictor_b.b[:y_dim_c]
+        predictor_tbn_ax2_params = {param.name: param for param in predictor_tbn_ax2.get_all_params()}
+        predictor_tbn_ax2_params['Q'].set_value(predictor_b_c.Q.astype(theano.config.floatX))
+        predictor_tbn_ax2_params['R'].set_value(predictor_b_c.R.astype(theano.config.floatX))
+        predictor_tbn_ax2_params['S'].set_value(predictor_b_c.S.astype(theano.config.floatX))
+        predictor_tbn_ax2_params['b'].set_value(predictor_b_c.b.astype(theano.config.floatX))
+
+        # check predictions are the same
+        Y_dot_b_ax2 = []
+        for c in range(X.shape[1]):
+            X_c = X[:, c:c+1, :, :]
+            Y_dot_b_c = predictor_b_c.predict(X_c, U)
+            Y_dot_b_ax2.append(Y_dot_b_c)
+        Y_dot_b_ax2 = np.asarray(Y_dot_b_ax2).swapaxes(0, 1).reshape((-1, y_dim))
+        Y_dot_tbn_ax2 = predictor_tbn_ax2.predict(X, U)
+        print "Y_dot_tbn_ax2, Y_dot_b_ax2"
+        print "\tall close", np.allclose(Y_dot_tbn_ax2, Y_dot_b_ax2)
+        print "\tnorm", np.linalg.norm(Y_dot_tbn_ax2 - Y_dot_b_ax2)
+        # check jacobians are the same
+        jac_b_ax2 = []
+        for c in range(X.shape[1]):
+            X_c = X[:, c:c+1, :, :]
+            jac_b_c = predictor_b_c.jacobian_control(X_c, U)
+            jac_b_ax2.append(jac_b_c)
+        jac_b_ax2 = np.asarray(jac_b_ax2).swapaxes(0, 1).reshape((-1, y_dim, u_dim))
+        jac_tbn_ax2 = predictor_tbn_ax2.jacobian_control(X, U)
+        print "jac_tbn_ax2, jac_b_ax2"
+        print "\tall close", np.allclose(jac_tbn_ax2, jac_b_ax2)
+        print "\tnorm", np.linalg.norm(jac_tbn_ax2 - jac_b_ax2)
+
+
 if __name__ == "__main__":
     main()

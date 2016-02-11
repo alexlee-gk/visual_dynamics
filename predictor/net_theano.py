@@ -167,7 +167,7 @@ class BilinearLayer(L.MergeLayer):
         return activation
 
 
-def build_bilinear_net(input_shapes):
+def build_bilinear_net(input_shapes, axis=1):
     x_shape, u_shape = input_shapes
     X_var = T.tensor4('X')
     U_var = T.matrix('U')
@@ -175,7 +175,7 @@ def build_bilinear_net(input_shapes):
     l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var)
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
 
-    l_x_diff_pred = BilinearLayer([l_x, l_u])
+    l_x_diff_pred = BilinearLayer([l_x, l_u], axis=axis)
     l_x_next_pred = L.ElemwiseMergeLayer([l_x, l_x_diff_pred], T.add)
     l_y = L.flatten(l_x)
     l_y_diff_pred = L.flatten(l_x_diff_pred)
