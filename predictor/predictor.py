@@ -26,13 +26,13 @@ class FeaturePredictor(object):
 
     def jacobian_control(self, X, U):
         raise NotImplementedError
-    
+
     def feature_from_input(self, X):
         raise NotImplementedError
 
     def preprocess_input(self, X):
         return X
-    
+
     def copy_from(self, params_fname):
         raise NotImplementedError
 
@@ -48,7 +48,7 @@ class FeaturePredictor(object):
             os.makedirs(snapshot_dir)
         snapshot_prefix = os.path.join(snapshot_dir, '')
         return snapshot_prefix
-    
+
     @staticmethod
     def infer_input_shapes(hdf5_fname_hint, inputs=None):
         inputs = inputs or ['image_curr', 'vel']
@@ -84,7 +84,7 @@ class BilinearFeaturePredictor(bilinear.BilinearFunction, FeaturePredictor):
         Y = self.flatten(X)
         # in the bilinear model, the jacobian doesn't depend on u
         return self.jac_u(Y)
-    
+
     def flatten(self, X):
         is_batched = X.shape[1:] == self.x_shape
         if is_batched:
@@ -92,23 +92,29 @@ class BilinearFeaturePredictor(bilinear.BilinearFunction, FeaturePredictor):
         else:
             Y = X.flatten()
         return Y
-        
+
 
 def main():
     import argparse
-    from caffe.proto import caffe_pb2 as pb2
-    import theano
-    import cgt
-    import predictor_caffe
-    import predictor_theano
-    import net_theano
-    import net_cgt
-    
     parser = argparse.ArgumentParser()
     parser.add_argument('train_hdf5_fname', type=str)
     parser.add_argument('val_hdf5_fname', nargs='?', type=str, default=None)
-
+    parser.add_argument('--backends', nargs='+', type=str, choices=['caffe', 'theano', 'cgt'], default=['theano'], help='backends to compare against')
     args = parser.parse_args()
+
+    if 'caffe' in args.backends:
+        from caffe.proto import caffe_pb2 as pb2
+        import predictor_caffe
+    if 'theano' in args.backends:
+        import theano
+        import predictor_theano
+        import net_theano
+        theano.config.floatX = 'float64' # override floatX to float64 for comparison purposes
+    if 'cgt' in args.backends:
+        import cgt
+        import predictor_theano
+        import net_cgt
+        cgt.floatX = 'float64'
 
     if args.val_hdf5_fname is None:
         val_file = h5py.File(args.train_hdf5_fname.replace('train', 'val'), 'r+')
@@ -116,11 +122,14 @@ def main():
         val_file = h5py.File(args.val_hdf5_fname, 'r+')
 
     input_shapes = FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
-    
-    predictor_bn = predictor_caffe.BilinearNetFeaturePredictor(input_shapes)
+
+    if 'caffe' in args.backends:
+        predictor_bn = predictor_caffe.BilinearNetFeaturePredictor(input_shapes)
+    if 'theano' in args.backends:
+        predictor_tbn = predictor_theano.TheanoNetFeaturePredictor(*net_theano.build_bilinear_net(input_shapes))
+    if 'cgt' in args.backends:
+        predictor_cbn = predictor_theano.CgtNetFeaturePredictor(*net_cgt.build_bilinear_net(input_shapes))
     predictor_b = BilinearFeaturePredictor(*input_shapes)
-    predictor_tbn = predictor_theano.TheanoNetFeaturePredictor(*net_theano.build_bilinear_net(input_shapes))
-    predictor_cbn = predictor_theano.CgtNetFeaturePredictor(*net_cgt.build_bilinear_net(input_shapes))
 
     # train
     train_file = h5py.File(args.train_hdf5_fname, 'r+')
@@ -129,13 +138,16 @@ def main():
     X_dot = train_file['image_diff'][:]
     Y_dot = predictor_b.flatten(X_dot)
     N = len(X)
-    predictor_bn.train(args.train_hdf5_fname, args.val_hdf5_fname, solver_param=pb2.SolverParameter(max_iter=100))
-    predictor_tbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
-    predictor_cbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
+    if 'caffe' in args.backends:
+        predictor_bn.train(args.train_hdf5_fname, args.val_hdf5_fname, solver_param=pb2.SolverParameter(max_iter=100))
+        print "bn train error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
+    if 'theano' in args.backends:
+        predictor_tbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
+        print "tbn train error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
+    if 'cgt' in args.backends:
+        predictor_cbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
+        print "cbn train error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
     predictor_b.train(X, U, Y_dot)
-    print "bn train error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
-    print "tbn train error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
-    print "cbn train error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
     print "b train error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
 
     # validation
@@ -145,29 +157,66 @@ def main():
     Y_dot = predictor_b.flatten(X_dot)
     N = len(X)
     # set parameters of bn to the ones of b and check that their methods return the same outputs
-    print "bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
-    print "tbn validation error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
-    print "cbn validation error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
+    if 'caffe' in args.backends:
+        print "bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
+    if 'theano' in args.backends:
+        print "tbn validation error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
+    if 'cgt' in args.backends:
+        print "cbn validation error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
     print "b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
-    predictor_bn.params['bilinear_fc_outer_yu'][0].data[...] = predictor_b.A.reshape((predictor_b.A.shape[0], -1))
-    predictor_bn.params['bilinear_fc_u'][0].data[...] = predictor_b.B
-    predictor_tbn_params = {param.name: param for param in predictor_tbn.get_all_params()}
-    predictor_tbn_params['M'].set_value(predictor_b.A.astype(theano.config.floatX))
-    predictor_tbn_params['N'].set_value(predictor_b.B.astype(theano.config.floatX))
-    predictor_cbn_params = {param.name: param for param in predictor_cbn.get_all_params()}
-    predictor_cbn_params['bilinear.M'].op.set_value(predictor_b.A.astype(cgt.floatX))
-    predictor_cbn_params['bilinear.N'].op.set_value(predictor_b.B.astype(cgt.floatX))
 
-    Y_dot_bn = predictor_bn.predict(X, U)
-    Y_dot_tbn = predictor_tbn.predict(X, U)
+    # set parameters to those of predictor_b
+    if 'caffe' in args.backends:
+        predictor_bn.params['bilinear_fc_outer_yu'][0].data[...] = predictor_b.Q.reshape((predictor_b.Q.shape[0], -1))
+        predictor_bn.params['bilinear_fc_u'][0].data[...] = predictor_b.R
+        # TODO params for the other terms
+    if 'theano' in args.backends:
+        predictor_tbn_params = {param.name: param for param in predictor_tbn.get_all_params()}
+        predictor_tbn_params['Q'].set_value(predictor_b.Q.astype(theano.config.floatX))
+        predictor_tbn_params['R'].set_value(predictor_b.R.astype(theano.config.floatX))
+        predictor_tbn_params['S'].set_value(predictor_b.S.astype(theano.config.floatX))
+        predictor_tbn_params['b'].set_value(predictor_b.b.astype(theano.config.floatX))
+    if 'cgt' in args.backends:
+        predictor_cbn_params = {param.name: param for param in predictor_cbn.get_all_params()}
+        predictor_cbn_params['bilinear.M'].op.set_value(predictor_b.Q.astype(cgt.floatX))
+        predictor_cbn_params['bilinear.N'].op.set_value(predictor_b.R.astype(cgt.floatX))
+        # TODO params for the other terms
+
+    # check predictions are the same
     Y_dot_b = predictor_b.predict(X, U)
-    print "all close Y_dot_bn, Y_dot_b", np.allclose(Y_dot_bn, Y_dot_b, atol=1e-4)
-    print "all close Y_dot_tbn, Y_dot_b", np.allclose(Y_dot_tbn, Y_dot_b, atol=1e-4)
-    jac_bn = predictor_bn.jacobian_control(X, U)
-    jac_tbn = predictor_tbn.jacobian_control(X, U)
+    if 'caffe' in args.backends:
+        Y_dot_bn = predictor_bn.predict(X, U)
+        print "Y_dot_bn, Y_dot_b"
+        print "\tall close", np.allclose(Y_dot_bn, Y_dot_b)
+        print "\tnorm", np.linalg.norm(Y_dot_bn - Y_dot_b)
+    if 'theano' in args.backends:
+        Y_dot_tbn = predictor_tbn.predict(X, U)
+        print "Y_dot_tbn, Y_dot_b"
+        print "\tall close", np.allclose(Y_dot_tbn, Y_dot_b)
+        print "\tnorm", np.linalg.norm(Y_dot_tbn - Y_dot_b)
+    if 'cgt' in args.backends:
+        Y_dot_cbn = predictor_cbn.predict(X, U)
+        print "Y_dot_cbn, Y_dot_b"
+        print "\tall close", np.allclose(Y_dot_cbn, Y_dot_b)
+        print "\tnorm", np.linalg.norm(Y_dot_cbn - Y_dot_b)
+
+    # check jacobians are the same
     jac_b = predictor_b.jacobian_control(X, U)
-    print "all close jac_bn, jac_b", np.allclose(jac_bn, jac_b, atol=1e-3)
-    print "all close jac_tbn, jac_b", np.allclose(jac_tbn, jac_b, atol=1e-3)
+    if 'caffe' in args.backends:
+        jac_bn, _ = predictor_bn.jacobian_control(X, U)
+        print "jac_bn, jac_b"
+        print "\tall close", np.allclose(jac_bn, jac_b)
+        print "\tnorm", np.linalg.norm(jac_bn - jac_b)
+    if 'theano' in args.backends:
+        jac_tbn = predictor_tbn.jacobian_control(X, U)
+        print "jac_tbn, jac_b"
+        print "\tall close", np.allclose(jac_tbn, jac_b)
+        print "\tnorm", np.linalg.norm(jac_tbn - jac_b)
+    if 'cgt' in args.backends:
+        jac_cbn = predictor_cbn.jacobian_control(X, U)
+        print "jac_cbn, jac_b"
+        print "\tall close", np.allclose(jac_cbn, jac_b)
+        print "\tnorm", np.linalg.norm(jac_cbn - jac_b)
 
 if __name__ == "__main__":
     main()

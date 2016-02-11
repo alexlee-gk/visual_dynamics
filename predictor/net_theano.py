@@ -115,8 +115,9 @@ class Deconv2DLayer(L.Layer):
 
 
 class BilinearLayer(L.MergeLayer):
-    def __init__(self, incomings, axis=1, M=init.Normal(std=0.001),
-                 N=init.Normal(std=0.001), b=init.Constant(0.), **kwargs):
+    def __init__(self, incomings, axis=1, Q=init.Normal(std=0.001),
+                 R=init.Normal(std=0.001), S=init.Normal(std=0.001),
+                 b=init.Constant(0.), **kwargs):
         """
         axis: The first axis of Y to be lumped into a single bilinear model.
             The bilinear model are computed independently for each element wrt the preceding axes.
@@ -129,8 +130,9 @@ class BilinearLayer(L.MergeLayer):
         self.y_dim = int(np.prod(self.y_shape[self.axis-1:]))
         self.u_dim,  = self.u_shape
 
-        self.M = self.add_param(M, (self.y_dim, self.y_dim, self.u_dim), name='M')
-        self.N = self.add_param(N, (self.y_dim, self.u_dim), name='N')
+        self.Q = self.add_param(Q, (self.y_dim, self.y_dim, self.u_dim), name='Q')
+        self.R = self.add_param(R, (self.y_dim, self.u_dim), name='R')
+        self.S = self.add_param(S, (self.y_dim, self.y_dim), name='S')
         if b is None:
             self.b = None
         else:
@@ -148,13 +150,16 @@ class BilinearLayer(L.MergeLayer):
         assert Y.ndim == self.axis + 1
 
         outer_YU = Y.dimshuffle(range(Y.ndim) + ['x']) * U.dimshuffle([0] + ['x']*self.axis + [1])
-        bilinear = T.dot(outer_YU.reshape((-1, self.y_dim * self.u_dim)), self.M.reshape((self.y_dim, self.y_dim * self.u_dim)).T)
+        bilinear = T.dot(outer_YU.reshape((-1, self.y_dim * self.u_dim)), self.Q.reshape((self.y_dim, self.y_dim * self.u_dim)).T)
         if self.axis > 1:
             bilinear = bilinear.reshape((-1,) + self.y_shape[:self.axis-1] + (self.y_dim,))
-        linear = T.dot(U, self.N.T)
+        linear_u = T.dot(U, self.R.T)
         if self.axis > 1:
-            linear = linear.dimshuffle([0] + ['x']*(self.axis-1) + [1])
-        activation = bilinear + linear
+            linear_u = linear_u.dimshuffle([0] + ['x']*(self.axis-1) + [1])
+        linear_y = T.dot(Y, self.S.T)
+        if self.axis > 1:
+            linear_y = linear_y.reshape((-1,) + self.y_shape[:self.axis-1] + (self.y_dim,))
+        activation = bilinear + linear_u + linear_y
         if self.b is not None:
             activation += self.b.dimshuffle(['x']*self.axis + [0])
 
@@ -170,7 +175,7 @@ def build_bilinear_net(input_shapes):
     l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var)
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
 
-    l_x_diff_pred = BilinearLayer([l_x, l_u], b=None)
+    l_x_diff_pred = BilinearLayer([l_x, l_u])
     l_x_next_pred = L.ElemwiseMergeLayer([l_x, l_x_diff_pred], T.add)
     l_y = L.flatten(l_x)
     l_y_diff_pred = L.flatten(l_x_diff_pred)
