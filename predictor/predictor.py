@@ -10,13 +10,14 @@ class FeaturePredictor(object):
     Predicts change in features (y_dot) given the current input (x) and control (u):
         x, u -> y_dot
     """
-    def __init__(self, x_shape, u_shape, input_names=None, output_names=None, net_name=None, postfix=None):
+    def __init__(self, x_shape, u_shape, input_names=None, output_names=None, net_name=None, postfix=None, backend=None):
         self.input_names = input_names or ['image_curr', 'vel']
         self.output_names = output_names or ['y_diff_pred', 'y', 'y_next_pred', 'image_next_pred', 'x0_next_pred'] # ok if some of these don't exist
         self.x_shape = x_shape
         self.u_shape = u_shape
         self.net_name = net_name
         self.postfix = postfix
+        self.backend = backend
 
     def train(self, data):
         raise NotImplementedError
@@ -37,7 +38,10 @@ class FeaturePredictor(object):
         raise NotImplementedError
 
     def get_model_dir(self):
-        model_dir = 'models'
+        if self.backend is not None:
+            model_dir = os.path.join('models', self.backend, self.net_name + '_' + self.postfix)
+        else:
+            model_dir = os.path.join('models', self.net_name + '_' + self.postfix)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
         return model_dir

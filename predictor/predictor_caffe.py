@@ -114,7 +114,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
         Assumes that outputs[0] is the prediction_name
         batch_size_1: if True, another net_caffe of batch_size of 1 is created, and this net_caffe is used for computing forward in the predict method
         """
-        predictor.FeaturePredictor.__init__(self, *input_shapes, input_names=input_names, output_names=output_names)
+        predictor.FeaturePredictor.__init__(self, *input_shapes, input_names=input_names, output_names=output_names, backend='caffe')
         self.net_func = net_func
         self.postfix = postfix
         self.batch_size = batch_size
@@ -357,13 +357,6 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                     for blob, filler in zip(param, fillers):
                         blob.data[...] = filler
 
-    def get_model_dir(self):
-        model_dir = predictor.FeaturePredictor.get_model_dir(self)
-        model_dir = os.path.join(model_dir, 'caffe', self.net_name + '_' + self.postfix)
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
-        return model_dir
-
     def get_model_fname(self, phase):
         model_dir = self.get_model_dir()
         fname = os.path.join(model_dir, phase + '.prototxt')
@@ -372,7 +365,7 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
 
 class BilinearNetFeaturePredictor(CaffeNetFeaturePredictor):
     def __init__(self, input_shapes, **kwargs):
-        super(BilinearNetFeaturePredictor, self).__init__(net_caffe.bilinear_net, **kwargs)
+        super(BilinearNetFeaturePredictor, self).__init__(net_caffe.bilinear_net, input_shapes, **kwargs)
 
     def jacobian_control(self, X, U):
         if X.shape == self.x_shape:

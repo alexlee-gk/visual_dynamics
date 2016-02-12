@@ -78,6 +78,7 @@ def main():
     parser.add_argument('--ladder_loss', '--ladder', type=int, default=0, help='net parameter')
     parser.add_argument('--batch_normalization', '--bn', type=int, default=0, help='net parameter')
     parser.add_argument('--concat', type=int, default=0, help='net parameter')
+    parser.add_argument('--axis', type=int, default=2, help='net parameter')
     parser.add_argument('--postfix', type=str, default='')
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
@@ -148,7 +149,15 @@ def main():
     elif args.predictor.startswith('build_'):
         from predictor import predictor_theano, net_theano
         build_net = getattr(net_theano, args.predictor)
-        feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes, levels=args.levels),
+        feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes,
+                                                                                  levels=args.levels,
+                                                                                  x1_c_dim=args.x1_c_dim,
+                                                                                  num_downsample=args.num_downsample,
+                                                                                  share_bilinear_weights=args.share_bilinear_weights,
+                                                                                  ladder_loss=args.ladder_loss,
+                                                                                  batch_normalization=args.batch_normalization,
+                                                                                  concat=args.concat,
+                                                                                  axis=args.axis),
                                                                        postfix=args.postfix)
         if args.pretrained_fname is not None:
             feature_predictor.copy_from(args.pretrained_fname)
