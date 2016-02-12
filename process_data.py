@@ -1,5 +1,3 @@
-from __future__ import division
-
 import argparse
 import numpy as np
 import cv2
@@ -64,7 +62,7 @@ def main():
     try:
         for traj_container in traj_containers:
             for traj_iter in range(traj_container.num_trajs):
-                print 'traj_iter', traj_iter
+                print('traj_iter', traj_iter)
                 for step_iter in range(num_steps_all):
                     image, dof_val, vel = traj_container.get_datum(traj_iter, step_iter, ['image', 'dof_val', 'vel']).values()
                     image_next, = traj_container.get_datum(traj_iter, step_iter+1, ['image']).values()

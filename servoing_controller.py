@@ -1,5 +1,3 @@
-from __future__ import division
-
 import os
 import argparse
 import numpy as np
@@ -244,7 +242,7 @@ def main():
 
             if feature_predictor.val_net is not None:
                 val_losses = {blob_name: np.asscalar(blob.data) for blob_name, blob in feature_predictor.val_net.blobs.items() if blob_name.endswith('loss')}
-                print 'val_losses', val_losses
+                print('val_losses', val_losses)
 
     if args.simulator == 'none':
         val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
@@ -392,19 +390,19 @@ def main():
             angle_errors.append(angle_error)
             dof_values_error = (dof_values_target - dof_values) ** 2
             dof_values_errors.append(dof_values_error)
-            print 'image_pred_error:', image_pred_error
-            print 'image_error:', image_error
-            print 'pos_error:', pos_error
-            print 'angle_error:', angle_error, 'deg:', np.rad2deg(angle_error)
+            print('image_pred_error:', image_pred_error)
+            print('image_error:', image_error)
+            print('pos_error:', pos_error)
+            print('angle_error:', angle_error, 'deg:', np.rad2deg(angle_error))
             if traj_iter == args.num_trajs-1:
                 image_pred_error_mean = np.mean(image_pred_errors)
                 image_error_mean = np.mean(image_errors)
                 pos_error_mean = np.mean(pos_errors)
                 angle_error_mean = np.mean(angle_errors, axis=0)
-                print 'image_pred_error_mean:', image_pred_error_mean
-                print 'image_error_mean:', image_error_mean
-                print 'pos_error_mean:', pos_error_mean
-                print 'angle_error_mean:', angle_error_mean, 'deg:', np.rad2deg(angle_error_mean)
+                print('image_pred_error_mean:', image_pred_error_mean)
+                print('image_error_mean:', image_error_mean)
+                print('pos_error_mean:', pos_error_mean)
+                print('angle_error_mean:', angle_error_mean, 'deg:', np.rad2deg(angle_error_mean))
             if traj_container:
                 datum = dict(image_curr=image,
                              dof_val=sim.dof_values,

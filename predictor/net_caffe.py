@@ -1,5 +1,3 @@
-from __future__ import division
-
 import numpy as np
 import copy
 from collections import OrderedDict
@@ -783,7 +781,7 @@ def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, n
     else:
         assert axis == 2
         # bilinear term
-        outer_yu_channels = L.Slice(outer_yu, ntop=x_shape[0], slice_param=dict(axis=1, slice_point=range(1, x_shape[0])))
+        outer_yu_channels = L.Slice(outer_yu, ntop=x_shape[0], slice_param=dict(axis=1, slice_point=list(range(1, x_shape[0]))))
         bilinear_yu_channels = []
         for channel, outer_yu_channel in enumerate(outer_yu_channels):
             n.tops['bilinear'+name+'_outer_yu_%d'%channel] = outer_yu_channel
@@ -792,7 +790,7 @@ def ImageBilinearChannelwise(n, x, u, x_shape, u_dim, bilinear_kwargs, axis=1, n
             bilinear_yu_channels.append(bilinear_yu_channel)
         bilinear_yu = n.tops['bilinear'+name+'_bilinear_yu'] = L.Concat(*bilinear_yu_channels, axis=1) # e.g. (N, C, I)
         # linear
-        y_channels = L.Slice(x, ntop=x_shape[0], slice_param=dict(axis=1, slice_point=range(1, x_shape[0])))
+        y_channels = L.Slice(x, ntop=x_shape[0], slice_param=dict(axis=1, slice_point=list(range(1, x_shape[0]))))
         linear_y_channels = []
         for channel, y_channel in enumerate(y_channels):
             n.tops['bilinear'+name+'_y_%d'%channel] = y_channel

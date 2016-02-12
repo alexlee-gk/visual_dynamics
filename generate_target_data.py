@@ -1,5 +1,3 @@
-from __future__ import division
-
 import argparse
 import cv2
 import target_generator
@@ -40,7 +38,7 @@ def main():
 
     done = False
     for image_iter in range(args.num_images):
-        print 'image_iter', image_iter
+        print('image_iter', image_iter)
         try:
             image_target, dof_values_target = generator.get_target()
             if traj_container:

@@ -1,13 +1,9 @@
-from __future__ import division
-
 import argparse
 import numpy as np
-import time
 import itertools
 import cv2
 import h5py
 import simulator
-import controller
 import util
 
 def main():

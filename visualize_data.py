@@ -1,5 +1,3 @@
-from __future__ import division
-
 import argparse
 from collections import OrderedDict
 import cv2

@@ -1,5 +1,3 @@
-from __future__ import division
-
 import os
 import subprocess
 import re
@@ -66,8 +64,8 @@ def get_model_pose(model_name, relative_entity_name='world'):
         get_model_state = rospy.ServiceProxy('gazebo/get_model_state', gazebo_msgs.srv.GetModelState)
         res = get_model_state(model_name, relative_entity_name)
         return res.pose
-    except rospy.ServiceException, e:
-        print "Service call failed: %s"%e
+    except rospy.ServiceException as e:
+        print("Service call failed: %s"%e)
 
 def set_model_pose(model_name, model_pose, relative_entity_name='world'):
     rospy.wait_for_service('gazebo/set_model_state')
@@ -78,8 +76,8 @@ def set_model_pose(model_name, model_pose, relative_entity_name='world'):
         model_state.pose = model_pose
         model_state.reference_frame = relative_entity_name
         set_model_state(model_state)
-    except rospy.ServiceException, e:
-        print "Service call failed: %s"%e
+    except rospy.ServiceException as e:
+        print("Service call failed: %s"%e)
 
 def arrowed_line(img, pt1, pt2, color, thickness=1, shift=0, tip_length=0.1):
     # adapted from http://mlikihazar.blogspot.com.au/2013/02/draw-arrow-opencv.html
@@ -174,7 +172,7 @@ def visualize_images_callback(*images, **kwargs):
     key = cv2.waitKey(delay)
     key &= 255
     if key == 27 or key == ord('q'):
-        print "Pressed ESC or q, exiting"
+        print("Pressed ESC or q, exiting")
         exit_request = True
     else:
         exit_request = False
@@ -222,9 +220,9 @@ def device_id_from_camera_id(camera_id):
     return device_id_from_serial_number(serial_number_from_camera_id(camera_id))
 
 def yes_or_no(question):
-    assert isinstance(question, str) or isinstance(question, unicode)
+    assert isinstance(question, str) or isinstance(question, str)
     while True:
-        yn = raw_input(question + " ([y]/n): ")
+        yn = input(question + " ([y]/n): ")
         if yn == 'y' or yn == '':
             return True
         elif yn == 'n':

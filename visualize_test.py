@@ -1,5 +1,3 @@
-from __future__ import division
-
 import argparse
 import numpy as np
 import cv2
@@ -26,7 +24,7 @@ def main():
     while not done:
         blob_dict = net.forward(blobs=['image_curr', 'vel', 'image_diff', 'y_diff_pred'])
         assert blob_dict['loss'].ndim == 0
-        print 'loss', float(blob_dict['loss'])
+        print('loss', float(blob_dict['loss']))
         # batch_size = net.blobs['image_curr'].data.shape[0]
         for image_curr_data, vel_data, image_diff_data, image_diff_pred_data in \
             zip(blob_dict['image_curr'], 

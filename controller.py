@@ -1,5 +1,3 @@
-from __future__ import division
-
 import numpy as np
 
 class Controller(object):
@@ -97,7 +95,7 @@ class SpecializedServoingController(ServoingController):
             regr.fit(Z_train, label_train)
             w = np.squeeze(regr.coef_)
             w = np.maximum(w, 0)
-            print "%d out of %d weights are non-zero"%((w != 0).sum(), len(w))
+            print("%d out of %d weights are non-zero"%((w != 0).sum(), len(w)))
             w_new = []
             for output_name, xlevel in xlevels.items():
                 if output_name == 'x0' and len(xlevels) > 1:
@@ -123,7 +121,7 @@ class SpecializedServoingController(ServoingController):
             w_top[inds[-25:]] = w[inds[-25:]]
             w_top /= w_top.max()
             w = w_top
-            print "%d out of %d weights are non-zero"%((w != 0).sum(), len(w))
+            print("%d out of %d weights are non-zero"%((w != 0).sum(), len(w)))
             if 'x0' in xlevels and len(xlevels) > 1:
                 w = np.r_[np.zeros(image_dim), w]
         self.w = w

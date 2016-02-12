@@ -1,5 +1,3 @@
-from __future__ import division
-
 from collections import OrderedDict
 import numpy as np
 import theano.tensor as T
@@ -150,7 +148,7 @@ class BilinearLayer(L.MergeLayer):
             Y = Y.flatten(self.axis + 1)
         assert Y.ndim == self.axis + 1
 
-        outer_YU = Y.dimshuffle(range(Y.ndim) + ['x']) * U.dimshuffle([0] + ['x']*self.axis + [1])
+        outer_YU = Y.dimshuffle(list(range(Y.ndim)) + ['x']) * U.dimshuffle([0] + ['x']*self.axis + [1])
         bilinear = T.dot(outer_YU.reshape((-1, self.y_dim * self.u_dim)), self.Q.reshape((self.y_dim, self.y_dim * self.u_dim)).T)
         if self.axis > 1:
             bilinear = bilinear.reshape((-1,) + self.y_shape[:self.axis-1] + (self.y_dim,))

@@ -1,5 +1,3 @@
-from __future__ import division
-
 import time
 import numpy as np
 import cv2
@@ -419,7 +417,7 @@ class ServoPlatform(DiscreteVelocitySimulator):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale, dtype=np.int)
         self.delay = delay
         # camera initialization
-        if isinstance(camera_id, basestring):
+        if isinstance(camera_id, str):
             if camera_id.isdigit():
                 camera_id = int(camera_id)
             else:
@@ -441,7 +439,7 @@ class ServoPlatform(DiscreteVelocitySimulator):
             self.last_time = self.cap.get_time()
         except Exception as e:
             self.use_pwm = False
-            print "Exception when using pwm: %s. Disabling it."%e
+            print("Exception when using pwm: %s. Disabling it."%e)
 
     def stop(self):
         self.cap.release()

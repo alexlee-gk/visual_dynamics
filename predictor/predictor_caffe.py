@@ -1,5 +1,3 @@
-from __future__ import division
-
 import os
 import re
 import numpy as np
@@ -7,8 +5,8 @@ from collections import OrderedDict
 import matplotlib.pyplot as plt
 import caffe
 from caffe.proto import caffe_pb2 as pb2
-import net_caffe
-import predictor
+from . import net_caffe
+from . import predictor
 
 
 class CaffeNetPredictor(caffe.Net):

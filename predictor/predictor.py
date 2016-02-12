@@ -1,5 +1,3 @@
-from __future__ import division
-
 import numpy as np
 import h5py
 import os
@@ -108,16 +106,16 @@ def main():
 
     if 'caffe' in args.backends:
         from caffe.proto import caffe_pb2 as pb2
-        import predictor_caffe
+        from . import predictor_caffe
     if 'theano' in args.backends:
         import theano
-        import predictor_theano
-        import net_theano
+        from . import predictor_theano
+        from . import net_theano
         theano.config.floatX = 'float64' # override floatX to float64 for comparison purposes
     if 'cgt' in args.backends:
         import cgt
-        import predictor_theano
-        import net_cgt
+        from . import predictor_theano
+        from . import net_cgt
         cgt.floatX = 'float64'
 
     if args.val_hdf5_fname is None:
@@ -144,15 +142,15 @@ def main():
     N = len(X)
     if 'caffe' in args.backends:
         predictor_bn.train(args.train_hdf5_fname, args.val_hdf5_fname, solver_param=pb2.SolverParameter(max_iter=100))
-        print "bn train error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
+        print("bn train error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N))
     if 'theano' in args.backends:
         predictor_tbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
-        print "tbn train error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
+        print("tbn train error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N))
     if 'cgt' in args.backends:
         predictor_cbn.train(args.train_hdf5_fname, args.val_hdf5_fname, max_iter=100)
-        print "cbn train error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
+        print("cbn train error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N))
     predictor_b.train(X, U, Y_dot)
-    print "b train error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
+    print("b train error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N))
 
     # validation
     X = val_file['image_curr'][:]
@@ -162,12 +160,12 @@ def main():
     N = len(X)
     # set parameters of bn to the ones of b and check that their methods return the same outputs
     if 'caffe' in args.backends:
-        print "bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N)
+        print("bn validation error", (np.linalg.norm(Y_dot - predictor_bn.predict(X, U))**2) / (2*N))
     if 'theano' in args.backends:
-        print "tbn validation error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N)
+        print("tbn validation error", (np.linalg.norm(Y_dot - predictor_tbn.predict(X, U))**2) / (2*N))
     if 'cgt' in args.backends:
-        print "cbn validation error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N)
-    print "b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N)
+        print("cbn validation error", (np.linalg.norm(Y_dot - predictor_cbn.predict(X, U))**2) / (2*N))
+    print("b validation error", (np.linalg.norm(Y_dot - predictor_b.predict(X, U))**2) / (2*N))
 
     # set parameters to those of predictor_b
     if 'caffe' in args.backends:
@@ -190,37 +188,37 @@ def main():
     Y_dot_b = predictor_b.predict(X, U)
     if 'caffe' in args.backends:
         Y_dot_bn = predictor_bn.predict(X, U)
-        print "Y_dot_bn, Y_dot_b"
-        print "\tall close", np.allclose(Y_dot_bn, Y_dot_b)
-        print "\tnorm", np.linalg.norm(Y_dot_bn - Y_dot_b)
+        print("Y_dot_bn, Y_dot_b")
+        print("\tall close", np.allclose(Y_dot_bn, Y_dot_b))
+        print("\tnorm", np.linalg.norm(Y_dot_bn - Y_dot_b))
     if 'theano' in args.backends:
         Y_dot_tbn = predictor_tbn.predict(X, U)
-        print "Y_dot_tbn, Y_dot_b"
-        print "\tall close", np.allclose(Y_dot_tbn, Y_dot_b)
-        print "\tnorm", np.linalg.norm(Y_dot_tbn - Y_dot_b)
+        print("Y_dot_tbn, Y_dot_b")
+        print("\tall close", np.allclose(Y_dot_tbn, Y_dot_b))
+        print("\tnorm", np.linalg.norm(Y_dot_tbn - Y_dot_b))
     if 'cgt' in args.backends:
         Y_dot_cbn = predictor_cbn.predict(X, U)
-        print "Y_dot_cbn, Y_dot_b"
-        print "\tall close", np.allclose(Y_dot_cbn, Y_dot_b)
-        print "\tnorm", np.linalg.norm(Y_dot_cbn - Y_dot_b)
+        print("Y_dot_cbn, Y_dot_b")
+        print("\tall close", np.allclose(Y_dot_cbn, Y_dot_b))
+        print("\tnorm", np.linalg.norm(Y_dot_cbn - Y_dot_b))
 
     # check jacobians are the same
     jac_b = predictor_b.jacobian_control(X, U)
     if 'caffe' in args.backends:
         jac_bn, _ = predictor_bn.jacobian_control(X, U)
-        print "jac_bn, jac_b"
-        print "\tall close", np.allclose(jac_bn, jac_b)
-        print "\tnorm", np.linalg.norm(jac_bn - jac_b)
+        print("jac_bn, jac_b")
+        print("\tall close", np.allclose(jac_bn, jac_b))
+        print("\tnorm", np.linalg.norm(jac_bn - jac_b))
     if 'theano' in args.backends:
         jac_tbn = predictor_tbn.jacobian_control(X, U)
-        print "jac_tbn, jac_b"
-        print "\tall close", np.allclose(jac_tbn, jac_b)
-        print "\tnorm", np.linalg.norm(jac_tbn - jac_b)
+        print("jac_tbn, jac_b")
+        print("\tall close", np.allclose(jac_tbn, jac_b))
+        print("\tnorm", np.linalg.norm(jac_tbn - jac_b))
     if 'cgt' in args.backends:
         jac_cbn = predictor_cbn.jacobian_control(X, U)
-        print "jac_cbn, jac_b"
-        print "\tall close", np.allclose(jac_cbn, jac_b)
-        print "\tnorm", np.linalg.norm(jac_cbn - jac_b)
+        print("jac_cbn, jac_b")
+        print("\tall close", np.allclose(jac_cbn, jac_b))
+        print("\tnorm", np.linalg.norm(jac_cbn - jac_b))
 
 
     if 'theano' in args.backends:
@@ -252,9 +250,9 @@ def main():
             Y_dot_b_ax2.append(Y_dot_b_c)
         Y_dot_b_ax2 = np.asarray(Y_dot_b_ax2).swapaxes(0, 1).reshape((-1, y_dim))
         Y_dot_tbn_ax2 = predictor_tbn_ax2.predict(X, U)
-        print "Y_dot_tbn_ax2, Y_dot_b_ax2"
-        print "\tall close", np.allclose(Y_dot_tbn_ax2, Y_dot_b_ax2)
-        print "\tnorm", np.linalg.norm(Y_dot_tbn_ax2 - Y_dot_b_ax2)
+        print("Y_dot_tbn_ax2, Y_dot_b_ax2")
+        print("\tall close", np.allclose(Y_dot_tbn_ax2, Y_dot_b_ax2))
+        print("\tnorm", np.linalg.norm(Y_dot_tbn_ax2 - Y_dot_b_ax2))
         # check jacobians are the same
         jac_b_ax2 = []
         for c in range(X.shape[1]):
@@ -263,9 +261,9 @@ def main():
             jac_b_ax2.append(jac_b_c)
         jac_b_ax2 = np.asarray(jac_b_ax2).swapaxes(0, 1).reshape((-1, y_dim, u_dim))
         jac_tbn_ax2 = predictor_tbn_ax2.jacobian_control(X, U)
-        print "jac_tbn_ax2, jac_b_ax2"
-        print "\tall close", np.allclose(jac_tbn_ax2, jac_b_ax2)
-        print "\tnorm", np.linalg.norm(jac_tbn_ax2 - jac_b_ax2)
+        print("jac_tbn_ax2, jac_b_ax2")
+        print("\tall close", np.allclose(jac_tbn_ax2, jac_b_ax2))
+        print("\tnorm", np.linalg.norm(jac_tbn_ax2 - jac_b_ax2))
 
 
 if __name__ == "__main__":

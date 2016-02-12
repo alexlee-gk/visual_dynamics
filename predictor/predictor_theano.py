@@ -1,15 +1,12 @@
-from __future__ import division
-
-import os
 import numpy as np
 import h5py
-import cPickle
+import pickle
 from collections import OrderedDict
 import time
 import theano
 import theano.tensor as T
 import lasagne
-import predictor
+from . import predictor
 
 
 def iterate_minibatches(*data, **kwargs):
@@ -104,9 +101,9 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             raise
 
         start_time = time.time()
-        print "Compiling training function..."
+        print("Compiling training function...")
         train_fn = theano.function([self.X_var, self.U_var, self.X_diff_var, learning_rate_var], loss, updates=updates)
-        print "... finished in %.2f s"%(time.time() - start_time)
+        print("... finished in %.2f s"%(time.time() - start_time))
 
         validate = test_interval and val_hdf5_fname is not None
         if validate:
@@ -115,9 +112,9 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
 
             # validation function
             start_time = time.time()
-            print "Compiling validation function..."
+            print("Compiling validation function...")
             val_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], test_loss)
-            print "... finished in %.2f s"%(time.time() - start_time)
+            print("... finished in %.2f s"%(time.time() - start_time))
 
         print("Starting training...")
         iter_ = 0
@@ -132,8 +129,8 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             loss = train_fn(X, U, X_next, learning_rate)
 
             if display and iter_ % display == 0:
-                print("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate))
-                print("    training loss = {:.6f}".format(float(loss)))
+                print(("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate)))
+                print(("    training loss = {:.6f}".format(float(loss))))
             iter_ += 1
             if snapshot and iter_ % snapshot == 0 and iter_ > 0:
                 self.snapshot(iter_, snapshot_prefix)
@@ -141,8 +138,8 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
         if snapshot and not (snapshot and iter_ % snapshot == 0 and iter_ > 0):
             self.snapshot(iter_, snapshot_prefix)
         if display and iter_ % display == 0:
-            print("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate))
-            print("    training loss = {:.6f}".format(float(loss)))
+            print(("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate)))
+            print(("    training loss = {:.6f}".format(float(loss))))
         if validate and iter_ % test_interval == 0:
             self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
 
@@ -159,9 +156,9 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             if self.U_var in theano.gof.graph.inputs([pred_var]):
                 input_vars.append(self.U_var)
             start_time = time.time()
-            print "Compiling prediction function..."
+            print("Compiling prediction function...")
             pred_fn = theano.function(input_vars, self.pred_vars[prediction_name])
-            print "... finished in %.2f s"%(time.time() - start_time)
+            print("... finished in %.2f s"%(time.time() - start_time))
             self.pred_fns[prediction_name] = pred_fn
         if U is None:
             pred = pred_fn(X)
@@ -191,7 +188,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             Y_diff_pred_var = self.pred_vars[prediction_name]
             self.jacobian_var, updates = theano.scan(lambda i, Y_diff_pred_var, U_var: theano.gradient.jacobian(Y_diff_pred_var[i], U_var)[:, i, :], sequences=T.arange(Y_diff_pred_var.shape[0]), non_sequences=[Y_diff_pred_var, self.U_var])
             input_vars = [self.X_var, self.U_var] if U is not None else [self.X_var]
-            print "Compiling jacobian function..."
+            print("Compiling jacobian function...")
             jacobian_fn = theano.function(input_vars, self.jacobian_var, updates=updates)
             self.jacobian_fn = jacobian_fn
         if U is None:
@@ -235,20 +232,20 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
         for _ in range(test_iter):
             X, U, X_next = next(minibatches)
             loss += val_fn(X, U, X_next)
-        print("    validation loss = {:.6f}".format(loss / test_iter))
+        print(("    validation loss = {:.6f}".format(loss / test_iter)))
 
     def snapshot(self, iter_, snapshot_prefix):
         snapshot_prefix = snapshot_prefix or self.get_snapshot_prefix()
         snapshot_fname = snapshot_prefix + '_iter_%d.pkl'%iter_
         snapshot_file = file(snapshot_fname, 'wb')
         all_param_values = self.get_all_param_values()
-        print "Snapshotting to pickle file", snapshot_fname
-        cPickle.dump(all_param_values, snapshot_file, protocol=cPickle.HIGHEST_PROTOCOL)
+        print("Snapshotting to pickle file", snapshot_fname)
+        pickle.dump(all_param_values, snapshot_file, protocol=pickle.HIGHEST_PROTOCOL)
         snapshot_file.close()
 
     def copy_from(self, snapshot_fname):
-        print "Copying weights from pickle file", snapshot_fname
-        all_param_values = cPickle.load(open(snapshot_fname, 'rb'))
+        print("Copying weights from pickle file", snapshot_fname)
+        all_param_values = pickle.load(open(snapshot_fname, 'rb'))
         for i, param_value in enumerate(all_param_values):
             if param_value.dtype != theano.config.floatX:
                 all_param_values[i] = param_value.astype(theano.config.floatX)

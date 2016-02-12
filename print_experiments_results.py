@@ -1,5 +1,3 @@
-from __future__ import division
-
 import argparse
 import numpy as np
 import data_container
@@ -25,7 +23,7 @@ def main():
     if not issubclass(TrajectoryDataContainer, data_container.TrajectoryDataContainer):
         raise ValueError('trajectory data container %s'%args.traj_data_container)
     for traj_container_fname in args.traj_container_fnames:
-        print traj_container_fname
+        print(traj_container_fname)
         try:
             traj_container = TrajectoryDataContainer(traj_container_fname)
             num_trajs = traj_container.num_trajs
@@ -66,9 +64,9 @@ def main():
             if len(car_dof_values_all) > 0:
                 mean_car_dof_val_target_rms_error = mean_rms_error(dof_vals_all[..., :3], car_dof_values_all)
             if len(car_dof_values_all) > 0:
-                print '%.4f'%mean_image_target_rms_error, '%.2f'%mean_dof_val_target_rms_error, '%.2f'%mean_car_dof_val_target_rms_error
+                print('%.4f'%mean_image_target_rms_error, '%.2f'%mean_dof_val_target_rms_error, '%.2f'%mean_car_dof_val_target_rms_error)
             else:
-                print '%.4f'%mean_image_target_rms_error, '%.2f'%mean_dof_val_target_rms_error
+                print('%.4f'%mean_image_target_rms_error, '%.2f'%mean_dof_val_target_rms_error)
         except:
             pass
 

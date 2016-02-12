@@ -1,5 +1,3 @@
-from __future__ import division
-
 import argparse
 import numpy as np
 import h5py
@@ -28,7 +26,7 @@ def main():
     def print_group_or_dset(group_or_dset_key, group_or_dset, table_data, success_thresholds=None, level=1):
         if type(group_or_dset) == h5py.Group:
             group_key, group = group_or_dset_key, group_or_dset
-            print '\t'*level + group_key + ':'
+            print('\t'*level + group_key + ':')
             table_data[group_key] = OrderedDict()
             for key, value in group.items():
                 print_group_or_dset(key, value, table_data[group_key], level=level+1)
@@ -38,17 +36,17 @@ def main():
                 thresholds = success_thresholds[dset_key]
                 for threshold in thresholds:
                     dset_key_str = dset_key + ' < ' + str(threshold)
-                    print '\t'*level + dset_key_str + ':', (dset[()] < threshold).mean()
+                    print('\t'*level + dset_key_str + ':', (dset[()] < threshold).mean())
                     table_data[dset_key_str] = (dset[()] < threshold).mean()
             else:
-                print '\t'*level + dset_key + ':', dset[()]
+                print('\t'*level + dset_key + ':', dset[()])
                 table_data[dset_key] = np.asscalar(dset[()]) if dset[()].size == 1 else dset[()]
         else:
             raise
 
     table_data = OrderedDict()
     for group_key, group in f.items():
-        print group_key +  ':'
+        print(group_key +  ':')
         table_data[group_key] = OrderedDict()
         for group_or_dset_key, group_or_dset in group.items():
             all_keys = args.group_or_dset_keys + success_thresholds.keys()
@@ -60,12 +58,12 @@ def main():
     if args.print_with_tabs:
         max_key_length = max([len(key) for key in table_data.keys()])
         row_format ="{:%d}"%(max_key_length) + "\t{}" * (len(headers))
-        print row_format.format("", *headers)
+        print(row_format.format("", *headers))
         for group_key, group_table_data in table_data.items():
-            print row_format.format(group_key, *group_table_data.values())
+            print(row_format.format(group_key, *group_table_data.values()))
     else:
         from tabulate import tabulate
-        print tabulate([[group_key] + group_table_data.values() for group_key, group_table_data in table_data.items()], headers=headers)
+        print(tabulate([[group_key] + group_table_data.values() for group_key, group_table_data in table_data.items()], headers=headers))
 
 if __name__ == "__main__":
     main()

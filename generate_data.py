@@ -1,9 +1,6 @@
-from __future__ import division
-
 import argparse
 import numpy as np
 import cv2
-import simulator
 import controller
 import data_container
 import util
@@ -44,7 +41,7 @@ def main():
     ctrl = controller.RandomController(*sim.action_bounds)
     done = False
     for traj_iter in range(args.num_trajs):
-        print 'traj_iter', traj_iter
+        print('traj_iter', traj_iter)
         try:
             if args.simulator == 'servo' and args.background_window:
                 background_shape = (np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[0]+1),
@@ -53,7 +50,7 @@ def main():
                 key = cv2.waitKey(100)
                 key &= 255
                 if key == 27 or key == ord('q'):
-                    print "Pressed ESC or q, exiting"
+                    print("Pressed ESC or q, exiting")
                     done = True
                     break
 

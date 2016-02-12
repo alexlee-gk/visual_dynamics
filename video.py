@@ -155,7 +155,7 @@ def main():
             key = cv2.waitKey(100)
             key &= 255
             if key == 27 or key == ord('q'):
-                print "Pressed ESC or q, exiting"
+                print("Pressed ESC or q, exiting")
                 break
         except KeyboardInterrupt:
             break
