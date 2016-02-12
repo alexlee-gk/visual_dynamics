@@ -186,9 +186,54 @@ def build_bilinear_net(input_shapes, axis=1):
 
     net_name = 'BilinearNet'
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
-    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
+    pred_layers = OrderedDict([('y_diff_pred', l_y_diff_pred), ('y', l_y), ('x0_next_pred', l_x_next_pred)])
     return net_name, input_vars, pred_layers, loss
 
+def build_action_cond_encoder_net(input_shapes, **kwargs):
+    x_shape, u_shape = input_shapes
+
+    X_var = T.tensor4('X')
+    U_var = T.matrix('U')
+    X_diff_var = T.tensor4('X_diff')
+    X_next_var = X_var + X_diff_var
+
+    l_x0 = L.InputLayer(shape=(None,) + x_shape, input_var=X_var, name='x')
+    l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var, name='u')
+
+    l_x1 = L.Conv2DLayer(l_x0, 64, filter_size=6, stride=2, pad=0,
+                         nonlinearity=nl.rectify)
+    l_x2 = L.Conv2DLayer(l_x1, 64, filter_size=6, stride=2, pad=2,
+                         nonlinearity=nl.rectify)
+    l_x3 = L.Conv2DLayer(l_x2, 64, filter_size=6, stride=2, pad=2,
+                         nonlinearity=nl.rectify)
+    l_x3_shape = lasagne.layers.get_output_shape(l_x3)
+
+    l_y4 = L.DenseLayer(l_x3, 1024, nonlinearity=nl.rectify)
+    l_y5 = L.DenseLayer(l_y4, 2048, nonlinearity=None, name='y')
+    l_u5 = L.DenseLayer(l_u, 2048, nonlinearity=None)
+
+    l_y5_diff_pred = L.ElemwiseMergeLayer([l_y5, l_u5], T.mul, name='y_diff_pred')
+    l_y5_next_pred = L.ElemwiseMergeLayer([l_y5, l_y5_diff_pred], T.add, name='y_next_pred')
+
+    l_y4_next_pred = L.DenseLayer(l_y5_next_pred, 1024, nonlinearity=None)
+    l_y3_next_pred = L.DenseLayer(l_y4_next_pred, np.prod(l_x3_shape[1:]), nonlinearity=nl.rectify)
+    l_x3_next_pred = L.ReshapeLayer(l_y3_next_pred, ([0],) + l_x3_shape[1:])
+
+    l_x2_next_pred = Deconv2DLayer(l_x3_next_pred, 64, filter_size=6, stride=2, pad=2,
+                                   nonlinearity=nl.rectify)
+    l_x1_next_pred = Deconv2DLayer(l_x2_next_pred, 64, filter_size=6, stride=2, pad=2,
+                                   nonlinearity=nl.rectify)
+    l_x0_next_pred = Deconv2DLayer(l_x1_next_pred, 3, filter_size=6, stride=2, pad=0,
+                                   nonlinearity=None,
+                                   name='x0_next_pred')
+
+    loss_fn = lambda X, X_pred: ((X - X_pred) ** 2).mean(axis=0).sum() / 2.
+    loss = loss_fn(X_next_var, lasagne.layers.get_output(l_x0_next_pred))
+
+    net_name = 'ActionCondEncoderNet'
+    input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
+    pred_layers = OrderedDict([('x0_next_pred', l_x0_next_pred)])
+    return net_name, input_vars, pred_layers, loss
 
 def build_small_action_cond_encoder_net(input_shapes):
     x_shape, u_shape = input_shapes
@@ -199,8 +244,8 @@ def build_small_action_cond_encoder_net(input_shapes):
     X_var = T.tensor4('X')
     U_var = T.matrix('U')
 
-    l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var)
-    l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var)
+    l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var, name='x')
+    l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var, name='u')
 
     l_x1 = L.Conv2DLayer(l_x, x1_c_dim, filter_size=6, stride=2, pad=2,
                          W=init.Normal(std=0.01),
@@ -209,8 +254,8 @@ def build_small_action_cond_encoder_net(input_shapes):
                          W=init.Normal(std=0.01),
                          nonlinearity=nl.rectify)
 
-    l_y2 = L.DenseLayer(l_x2, y2_dim, nonlinearity=None)
-    l_y2_diff_pred = BilinearLayer([l_y2, l_u], b=None)
+    l_y2 = L.DenseLayer(l_x2, y2_dim, nonlinearity=None, name='y')
+    l_y2_diff_pred = BilinearLayer([l_y2, l_u], name='y_diff_pred')
     l_y2_next_pred = L.ElemwiseMergeLayer([l_y2, l_y2_diff_pred], T.add)
     l_x2_next_pred_flat = L.DenseLayer(l_y2_next_pred, np.prod(x2_shape), nonlinearity=None)
     l_x2_next_pred = L.ReshapeLayer(l_x2_next_pred_flat, ([0],) + x2_shape)
@@ -220,10 +265,8 @@ def build_small_action_cond_encoder_net(input_shapes):
                                    nonlinearity=nl.rectify)
     l_x_next_pred = Deconv2DLayer(l_x1_next_pred, x1_c_dim, filter_size=6, stride=2, pad=2,
                                   W=init.Normal(std=0.01),
-                                  nonlinearity=nl.tanh)
-
-    l_y = l_y2
-    l_y_diff_pred = l_y2_diff_pred
+                                  nonlinearity=nl.tanh,
+                                  name='x_next_pred')
 
     X_next_pred_var = lasagne.layers.get_output(l_x_next_pred)
     X_diff_var = T.tensor4('X_diff')
@@ -232,7 +275,7 @@ def build_small_action_cond_encoder_net(input_shapes):
 
     net_name = 'SmallActionCondEncoderNet'
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
-    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x_next_pred)])
+    pred_layers = OrderedDict([('y_diff_pred', l_y2_diff_pred), ('y', l_y2), ('x0_next_pred', l_x_next_pred)])
     return net_name, input_vars, pred_layers, loss
 
 def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, num_downsample=0, share_bilinear_weights=True, ladder_loss=True, batch_normalization=False, concat=False, tanh=True, axis=1):
@@ -303,7 +346,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
     l_ylevels_diff_pred = OrderedDict()
     for level in range(levels[-1]+1)[::-1]:
         if level == levels[-1]:
-            l_xlevel_next_pred = L.NonlinearityLayer(l_xlevels_next_trans[level], nonlinearity=nl.identity, name='x%d_next_pred'%level) # workaround to achieve multiple names to same layer
+            l_xlevel_next_pred = l_xlevels_next_trans[level]
         else:
             if level == 0:
                 xlevel_c_dim = x1_c_dim
@@ -368,5 +411,8 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
     net_name += '_axis' + str(axis)
 
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
-    pred_layers = OrderedDict([('Y_diff_pred', l_y_diff_pred), ('Y', l_y), ('X_next_pred', l_x0_next_pred)]) # TODO distinction between x and preprocessed x0
+    pred_layers = OrderedDict([('y_diff_pred', l_y_diff_pred),
+                               ('y', l_y),
+                               ('x0_next_pred', l_x0_next_pred),
+                               ('x%d_next_pred'%levels[-1], l_xlevels_next_pred[levels[-1]])])
     return net_name, input_vars, pred_layers, loss, loss_deterministic

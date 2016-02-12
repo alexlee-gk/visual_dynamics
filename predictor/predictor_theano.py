@@ -52,12 +52,20 @@ def iterate_minibatches_indefinitely(hdf5_fname, *data_names, **kwargs):
 
 class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
     def __init__(self, net_name, input_vars, pred_layers, loss, loss_deterministic=None, postfix=''):
+        """
+        input_vars: dict of input variables
+        pred_layers: dict of layers of the network, which should contain at least all the root layers of the network.
+            Also, allows to specify layers that have multiple names (i.e. different names can map to the same layer).
+        """
         self.X_var, self.U_var, self.X_diff_var = [input_vars[var_name] for var_name in ['X', 'U', 'X_diff']]
-        self.l_x_next_pred = pred_layers['X_next_pred']
-
-        layers = OrderedDict((layer.name, layer) for layer in lasagne.layers.get_all_layers(self.l_x_next_pred))
-        self.pred_vars = OrderedDict(zip(layers.keys(), lasagne.layers.get_output(layers.values())))
-        x_shape, u_shape = (layers['x'].shape[1:], layers['u'].shape[1:])
+        self.pred_layers = OrderedDict(pred_layers)
+        for pred_layer in list(pred_layers.values()):
+            self.pred_layers.update((layer.name, layer) for layer in lasagne.layers.get_all_layers(pred_layer))
+        layer_name_aliases = [('x0', 'x'), ('x', 'x0'), ('x0_next', 'x_next'), ('x_next', 'x0_next'), ('x0', 'image_curr'), ('x0_next', 'image_next'), ('x0_next_pred', 'image_next_pred')]
+        for name, name_alias  in layer_name_aliases:
+            if name in self.pred_layers:
+                self.pred_layers[name_alias] = self.pred_layers[name]
+        x_shape, u_shape = (self.pred_layers['x'].shape[1:], self.pred_layers['u'].shape[1:])
         self.loss = loss
         self.loss_deterministic = loss_deterministic or loss
         self.pred_fns = {}
@@ -84,7 +92,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
                                                        batch_size=batch_size, shuffle=True)
 
         # training loss
-        param_l2_penalty = lasagne.regularization.regularize_network_params(self.l_x_next_pred, lasagne.regularization.l2)
+        param_l2_penalty = lasagne.regularization.regularize_network_params(self.pred_layers['x0_next_pred'], lasagne.regularization.l2)
         loss = self.loss + weight_decay * param_l2_penalty / 2.
 
         # training function
@@ -146,18 +154,16 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
     def _predict(self, X, U, prediction_name=None):
         # TODO: make U optional
         prediction_name = prediction_name or 'x0_next_pred'
-        if 'image_next_pred':
-            prediction_name = 'x0_next_pred'
         if prediction_name in self.pred_fns:
             pred_fn = self.pred_fns[prediction_name]
         else:
-            pred_var = self.pred_vars[prediction_name]
+            pred_var = lasagne.layers.get_output(self.pred_layers[prediction_name], deterministic=True)
             input_vars = [self.X_var]
             if self.U_var in theano.gof.graph.inputs([pred_var]):
                 input_vars.append(self.U_var)
             start_time = time.time()
             print("Compiling prediction function...")
-            pred_fn = theano.function(input_vars, self.pred_vars[prediction_name])
+            pred_fn = theano.function(input_vars, pred_var)
             print("... finished in %.2f s"%(time.time() - start_time))
             self.pred_fns[prediction_name] = pred_fn
         if U is None:
@@ -184,8 +190,8 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
 
     def _jacobian_control(self, X, U):
         if self.jacobian_fn is None:
-            prediction_name = 'Y_diff_pred'
-            Y_diff_pred_var = self.pred_vars[prediction_name]
+            prediction_name = 'y_diff_pred'
+            Y_diff_pred_var = lasagne.layers.get_output(self.pred_layers[prediction_name], deterministic=True)
             self.jacobian_var, updates = theano.scan(lambda i, Y_diff_pred_var, U_var: theano.gradient.jacobian(Y_diff_pred_var[i], U_var)[:, i, :], sequences=T.arange(Y_diff_pred_var.shape[0]), non_sequences=[Y_diff_pred_var, self.U_var])
             input_vars = [self.X_var, self.U_var] if U is not None else [self.X_var]
             print("Compiling jacobian function...")
@@ -217,13 +223,13 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
         return self.predict(X, None, 'Y')
 
     def get_all_params(self, **tags):
-        return lasagne.layers.get_all_params(self.l_x_next_pred, **tags)
+        return lasagne.layers.get_all_params(self.pred_layers['x0_next_pred'], **tags)
 
     def get_all_param_values(self, **tags):
-        return lasagne.layers.get_all_param_values(self.l_x_next_pred, **tags)
+        return lasagne.layers.get_all_param_values(self.pred_layers['x0_next_pred'], **tags)
 
     def set_all_param_values(self, all_param_values, **tags):
-        lasagne.layers.set_all_param_values(self.l_x_next_pred, all_param_values, **tags)
+        lasagne.layers.set_all_param_values(self.pred_layers['x0_next_pred'], all_param_values, **tags)
 
     def test_all(self, val_fn, val_hdf5_fname, batch_size, test_iter):
         loss = 0
@@ -237,7 +243,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
     def snapshot(self, iter_, snapshot_prefix):
         snapshot_prefix = snapshot_prefix or self.get_snapshot_prefix()
         snapshot_fname = snapshot_prefix + '_iter_%d.pkl'%iter_
-        snapshot_file = file(snapshot_fname, 'wb')
+        snapshot_file = open(snapshot_fname, 'wb')
         all_param_values = self.get_all_param_values()
         print("Snapshotting to pickle file", snapshot_fname)
         pickle.dump(all_param_values, snapshot_file, protocol=pickle.HIGHEST_PROTOCOL)
