@@ -11,46 +11,6 @@ import data_container
 import util
 import util_parser
 
-from matplotlib import pyplot as plt
-# take an array of shape (n, height, width) or (n, height, width, channels)
-# and visualize each (height, width) thing in a grid of size approx. sqrt(n) by sqrt(n)
-def vis_square(data, padsize=1, padval=0):
-    data = data.copy()
-    data -= data.min()
-    data /= data.max()
-
-    # force the number of filters to be square
-    n = int(np.ceil(np.sqrt(data.shape[0])))
-    padding = ((0, n ** 2 - data.shape[0]), (0, padsize), (0, padsize)) + ((0, 0),) * (data.ndim - 3)
-    data = np.pad(data, padding, mode='constant', constant_values=(padval, padval))
-
-    # tile the filters into an image
-    data = data.reshape((n, n) + data.shape[1:]).transpose((0, 2, 1, 3) + tuple(range(4, data.ndim + 1)))
-    data = data.reshape((n * data.shape[1], n * data.shape[3]) + data.shape[4:])
-    return data
-
-def vis_response_maps(xlevels, w=None, image=None):
-    plt.ion()
-    plt.figure(1, figsize=(18, 6))
-    if w is None:
-        is_w_ones = True
-    else:
-        is_w_ones = np.all(w == 1)
-        w = w.copy()
-    for i, xlevel in enumerate(([image] if image is not None else []) + xlevels.values()):
-        plt.subplot(1 if is_w_ones else 2, len(xlevels) + int(image is not None), i+1)
-        if image is not None and i == 0:
-            plt.imshow(cv2.cvtColor(util.image_from_obs(xlevel), cv2.COLOR_BGR2RGB))
-        else:
-            if xlevel.shape[0] == 3:
-                plt.imshow(cv2.cvtColor(util.image_from_obs(xlevel), cv2.COLOR_BGR2RGB))
-            else:
-                plt.imshow(vis_square(xlevel))
-            if not is_w_ones:
-                plt.subplot(1 if is_w_ones else 2, len(xlevels), len(xlevels)+i+1)
-                plt.imshow(vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape)))
-                w = w[xlevel.size:]
-    plt.draw()
 
 def main():
     np.random.seed(0)
@@ -254,7 +214,7 @@ def main():
             image_curr, image_diff, vel = val_container.get_datum(datum_iter, ['image_curr', 'image_diff', 'vel']).values()
             image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
             if args.visualize:
-                vis_response_maps(feature_predictor.features_from_input(image_curr), image=image_curr)
+                feature_predictor.visualize_response_maps(image_curr)
                 image_next = image_curr + image_diff
                 image_curr = feature_predictor.preprocess_input(image_curr)
                 image_next = feature_predictor.preprocess_input(image_next)
@@ -370,7 +330,7 @@ def main():
                     if key == ord('t'):
                         args.visualize_response_maps = not args.visualize_response_maps
                     if args.visualize and args.visualize_response_maps:
-                        vis_response_maps(feature_predictor.features_from_input(image), ctrl.w)
+                        feature_predictor.visualize_response_maps(image, w=ctrl.w)
                     if args.output_image_dir:
                         if vis_image.ndim == 2:
                             output_image = np.concatenate([vis_image]*3, axis=2)

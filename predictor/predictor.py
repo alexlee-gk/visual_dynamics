@@ -1,7 +1,11 @@
 import numpy as np
 import h5py
 import os
+import collections
+import matplotlib.pyplot as plt
+import cv2
 import bilinear
+import util
 
 class FeaturePredictor(object):
     """
@@ -32,8 +36,67 @@ class FeaturePredictor(object):
     def preprocess_input(self, X):
         return X
 
+    def response_maps_from_input(self, X):
+        return collections.OrderedDict()
+
     def copy_from(self, params_fname):
         raise NotImplementedError
+
+    def visualize_response_maps(self, X, w=None):
+        response_maps = self.response_maps_from_input(X)
+        if w is None:
+            is_w_ones = True
+        else:
+            is_w_ones = np.all(w == 1)
+            w = w.copy()
+        plt.ion()
+        _, axarr = plt.subplots(1 if is_w_ones else 2, 1 + len(response_maps), num=1, figsize=(18, 6))
+        if axarr.ndim == 1:
+            axarr = axarr.reshape((1, -1))
+        for i, (name, response_map) in enumerate([('x', X), *response_maps.items()]):
+            if response_map.shape[0] == 3:
+                axarr[0, i].imshow(cv2.cvtColor(util.image_from_obs(response_map), cv2.COLOR_BGR2RGB))
+            else:
+                axarr[0, i].imshow(util.vis_square(response_map))
+            axarr[0, i].set_title(name)
+            if i != 0 and not is_w_ones:
+                axarr[1, i].imshow(util.vis_square(response_map * w[:response_map.size].reshape(response_map.shape)))
+                w = w[response_map.size:]
+        plt.draw()
+
+    def restore_losses(self, curr_iter=0, num_test_nets=1):
+        loss_txt_fname = self.get_loss_fname()
+        headers = ['iter', 'train loss'] + ['test %d loss'%i_test for i_test in range(num_test_nets)]
+        if os.path.isfile(loss_txt_fname):
+            iter_loss_items = np.loadtxt(loss_txt_fname, dtype={'names': headers, 'formats': [np.int] + [np.float]*(1+num_test_nets)}, unpack=True)
+            iters, losses = iter_loss_items[:2]
+            val_losses = iter_loss_items[2:]
+            iters = [iter_ for iter_ in iters if iter_ < curr_iter]
+            losses = losses[:len(iters)].tolist()
+            val_losses = [test_losses[:len(iters)].tolist() for test_losses in val_losses]
+        else:
+            iters = []
+            losses = []
+            val_losses = [[] for _ in range(num_test_nets)]
+        return iters, losses, val_losses
+
+    def save_losses(self, iters, losses, val_losses):
+        loss_txt_fname = self.get_loss_fname()
+        headers = ['iter', 'train loss'] + ['test %d loss'%i_test for i_test in range(len(val_losses))]
+        np.savetxt(loss_txt_fname, np.asarray([iters, losses] + val_losses).T, fmt=['%d'] + ['%.2f']*(1+len(val_losses)), delimiter='\t', header='\t'.join(headers))
+        loss_fig_fname = self.get_loss_fname(ext='.pdf')
+        plt.ion()
+        fig = plt.figure(2)
+        plt.cla()
+        fig.canvas.set_window_title(self.net_name + '_' + self.postfix)
+        plt.plot(iters, losses, label='train')
+        for i_test, test_losses in enumerate(val_losses):
+            plt.plot(iters, test_losses, label='test %d'%i_test)
+        plt.ylabel('iteration')
+        plt.ylabel('loss')
+        plt.legend()
+        plt.draw()
+        plt.savefig(loss_fig_fname)
 
     def get_model_dir(self):
         if self.backend is not None:
@@ -50,6 +113,9 @@ class FeaturePredictor(object):
             os.makedirs(snapshot_dir)
         snapshot_prefix = os.path.join(snapshot_dir, '')
         return snapshot_prefix
+
+    def get_loss_fname(self, ext='.txt'):
+        return os.path.join(self.get_model_dir(), 'loss' + ext)
 
     @staticmethod
     def infer_input_shapes(hdf5_fname_hint, inputs=None):

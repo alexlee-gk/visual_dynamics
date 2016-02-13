@@ -91,7 +91,8 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
               momentum2 = 0.999,
               weight_decay=0.0005,
               snapshot=1000,
-              snapshot_prefix=None):
+              snapshot_prefix=None,
+              visualize_response_maps=False):
         # training data
         minibatches = iterate_minibatches_indefinitely(train_hdf5_fname, 'image_curr', 'vel', 'image_diff',
                                                        batch_size=batch_size, shuffle=True)
@@ -131,9 +132,11 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
 
         if solverstate_fname is not None and not solverstate_fname.endswith('.pkl'):
             solverstate_fname = self.get_snapshot_prefix() + '_iter_' + solverstate_fname + '.pkl'
-        iter_ = self.restore(solverstate_fname)
+        curr_iter = self.restore_solver(solverstate_fname)
+        # load losses for visualization
+        iters, losses, val_losses = self.restore_losses(curr_iter=curr_iter)
         print("Starting training...")
-        while iter_ < max_iter:
+        for iter_ in range(curr_iter, max_iter):
             current_step = iter_ // stepsize
             learning_rate = base_lr * gamma ** current_step
 
@@ -146,6 +149,16 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             if display and iter_ % display == 0:
                 print(("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate)))
                 print(("    training loss = {:.6f}".format(float(loss))))
+                # visualize response maps of first image in batch
+                if visualize_response_maps:
+                    self.visualize_response_maps(X[0])
+                # update, save and visualize losses
+                iters.append(iter_)
+                losses.append(loss)
+                test_losses = val_losses[0]
+                test_loss = self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
+                test_losses.append(test_loss)
+                self.save_losses(iters, losses, val_losses)
             iter_ += 1
             if snapshot and iter_ % snapshot == 0 and iter_ > 0:
                 self.snapshot(iter_, snapshot_prefix)
@@ -158,7 +171,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
         if validate and iter_ % test_interval == 0:
             self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
 
-    def restore(self, solverstate_fname):
+    def restore_solver(self, solverstate_fname):
         """
         Restores if solverstate_fname is not None and returns the iteration at which the network is restored
         """
@@ -229,7 +242,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
     def feature_from_input(self, X):
         return self.predict(X, prediction_name='Y')
 
-    def features_from_input(self, X):
+    def response_maps_from_input(self, X):
         levels = []
         for key in self.pred_layers.keys():
             match = re.match('x(\d+)$', key)
@@ -255,11 +268,12 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
     def test_all(self, val_fn, val_hdf5_fname, batch_size, test_iter):
         loss = 0
         minibatches = iterate_minibatches_indefinitely(val_hdf5_fname, 'image_curr', 'vel', 'image_diff',
-                                                       batch_size=batch_size, shuffle=False)
+                                                       batch_size=batch_size, shuffle=True)
         for _ in range(test_iter):
             X, U, X_next = next(minibatches)
             loss += val_fn(X, U, X_next)
         print(("    validation loss = {:.6f}".format(loss / test_iter)))
+        return loss
 
     def snapshot(self, iter_, snapshot_prefix):
         snapshot_prefix = snapshot_prefix or self.get_snapshot_prefix()

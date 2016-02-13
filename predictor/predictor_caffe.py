@@ -219,22 +219,8 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
             self.val_net = solver.test_nets[0]
 
     def solve(self, solver, solver_param, visualize_response_maps=False):
-        # prepare visualization and files
-        loss_fig_fname = os.path.join(self.get_model_dir(), 'loss.pdf')
-        loss_txt_fname = os.path.join(self.get_model_dir(), 'loss.txt')
-        headers = ['iter', 'train loss'] + ['test %d loss'%i_test for i_test in range(len(solver.test_nets))]
-        plt.ion()
-        if os.path.isfile(loss_txt_fname):
-            iter_loss_items = np.loadtxt(loss_txt_fname, dtype={'names': headers, 'formats': [np.int] + [np.float]*(1+len(solver.test_nets))}, unpack=True)
-            iters, losses = iter_loss_items[:2]
-            val_losses = iter_loss_items[2:]
-            iters = [iter_ for iter_ in iters if iter_ < solver.iter]
-            losses = losses[:len(iters)].tolist()
-            val_losses = [test_losses[:len(iters)].tolist() for test_losses in val_losses]
-        else:
-            iters = []
-            losses = []
-            val_losses = [[] for _ in range(len(solver.test_nets))]
+        # load losses for visualization
+        iters, losses, val_losses = self.restore_losses(curr_iter=solver.iter, num_test_nets=len(solver.test_nets))
         # solver loop
         for iter_ in range(solver.iter, solver_param.max_iter):
             solver.step(1)
@@ -242,9 +228,8 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                 iters.append(iter_)
                 # visualize response maps of first image in batch
                 if visualize_response_maps:
-                    from servoing_controller import vis_response_maps
                     image_curr = solver.net.blobs['image_curr'].data[0].copy()
-                    vis_response_maps(self.features_from_input(image_curr), image=image_curr)
+                    self.visualize_response_maps(image_curr)
                 # training loss
                 loss = 0.0
                 for blob_name, loss_weight in solver.net.blob_loss_weights.items():
@@ -269,20 +254,8 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                         if loss_weight:
                             test_loss += loss_weight * mean_score
                     test_losses.append(test_loss)
-                # visualization
-                fig = plt.figure(2)
-                plt.cla()
-                fig.canvas.set_window_title(self.net_name + '_' + self.postfix)
-                plt.plot(iters, losses, label='train')
-                for i_test, test_losses in enumerate(val_losses):
-                    plt.plot(iters, test_losses, label='test %d'%i_test)
-                plt.ylabel('iteration')
-                plt.ylabel('loss')
-                plt.legend()
-                plt.draw()
-                # save to file
-                plt.savefig(loss_fig_fname)
-                np.savetxt(loss_txt_fname, np.asarray([iters, losses] + val_losses).T, fmt=['%d'] + ['%.2f']*(1+len(solver.test_nets)), delimiter='\t', header='\t'.join(headers))
+                # save losses and visualize them
+                self.save_losses(iters, losses, val_losses)
 
     def predict(self, *inputs, **kwargs):
         if 'prediction_name' in kwargs and kwargs['prediction_name'] not in self.blobs:
@@ -408,7 +381,7 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
         else:
             return np.asarray([self.mean_feature_from_input(x) for x in X])
 
-    def features_from_input(self, x):
+    def response_maps_from_input(self, x):
         assert x.shape == self.x_shape
         is_first_time = self._xlevel_shapes is None
         if is_first_time:
@@ -445,7 +418,7 @@ class FcnActionCondEncoderNetFeaturePredictor(CaffeNetFeaturePredictor):
 
     def jacobian_control(self, X, U):
         if X.shape == self.x_shape:
-            xlevels = self.features_from_input(X)
+            xlevels = self.response_maps_from_input(X)
             jaclevels = []
             ylevels = []
             for output_name, xlevel in xlevels.items():
@@ -517,10 +490,10 @@ class EnsembleNetFeaturePredictor(CaffeNetFeaturePredictor):
         ys = np.concatenate(ys)
         return ys
 
-    def features_from_input(self, x):
+    def response_maps_from_input(self, x):
         xlevels = OrderedDict()
         for i, predictor in enumerate(self.predictors):
-            predictor_xlevels = predictor.features_from_input(x)
+            predictor_xlevels = predictor.response_maps_from_input(x)
             for output_name, xlevel in predictor_xlevels:
                 if output_name == 'x0' and output_name not in xlevels:
                     xlevels[output_name] = xlevel

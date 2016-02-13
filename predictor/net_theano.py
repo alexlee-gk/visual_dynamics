@@ -201,11 +201,14 @@ def build_action_cond_encoder_net(input_shapes, **kwargs):
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var, name='u')
 
     l_x1 = L.Conv2DLayer(l_x0, 64, filter_size=6, stride=2, pad=0,
-                         nonlinearity=nl.rectify)
+                         nonlinearity=nl.rectify,
+                         name='x1')
     l_x2 = L.Conv2DLayer(l_x1, 64, filter_size=6, stride=2, pad=2,
-                         nonlinearity=nl.rectify)
+                         nonlinearity=nl.rectify,
+                         name='x2')
     l_x3 = L.Conv2DLayer(l_x2, 64, filter_size=6, stride=2, pad=2,
-                         nonlinearity=nl.rectify)
+                         nonlinearity=nl.rectify,
+                         name='x3')
     l_x3_shape = lasagne.layers.get_output_shape(l_x3)
 
     l_y4 = L.DenseLayer(l_x3, 1024, nonlinearity=nl.rectify)
