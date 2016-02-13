@@ -209,8 +209,8 @@ def build_action_cond_encoder_net(input_shapes, **kwargs):
     l_x3_shape = lasagne.layers.get_output_shape(l_x3)
 
     l_y4 = L.DenseLayer(l_x3, 1024, nonlinearity=nl.rectify)
-    l_y5 = L.DenseLayer(l_y4, 2048, nonlinearity=None, name='y')
-    l_u5 = L.DenseLayer(l_u, 2048, nonlinearity=None)
+    l_y5 = L.DenseLayer(l_y4, 2048, W=init.Uniform(1.0), nonlinearity=None, name='y')
+    l_u5 = L.DenseLayer(l_u, 2048, W=init.Uniform(0.1), nonlinearity=None)
 
     l_y5_diff_pred = L.ElemwiseMergeLayer([l_y5, l_u5], T.mul, name='y_diff_pred')
     l_y5_next_pred = L.ElemwiseMergeLayer([l_y5, l_y5_diff_pred], T.add, name='y_next_pred')
