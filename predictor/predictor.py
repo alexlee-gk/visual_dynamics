@@ -69,8 +69,7 @@ class FeaturePredictor(object):
         headers = ['iter', 'train loss'] + ['test %d loss'%i_test for i_test in range(num_test_nets)]
         if os.path.isfile(loss_txt_fname):
             iter_loss_items = np.loadtxt(loss_txt_fname, dtype={'names': headers, 'formats': [np.int] + [np.float]*(1+num_test_nets)}, unpack=True)
-            iters, losses = iter_loss_items[:2]
-            val_losses = iter_loss_items[2:]
+            iters, losses, *val_losses = [item.reshape(-1) for item in iter_loss_items]
             iters = [iter_ for iter_ in iters if iter_ < curr_iter]
             losses = losses[:len(iters)].tolist()
             val_losses = [test_losses[:len(iters)].tolist() for test_losses in val_losses]
