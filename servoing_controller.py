@@ -146,6 +146,10 @@ def main():
             feature_predictor.train(X, U, Y_dot)
     elif args.predictor.startswith('build_'):
         from predictor import predictor_theano, net_theano
+        if args.pretrained_fname == 'auto':
+            args.pretrained_fname = str(args.max_iter)
+        if args.solverstate_fname == 'auto':
+            args.solverstate_fname = str(args.max_iter)
         build_net = getattr(net_theano, args.predictor)
         feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes,
                                                                                   levels=args.levels,
@@ -156,11 +160,11 @@ def main():
                                                                                   batch_normalization=args.batch_normalization,
                                                                                   concat=args.concat,
                                                                                   axis=args.axis),
+                                                                       pretrained_file=args.pretrained_fname,
                                                                        postfix=args.postfix)
-        if args.pretrained_fname is not None:
-            feature_predictor.copy_from(args.pretrained_fname)
         if not args.no_train:
             feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname,
+                                    solverstate_fname=args.solverstate_fname,
                                     solver_type='ADAM',
                                     base_lr=args.base_lr, gamma=0.99,
                                     momentum=0.9, momentum2=0.999,

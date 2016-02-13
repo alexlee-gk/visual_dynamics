@@ -3,6 +3,7 @@ import h5py
 import pickle
 from collections import OrderedDict
 import time
+import re
 import theano
 import theano.tensor as T
 import lasagne
@@ -51,7 +52,7 @@ def iterate_minibatches_indefinitely(hdf5_fname, *data_names, **kwargs):
 
 
 class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
-    def __init__(self, net_name, input_vars, pred_layers, loss, loss_deterministic=None, postfix=''):
+    def __init__(self, net_name, input_vars, pred_layers, loss, loss_deterministic=None, pretrained_file=None, postfix=''):
         """
         input_vars: dict of input variables
         pred_layers: dict of layers of the network, which should contain at least all the root layers of the network.
@@ -66,13 +67,17 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             if name in self.pred_layers:
                 self.pred_layers[name_alias] = self.pred_layers[name]
         x_shape, u_shape = (self.pred_layers['x'].shape[1:], self.pred_layers['u'].shape[1:])
+        predictor.FeaturePredictor.__init__(self, x_shape, u_shape, net_name=net_name, postfix=postfix, backend='theano')
         self.loss = loss
         self.loss_deterministic = loss_deterministic or loss
         self.pred_fns = {}
         self.jacobian_var = self.jacobian_fn = None
-        predictor.FeaturePredictor.__init__(self, x_shape, u_shape, net_name=net_name, postfix=postfix, backend='theano')
+        if pretrained_file is not None and not pretrained_file.endswith('.pkl'):
+            pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.pkl'
+        if pretrained_file is not None:
+            self.copy_from(pretrained_file)
 
-    def train(self, train_hdf5_fname, val_hdf5_fname=None,
+    def train(self, train_hdf5_fname, val_hdf5_fname=None, solverstate_fname=None,
               batch_size=32,
               test_iter = 10,
               solver_type = 'SGD',
@@ -124,8 +129,10 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             val_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], test_loss)
             print("... finished in %.2f s"%(time.time() - start_time))
 
+        if solverstate_fname is not None and not solverstate_fname.endswith('.pkl'):
+            solverstate_fname = self.get_snapshot_prefix() + '_iter_' + solverstate_fname + '.pkl'
+        iter_ = self.restore(solverstate_fname)
         print("Starting training...")
-        iter_ = 0
         while iter_ < max_iter:
             current_step = iter_ // stepsize
             learning_rate = base_lr * gamma ** current_step
@@ -150,6 +157,20 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             print(("    training loss = {:.6f}".format(float(loss))))
         if validate and iter_ % test_interval == 0:
             self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
+
+    def restore(self, solverstate_fname):
+        """
+        Restores if solverstate_fname is not None and returns the iteration at which the network is restored
+        """
+        if solverstate_fname is not None:
+            self.copy_from(solverstate_fname)
+            match = re.match('.*_iter_(\d+).pkl$', solverstate_fname)
+            if match:
+                assert len(match.groups()) == 1
+                iter_ = int(match.group(1))
+        else:
+            iter_ = 0
+        return iter_
 
     def _predict(self, X, U, prediction_name=None):
         # TODO: make U optional
