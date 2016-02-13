@@ -61,7 +61,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
         self.X_var, self.U_var, self.X_diff_var = [input_vars[var_name] for var_name in ['X', 'U', 'X_diff']]
         self.pred_layers = OrderedDict(pred_layers)
         for pred_layer in list(pred_layers.values()):
-            self.pred_layers.update((layer.name, layer) for layer in lasagne.layers.get_all_layers(pred_layer))
+            self.pred_layers.update((layer.name, layer) for layer in lasagne.layers.get_all_layers(pred_layer) if layer.name is not None)
         layer_name_aliases = [('x0', 'x'), ('x', 'x0'), ('x0_next', 'x_next'), ('x_next', 'x0_next'), ('x0', 'image_curr'), ('x0_next', 'image_next'), ('x0_next_pred', 'image_next_pred')]
         for name, name_alias  in layer_name_aliases:
             if name in self.pred_layers:
@@ -172,8 +172,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             iter_ = 0
         return iter_
 
-    def _predict(self, X, U, prediction_name=None):
-        # TODO: make U optional
+    def _predict(self, *inputs, prediction_name=None):
         prediction_name = prediction_name or 'x0_next_pred'
         if prediction_name in self.pred_fns:
             pred_fn = self.pred_fns[prediction_name]
@@ -187,61 +186,62 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             pred_fn = theano.function(input_vars, pred_var)
             print("... finished in %.2f s"%(time.time() - start_time))
             self.pred_fns[prediction_name] = pred_fn
-        if U is None:
-            pred = pred_fn(X)
-        else:
-            pred = pred_fn(X, U)
-        return pred
+        return pred_fn(*inputs)
 
-    def predict(self, X, U, prediction_name=None):
+    def predict(self, *inputs, prediction_name=None):
+        X = inputs[0]
         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
         is_batched = X.shape == self.x_shape
-        if X.dtype != theano.config.floatX:
-            X = X.astype(theano.config.floatX)
-        if U is not None and U.dtype != theano.config.floatX:
-            U = U.astype(theano.config.floatX)
+        inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
         if is_batched:
-            X = X[None, ...]
-            if U is not None:
-                U = U[None, :]
-        pred = self._predict(X, U, prediction_name=prediction_name)
+            inputs = [input_[None, ...] for input_ in inputs]
+        pred = self._predict(*inputs, prediction_name=prediction_name)
         if is_batched:
             pred = np.squeeze(pred, 0)
         return pred
 
-    def _jacobian_control(self, X, U):
+    def _jacobian_control(self, *inputs):
         if self.jacobian_fn is None:
             prediction_name = 'y_diff_pred'
             Y_diff_pred_var = lasagne.layers.get_output(self.pred_layers[prediction_name], deterministic=True)
             self.jacobian_var, updates = theano.scan(lambda i, Y_diff_pred_var, U_var: theano.gradient.jacobian(Y_diff_pred_var[i], U_var)[:, i, :], sequences=T.arange(Y_diff_pred_var.shape[0]), non_sequences=[Y_diff_pred_var, self.U_var])
-            input_vars = [self.X_var, self.U_var] if U is not None else [self.X_var]
+            input_vars = [self.X_var]
+            if self.U_var in theano.gof.graph.inputs([self.jacobian_var]):
+                input_vars.append(self.U_var)
+            start_time = time.time()
             print("Compiling jacobian function...")
-            jacobian_fn = theano.function(input_vars, self.jacobian_var, updates=updates)
-            self.jacobian_fn = jacobian_fn
-        if U is None:
-            jac = jacobian_fn(X)
-        else:
-            jac = jacobian_fn(X, U)
-        return jac
+            self.jacobian_fn = theano.function(input_vars, self.jacobian_var, updates=updates)
+            print("... finished in %.2f s"%(time.time() - start_time))
+        return self.jacobian_fn(*inputs)
 
-    def jacobian_control(self, X, U):
+    def jacobian_control(self, *inputs):
+        X = inputs[0]
         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
         is_batched = X.shape == self.x_shape
-        if X.dtype != theano.config.floatX:
-            X = X.astype(theano.config.floatX)
-        if U is not None and U.dtype != theano.config.floatX:
-            U = U.astype(theano.config.floatX)
+        inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
         if is_batched:
-            X = X[None, ...]
-            if U is not None:
-                U = U[None, :]
-        jac = self._jacobian_control(X, U)
+            inputs = [input_[None, ...] for input_ in inputs]
+        jac = self._jacobian_control(*inputs)
         if is_batched:
             jac = np.squeeze(jac, 0)
         return jac
 
     def feature_from_input(self, X):
-        return self.predict(X, None, 'Y')
+        return self.predict(X, prediction_name='Y')
+
+    def features_from_input(self, X):
+        levels = []
+        for key in self.pred_layers.keys():
+            match = re.match('x(\d+)$', key)
+            if match:
+                assert len(match.groups()) == 1
+                levels.append(int(match.group(1)))
+        levels = sorted(levels)
+        xlevels = OrderedDict()
+        for level in levels:
+            output_name = 'x%d'%level
+            xlevels[output_name] = self.predict(X, prediction_name=output_name)
+        return xlevels
 
     def get_all_params(self, **tags):
         return lasagne.layers.get_all_params(self.pred_layers['x0_next_pred'], **tags)
