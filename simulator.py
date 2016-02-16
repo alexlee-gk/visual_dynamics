@@ -183,7 +183,7 @@ class ImageTransformer(object):
         if need_swap_channels:
             image = image.transpose(1, 2, 0)
         if self.image_scale is not None and self.image_scale != 1.0:
-            image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale)
+            image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale, interpolation=cv2.INTER_AREA)
         if self.crop_size is not None and tuple(self.crop_size) != image.shape[:2]:
             h, w = image_shape = np.asarray(image.shape[:2])
             crop_h, crop_w = self.crop_size
