@@ -274,14 +274,30 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             xlevels_next_pred[output_name] = self.predict(X, U, prediction_name=output_name)
         return xlevels_next_pred
 
+    def get_all_layers(self):
+        layers = []
+        for pred_layer in list(self.pred_layers.values()):
+            layers.extend(lasagne.layers.get_all_layers(pred_layer))
+        return lasagne.utils.unique(layers)
+
     def get_all_params(self, **tags):
-        return lasagne.layers.get_all_params(self.pred_layers['x0_next_pred'], **tags)
+        return lasagne.layers.get_all_params(self.pred_layers.values(), **tags)
 
     def get_all_param_values(self, **tags):
-        return lasagne.layers.get_all_param_values(self.pred_layers['x0_next_pred'], **tags)
+        return lasagne.layers.get_all_param_values(self.pred_layers.values(), **tags)
 
     def set_all_param_values(self, all_param_values, **tags):
-        lasagne.layers.set_all_param_values(self.pred_layers['x0_next_pred'], all_param_values, **tags)
+        lasagne.layers.set_all_param_values(self.pred_layers.values(), all_param_values, **tags)
+
+    def set_tags(self, param, **tags):
+        for layer in self.get_all_layers():
+            if param in layer.params:
+                param_tags = layer.params[param]
+                for tag, value in tags.items():
+                    if value:
+                        param_tags.add(tag)
+                    else:
+                        param_tags.discard(tag)
 
     def test_all(self, val_fn, val_hdf5_fname, batch_size, test_iter):
         loss = 0
