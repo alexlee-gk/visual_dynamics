@@ -128,7 +128,8 @@ def main():
                                     solver_type='ADAM',
                                     base_lr=args.base_lr, gamma=0.99,
                                     momentum=0.9, momentum2=0.999,
-                                    max_iter=args.max_iter)
+                                    max_iter=args.max_iter,
+                                    visualize_response_maps=args.visualize_response_maps)
     else:
         import caffe
         from caffe.proto import caffe_pb2 as pb2
@@ -214,7 +215,7 @@ def main():
             image_curr, image_diff, vel = val_container.get_datum(datum_iter, ['image_curr', 'image_diff', 'vel']).values()
             image_next_pred = feature_predictor.predict(image_curr, vel, prediction_name='image_next_pred')
             if args.visualize:
-                feature_predictor.visualize_response_maps(image_curr)
+                feature_predictor.visualize_response_maps(image_curr, vel, x_next=image_curr+image_diff)
                 image_next = image_curr + image_diff
                 image_curr = feature_predictor.preprocess_input(image_curr)
                 image_next = feature_predictor.preprocess_input(image_next)
@@ -330,7 +331,8 @@ def main():
                     if key == ord('t'):
                         args.visualize_response_maps = not args.visualize_response_maps
                     if args.visualize and args.visualize_response_maps:
-                        feature_predictor.visualize_response_maps(image, w=ctrl.w)
+                        image_next = image_transformer.transform(sim.observe())
+                        feature_predictor.visualize_response_maps(image, action, x_next=image_next, w=ctrl.w)
                     if args.output_image_dir:
                         if vis_image.ndim == 2:
                             output_image = np.concatenate([vis_image]*3, axis=2)

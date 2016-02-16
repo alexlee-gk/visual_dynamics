@@ -229,7 +229,9 @@ class CaffeNetFeaturePredictor(CaffeNetPredictor, predictor.FeaturePredictor):
                 # visualize response maps of first image in batch
                 if visualize_response_maps:
                     image_curr = solver.net.blobs['image_curr'].data[0].copy()
-                    self.visualize_response_maps(image_curr)
+                    vel = solver.net.blobs['vel'].data[0].copy()
+                    image_diff = solver.net.blobs['image_diff'].data[0].copy()
+                    self.visualize_response_maps(image_curr, vel, x_next=image_curr+image_diff)
                 # training loss
                 loss = 0.0
                 for blob_name, loss_weight in solver.net.blob_loss_weights.items():

@@ -143,15 +143,15 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
             if validate and iter_ % test_interval == 0:
                 self.test_all(val_fn, val_hdf5_fname, batch_size, test_iter)
 
-            X, U, X_next = next(minibatches)
-            loss = train_fn(X, U, X_next, learning_rate)
+            X, U, X_diff = next(minibatches)
+            loss = train_fn(X, U, X_diff, learning_rate)
 
             if display and iter_ % display == 0:
                 print(("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate)))
                 print(("    training loss = {:.6f}".format(float(loss))))
                 # visualize response maps of first image in batch
                 if visualize_response_maps:
-                    self.visualize_response_maps(X[0])
+                    self.visualize_response_maps(X[0], U[0], x_next=X[0]+X_diff[0])
                 # update, save and visualize losses
                 iters.append(iter_)
                 losses.append(loss)
@@ -242,7 +242,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
     def feature_from_input(self, X):
         return self.predict(X, prediction_name='Y')
 
-    def response_maps_from_input(self, X):
+    def get_levels(self):
         levels = []
         for key in self.pred_layers.keys():
             match = re.match('x(\d+)$', key)
@@ -250,11 +250,29 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
                 assert len(match.groups()) == 1
                 levels.append(int(match.group(1)))
         levels = sorted(levels)
+        return levels
+
+    def response_maps_from_input(self, X):
+        levels = self.get_levels()
         xlevels = OrderedDict()
         for level in levels:
             output_name = 'x%d'%level
             xlevels[output_name] = self.predict(X, prediction_name=output_name)
         return xlevels
+
+    def predict_response_maps_from_input(self, X, U):
+        levels = []
+        for key in self.pred_layers.keys():
+            match = re.match('x(\d+)_next_pred$', key)
+            if match:
+                assert len(match.groups()) == 1
+                levels.append(int(match.group(1)))
+        levels = sorted(levels)
+        xlevels_next_pred = OrderedDict()
+        for level in levels:
+            output_name = 'x%d_next_pred'%level
+            xlevels_next_pred[output_name] = self.predict(X, U, prediction_name=output_name)
+        return xlevels_next_pred
 
     def get_all_params(self, **tags):
         return lasagne.layers.get_all_params(self.pred_layers['x0_next_pred'], **tags)
@@ -270,8 +288,8 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
         minibatches = iterate_minibatches_indefinitely(val_hdf5_fname, 'image_curr', 'vel', 'image_diff',
                                                        batch_size=batch_size, shuffle=True)
         for _ in range(test_iter):
-            X, U, X_next = next(minibatches)
-            loss += val_fn(X, U, X_next)
+            X, U, X_diff = next(minibatches)
+            loss += val_fn(X, U, X_diff)
         print(("    validation loss = {:.6f}".format(loss / test_iter)))
         return loss
 

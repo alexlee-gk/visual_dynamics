@@ -39,29 +39,62 @@ class FeaturePredictor(object):
     def response_maps_from_input(self, X):
         return collections.OrderedDict()
 
+    def predict_response_maps_from_input(self, X, U):
+        return collections.OrderedDict()
+
     def copy_from(self, params_fname):
         raise NotImplementedError
 
-    def visualize_response_maps(self, X, w=None):
-        response_maps = self.response_maps_from_input(X)
+    def visualize_response_maps(self, x, u, x_next=None, w=None):
+        xlevels = self.response_maps_from_input(x)
+        xlevels_next_pred = self.predict_response_maps_from_input(x, u)
+        xlevels_all = [[('x', x), *xlevels.items()],
+                       [(None, None), *xlevels_next_pred.items()]]
+        if x_next is not None:
+            xlevels_next = self.response_maps_from_input(x_next)
+            xlevels_all.append([('x_next', x_next), *[(name+'_next', xlevel) for (name, xlevel) in xlevels_next.items()]])
+
         if w is None:
             is_w_ones = True
         else:
             is_w_ones = np.all(w == 1)
             w = w.copy()
         plt.ion()
-        _, axarr = plt.subplots(1 if is_w_ones else 2, 1 + len(response_maps), num=1, figsize=(18, 6))
+        num_rows = len(xlevels_all) * (1 if is_w_ones else 2)
+        num_cols = max(len(xlevels) for xlevels in xlevels_all)
+        fig, axarr = plt.subplots(num_rows, num_cols,
+                                  num=1, figsize=(num_cols*6, num_rows*6))
         if axarr.ndim == 1:
             axarr = axarr.reshape((1, -1))
-        for i, (name, response_map) in enumerate([('x', X), *response_maps.items()]):
-            if response_map.shape[0] == 3:
-                axarr[0, i].imshow(cv2.cvtColor(util.image_from_obs(response_map), cv2.COLOR_BGR2RGB))
-            else:
-                axarr[0, i].imshow(util.vis_square(response_map))
-            axarr[0, i].set_title(name)
-            if i != 0 and not is_w_ones:
-                axarr[1, i].imshow(util.vis_square(response_map * w[:response_map.size].reshape(response_map.shape)))
-                w = w[response_map.size:]
+        # calculate min and max of responses at each level in order to consistently normalize the data
+        xlevels_min = np.inf * np.ones(num_cols)
+        xlevels_max = -np.inf * np.ones(num_cols)
+        for xlevels in xlevels_all:
+            for i, (name, xlevel) in enumerate(xlevels):
+                if xlevel is None:
+                    continue
+                xlevels_min[i] = min(xlevels_min[i], xlevel.min())
+                xlevels_max[i] = max(xlevels_max[i], xlevel.max())
+        # plot images and response maps
+        row = 0
+        for xlevels in xlevels_all:
+            for i, (name, xlevel) in enumerate(xlevels):
+                if xlevel is None:
+                    fig.delaxes(axarr[row, i])
+                    continue
+                if xlevel.shape[0] == 3:
+                    axarr[row, i].imshow(cv2.cvtColor(util.image_from_obs(xlevel), cv2.COLOR_BGR2RGB))
+                else:
+                    axarr[row, i].imshow(util.vis_square(xlevel,
+                                                         data_min=xlevels_min[i],
+                                                         data_max=xlevels_max[i]))
+                axarr[row, i].set_title(name)
+                if i != 0 and not is_w_ones:
+                    axarr[row+1, i].imshow(util.vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape),
+                                                           data_min=xlevels_min[i],
+                                                           data_max=xlevels_max[i]))
+                    w = w[xlevel.size:]
+            row += (1 if is_w_ones else 2)
         plt.draw()
 
     def restore_losses(self, curr_iter=0, num_test_nets=1):

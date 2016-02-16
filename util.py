@@ -183,10 +183,10 @@ def visualize_images_callback(*images, **kwargs):
 
 # take an array of shape (n, height, width) or (n, height, width, channels)
 # and visualize each (height, width) thing in a grid of size approx. sqrt(n) by sqrt(n)
-def vis_square(data, padsize=1, padval=0):
-    data = data.copy()
-    data -= data.min()
-    data /= data.max()
+def vis_square(data, padsize=1, padval=0, data_min=None, data_max=None):
+    data_min = data_min or data.min()
+    data_max = data_max or data.max()
+    data = (data - data_min) / (data_max - data_min)
 
     # force the number of filters to be square
     n = int(np.ceil(np.sqrt(data.shape[0])))
