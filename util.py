@@ -263,3 +263,11 @@ def image_from_obs(obs):
     image = obs.transpose(1, 2, 0)
     image = ((image + 1.0) * 255.0 / 2.0).astype(np.uint8)
     return image
+
+def sample_interval(min_limit, max_limit):
+    assert min_limit.shape == max_limit.shape
+    assert min_limit.dtype == max_limit.dtype
+    if min_limit.dtype == np.int:
+        return np.array([np.random.random_integers(low, high) for (low, high) in zip(min_limit, max_limit)])
+    else:
+        return min_limit + np.random.random_sample(min_limit.shape) * (max_limit - min_limit)

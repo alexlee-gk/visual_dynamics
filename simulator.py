@@ -241,20 +241,20 @@ class OgreSimulator(DiscreteVelocitySimulator):
         self.ogre.init()
         if background_color is not None:
             self.ogre.setBackgroundColor(np.asarray(background_color))
-        self.ogre.addNode("house", "house.mesh", 0, 0, 0)
+        self.ogre.addNode(b'house', b'house.mesh', 0, 0, 0)
         self.traj_managers = []
         if ogrehead:
             start = np.array([12, 2.5, -2])
             end = np.array([12, 2.5, -14])
             num_steps = 30
-            self.ogre.addNode("ogrehead", "ogrehead.mesh", *start) #([far, close], [down, up], [right, left])
-            self.ogre.setNodeScale("ogrehead", np.array([.03]*3))
-            self.traj_managers.append(NodeTrajectoryManager(self.ogre, "ogrehead", start, end, num_steps))
+            self.ogre.addNode(b'ogrehead', b'ogrehead.mesh', *start) #([far, close], [down, up], [right, left])
+            self.ogre.setNodeScale(b'ogrehead', np.array([.03]*3))
+            self.traj_managers.append(NodeTrajectoryManager(self.ogre, b'ogrehead', start, end, num_steps))
         self.random_background_color = random_background_color
         self.random_ogrehead = random_ogrehead
         for ogrehead_iter in range(self.random_ogrehead):
-            self.ogre.addNode("ogrehead%d"%ogrehead_iter, "ogrehead.mesh", 0, 0, 0)
-            self.ogre.setNodeScale("ogrehead%d"%ogrehead_iter, np.array([.03]*3))
+            self.ogre.addNode(b'ogrehead%d'%ogrehead_iter, b'ogrehead.mesh', 0, 0, 0)
+            self.ogre.setNodeScale(b'ogrehead%d'%ogrehead_iter, np.array([.03]*3))
         self.ogre.setCameraOrientation(self._q0)
 
     @DiscreteVelocitySimulator.dof_values.setter
@@ -263,10 +263,12 @@ class OgreSimulator(DiscreteVelocitySimulator):
         self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
         pos_angle = np.zeros(6)
         pos_angle[:min(6, self.state_dim)] += self._dof_values[:min(6, self.state_dim)]
-        pos, angle = pos_angle[:3], pos_angle[3:]
-        quat = quaternion_multiply(*[axis2quat(axis, theta) for axis, theta in zip(np.eye(3), angle)] + [self._q0])
+        pos = pos_angle[:3]
         self.ogre.setCameraPosition(pos)
-        self.ogre.setCameraOrientation(quat)
+        if self.state_dim > 3:
+            angle = pos_angle[3:]
+            quat = quaternion_multiply(*[axis2quat(axis, theta) for axis, theta in zip(np.eye(3), angle)] + [self._q0])
+            self.ogre.setCameraOrientation(quat)
 
     def apply_action(self, vel):
         vel = super(OgreSimulator, self).apply_action(vel)
@@ -283,7 +285,7 @@ class OgreSimulator(DiscreteVelocitySimulator):
             ogrehead_pos_min = np.array([12, 0, -15])
             ogrehead_pos_max = np.array([12, 5, 0])
             ogrehead_pos = ogrehead_pos_min + np.random.random(3) * (ogrehead_pos_max - ogrehead_pos_min)
-            self.ogre.setNodePosition("ogrehead%d"%ogrehead_iter, ogrehead_pos)
+            self.ogre.setNodePosition(b'ogrehead%d'%ogrehead_iter, ogrehead_pos)
 
     def observe(self):
         image = self.ogre.getScreenshot()
@@ -303,9 +305,10 @@ class CarNodeTrajectoryManager(object):
         self.reset(dof_values_init, dof_vel_init)
         self.max_travel_distance = max_travel_distance
 
-    def reset(self, dof_values, dof_vel):
+    def reset(self, dof_values, dof_vel=None):
         state_dim = len(dof_values)
-        self._dof_vel = np.asarray(dof_vel, dtype=float)
+        if dof_vel is not None:
+            self._dof_vel = np.asarray(dof_vel, dtype=float)
         self._dof_acc = np.zeros(state_dim)
         self.dof_values = np.asarray(dof_values, dtype=float)
         self._dof_values_reset = np.asarray(dof_values, dtype=float).copy()
@@ -357,28 +360,32 @@ class CarNodeTrajectoryManager(object):
 
 
 class CityOgreSimulator(OgreSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, simulate_car=True):
+    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, static_car=False):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
         self._q0 = np.array([1., 0., 0., 0.])
 
         import pygre
         self.ogre = pygre.Pygre()
         self.ogre.init()
-        self.ogre.addNode("city", "_urban-level-02-medium-3ds_3DS.mesh", 0, 0, 0)
+        self.ogre.addNode(b'city', b'_urban-level-02-medium-3ds_3DS.mesh', 0, 0, 0)
         self.traj_managers = []
-        node_name = "car"
-        self.ogre.addNode(node_name, "camaro2_3ds.mesh", -51, 10.7, 225)
+        node_name = b'car'
+        self.ogre.addNode(node_name, b'camaro2_3ds.mesh', -51, 10.7, 225)
         self.ogre.setNodeScale(node_name, np.array([0.3]*3))
         self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
-        self.simulate_car = simulate_car
-        if self.simulate_car:
-            dof_values_init = [-51, 10.7, 225]
-            dof_vel_init = [0, 0, -1]
-            dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
-            dof_vel_limits = [[-1, 0, -10], [1, 0, -1]]
-            dof_acc_limits = [[-.1, 0, 0], [.1, 0, 0]]
-            self.traj_managers.append(CarNodeTrajectoryManager(self.ogre, node_name, dof_values_init, dof_vel_init, dof_limits, dof_vel_limits, dof_acc_limits))
-        self.ogre.setCameraOrientation(self._q0)
+        car_dof_values_init = [-51, 10.7, 225]
+        car_dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
+        if static_car:
+            car_dof_vel_init = np.zeros(3)
+            car_dof_vel_limits = [np.zeros(3), np.zeros(3)]
+            car_dof_acc_limits = [np.zeros(3), np.zeros(3)]
+        else:
+            car_dof_vel_init = [0, 0, -1]
+            car_dof_vel_limits = [[-1, 0, -10], [1, 0, -1]]
+            car_dof_acc_limits = [[-.1, 0, 0], [.1, 0, 0]]
+        self.car_traj_manager = CarNodeTrajectoryManager(self.ogre, node_name, car_dof_values_init, car_dof_vel_init, car_dof_limits, car_dof_vel_limits, car_dof_acc_limits)
+        self.traj_managers.append(self.car_traj_manager)
+        self.ogre.setCameraOrientation(quaternion_multiply(axis2quat(np.array((1,0,0)), -np.pi/4), self._q0)) # look diagonally downwards at a 45 deg angle
 
     def reset(self, dof_values):
         DiscreteVelocitySimulator.reset(self, dof_values)
@@ -389,14 +396,12 @@ class CityOgreSimulator(OgreSimulator):
         return util.obs_from_image(image)
 
     def sample_state(self):
-        car_dof_min, car_dof_max = [np.array([-51-6, 10.7, -275]), np.array([-51+6, 10.7, 225])]
-        car_dof_values = car_dof_min + np.random.random_sample(car_dof_min.shape) * (car_dof_max - car_dof_min)
-        car_dof_vel = [0, 0, -1]
-        self.traj_managers[0].reset(car_dof_values, car_dof_vel)
+        car_dof_values = util.sample_interval(*self.car_traj_manager.dof_limits)
+        self.car_traj_manager.reset(car_dof_values)
         # constrain sampled state to be in the 45 deg line of sight
         val = 5 + np.random.random_sample(1) * 50
         dof_values = np.array([-51, 10.7 + val, car_dof_values[2] + val, -np.pi/4, 0])
-        return dof_values
+        return dof_values[:self.state_dim]
 
     @staticmethod
     def look_at(target_pos, camera_pos):

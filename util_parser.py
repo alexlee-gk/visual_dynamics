@@ -32,11 +32,11 @@ def set_default_subparser(self, name, args=None):
             else:
                 args.insert(0, name)
 
-def create_square_simulator(args):
-    sim = simulator.SquareSimulator(args.image_size, args.square_length, args.abs_vel_max)
+def create_square_simulator(args, **kwargs):
+    sim = simulator.SquareSimulator(args.image_size, args.square_length, args.abs_vel_max, **kwargs)
     return sim
 
-def create_ogre_simulator(args):
+def create_ogre_simulator(args, **kwargs):
     args.dof_min = args.dof_min[:args.dof]
     args.dof_max = args.dof_max[:args.dof]
     args.vel_min = args.vel_min[:args.dof]
@@ -46,16 +46,19 @@ def create_ogre_simulator(args):
                                   background_color=args.background_color,
                                   ogrehead=args.ogrehead,
                                   random_background_color=args.random_background_color,
-                                  random_ogrehead=args.random_ogrehead)
+                                  random_ogrehead=args.random_ogrehead,
+                                  **kwargs)
     return sim
 
-def create_city_simulator(args):
+def create_city_simulator(args, **kwargs):
     args.dof_min = args.dof_min[:args.dof]
     args.dof_max = args.dof_max[:args.dof]
     args.vel_min = args.vel_min[:args.dof]
     args.vel_max = args.vel_max[:args.dof]
+    args.vel_scale = args.vel_max[:args.dof]
     sim = simulator.CityOgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
-                                      args.vel_scale)
+                                      args.vel_scale,
+                                      **kwargs)
     return sim
 
 def create_servo_simulator(args, **kwargs):
@@ -97,8 +100,8 @@ def add_simulator_subparsers(parser):
     parser_ogre.set_defaults(create_simulator=create_ogre_simulator)
 
     parser_ogre = subparsers.add_parser('city')
-    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[-51-25, 10.7, -275, -np.pi/2, -np.pi/2])
-    parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[-51+25, 10.7+50, 225+50, 0, np.pi/2])
+    parser_ogre.add_argument('--dof_min', type=float, nargs='+', default=[-51-25, 10.7+5, -275, -np.pi/2, -np.pi/2])
+    parser_ogre.add_argument('--dof_max', type=float, nargs='+', default=[-51+25, 10.7+55, 225+50, 0, np.pi/2])
     parser_ogre.add_argument('--vel_min', type=float, nargs='+', default=[-2]*3 + [-np.pi/32]*2)
     parser_ogre.add_argument('--vel_max', type=float, nargs='+', default=[2]*3 + [np.pi/32]*2)
     parser_ogre.add_argument('--vel_scale', type=float, nargs='+', default=[1.]*5)

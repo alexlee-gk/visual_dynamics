@@ -21,7 +21,10 @@ def main():
     parser_servo.add_argument('--background_window_size', type=int, nargs=2, default=[5, 8], metavar=('HEIGHT', 'WIDTH'))
     args = parser.parse_args()
 
-    sim = args.create_simulator(args)
+    if args.simulator == 'city':
+        sim = args.create_simulator(args, static_car=True)
+    else:
+        sim = args.create_simulator(args)
 
     if args.output:
         TrajectoryDataContainer = getattr(data_container, args.traj_container)
