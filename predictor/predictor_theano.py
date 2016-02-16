@@ -8,11 +8,9 @@ import theano
 import theano.tensor as T
 import lasagne
 from . import predictor
+import bilinear
 
-
-def iterate_minibatches(*data, **kwargs):
-    batch_size = kwargs.get('batch_size') or 1
-    shuffle = kwargs.get('shuffle') or False
+def iterate_minibatches(*data, batch_size=1, shuffle=False):
     N = len(data[0])
     for datum in data[1:]:
         assert len(datum) == N
@@ -27,9 +25,18 @@ def iterate_minibatches(*data, **kwargs):
         yield tuple(datum[excerpt] for datum in data)
 
 
-def iterate_minibatches_indefinitely(hdf5_fname, *data_names, **kwargs):
-    batch_size = kwargs.get('batch_size') or 1
-    shuffle = kwargs.get('shuffle') or False
+def iterate_minibatches_once(hdf5_fname, *data_names, batch_size=1):
+    with h5py.File(hdf5_fname, 'r+') as f:
+        N = len(f[data_names[0]])
+        for data_name in data_names[1:]:
+            assert len(f[data_name]) == N
+        for start_idx in range(0, N, batch_size):
+            excerpt = slice(start_idx, min(start_idx + batch_size, N))
+            batch_data = tuple(np.asarray(f[data_name][excerpt][()], dtype=theano.config.floatX) for data_name in data_names)
+            yield batch_data
+
+
+def iterate_minibatches_indefinitely(hdf5_fname, *data_names, batch_size=1, shuffle=False):
     with h5py.File(hdf5_fname, 'r+') as f:
         N = len(f[data_names[0]])
         for data_name in data_names[1:]:
