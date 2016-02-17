@@ -2,6 +2,7 @@ import numpy as np
 import h5py
 import pickle
 from collections import OrderedDict
+import contextlib
 import time
 import re
 import theano
@@ -10,50 +11,78 @@ import lasagne
 from . import predictor
 import bilinear
 
-def iterate_minibatches(*data, batch_size=1, shuffle=False):
-    N = len(data[0])
-    for datum in data[1:]:
-        assert len(datum) == N
-    if shuffle:
-        indices = np.arange(N)
-        np.random.shuffle(indices)
-    for start_idx in range(0, N - batch_size + 1, batch_size):
-        if shuffle:
-            excerpt = indices[start_idx:start_idx + batch_size]
-        else:
-            excerpt = slice(start_idx, start_idx + batch_size)
-        yield tuple(datum[excerpt] for datum in data)
 
-
-def iterate_minibatches_once(hdf5_fname, *data_names, batch_size=1):
-    with h5py.File(hdf5_fname, 'r+') as f:
-        N = len(f[data_names[0]])
-        for data_name in data_names[1:]:
-            assert len(f[data_name]) == N
-        for start_idx in range(0, N, batch_size):
-            excerpt = slice(start_idx, min(start_idx + batch_size, N))
-            batch_data = tuple(np.asarray(f[data_name][excerpt][()], dtype=theano.config.floatX) for data_name in data_names)
+def iterate_minibatches_once(*hdf5_fnames, data_names, batch_size=1):
+    """
+    Iterate through all the data once in order. The data from contiguous files
+    are treated as if they are contiguous. All of the returned minibatches
+    contain batch_size data points except for possibly the last batch.
+    """
+    with contextlib.ExitStack() as stack:
+        files = [stack.enter_context(h5py.File(fname, 'r+')) for fname in hdf5_fnames]
+        for f in files:
+            for data_name in data_names[1:]:
+                assert len(f[data_name]) == len(f[data_names[0]])
+        files = iter(files)
+        f = next(files)
+        idx = 0
+        while f:
+            excerpts_data = []
+            total_excerpt_size = 0
+            while total_excerpt_size < batch_size and f:
+                excerpt_size = min(idx + batch_size - total_excerpt_size, len(f[data_names[0]])) - idx
+                excerpt = slice(idx, idx + excerpt_size)
+                excerpt_data = tuple(np.asarray(f[data_name][excerpt][()], dtype=theano.config.floatX) for data_name in data_names)
+                excerpts_data.append(excerpt_data)
+                total_excerpt_size += excerpt_size
+                if idx + excerpt_size == len(f[data_names[0]]):
+                    try:
+                        f = next(files)
+                    except StopIteration:
+                        f = None
+                    idx = 0
+                else:
+                    idx += excerpt_size
+            batch_data = [np.concatenate(data, axis=0) for data in zip(*excerpts_data)]
             yield batch_data
 
 
-def iterate_minibatches_indefinitely(hdf5_fname, *data_names, batch_size=1, shuffle=False):
-    with h5py.File(hdf5_fname, 'r+') as f:
-        N = len(f[data_names[0]])
-        for data_name in data_names[1:]:
-            assert len(f[data_name]) == N
+def iterate_minibatches_indefinitely(*hdf5_fnames, data_names, batch_size=1, shuffle=False):
+    """
+    Iterate through all the data indefinitely. The data from contiguous files
+    are treated as if they are contiguous. All of the returned minibatches
+    contain batch_size data points. If shuffle=True, the data is iterated in a
+    random order, and this order differs for each pass of the data.
+    Note: this is not as efficient as it could be when shuffle=False since each
+    data point is retrieved one by one regardless of the value of shuffle.
+    """
+    with contextlib.ExitStack() as stack:
+        files = [stack.enter_context(h5py.File(fname, 'r+')) for fname in hdf5_fnames]
+        for f in files:
+            for data_name in data_names[1:]:
+                assert len(f[data_name]) == len(f[data_names[0]])
+        data_sizes = [len(f[data_names[0]]) for f in files]
+        total_data_size = sum(data_sizes)
+        data_sizes_cs = np.r_[0, np.cumsum(data_sizes)]
+        def get_file_local_idx(idx):
+            local_idx = idx - data_sizes_cs
+            file_idx = np.asscalar(np.where(local_idx >= 0)[0][-1]) # get index of last non-negative entry
+            local_idx = local_idx[file_idx]
+            return file_idx, local_idx
         indices = []
         while True:
             if len(indices) < batch_size:
-                new_indices = np.arange(N)
+                new_indices = np.arange(total_data_size)
                 if shuffle:
                     np.random.shuffle(new_indices)
                 indices.extend(new_indices)
             excerpt = np.asarray(indices[0:batch_size])
-            unsorted = np.any(excerpt[1:] < excerpt[:-1])
-            if unsorted:
-                batch_data = tuple(np.asarray([f[data_name][ind][()] for ind in excerpt], dtype=theano.config.floatX) for data_name in data_names)
-            else:
-                batch_data = tuple(np.asarray(f[data_name][excerpt.tolist()], dtype=theano.config.floatX) for data_name in data_names)
+            batch_data = tuple(np.empty((batch_size, *f[data_name].shape[1:])) for data_name in data_names)
+            for data_name, datum in zip(data_names, batch_data):
+                datasets = [file[data_name] for file in files] # datasets[file_idx] == files[file_idx][data_name]
+                for i, idx in enumerate(excerpt):
+                    file_idx, local_idx = get_file_local_idx(idx)
+                    datum[i, ...] = np.asarray(datasets[file_idx][local_idx][()], dtype=theano.config.floatX)
             del indices[0:batch_size]
             yield batch_data
 
@@ -101,7 +130,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
               snapshot_prefix=None,
               visualize_response_maps=False):
         # training data
-        minibatches = iterate_minibatches_indefinitely(train_hdf5_fname, 'image_curr', 'vel', 'image_diff',
+        minibatches = iterate_minibatches_indefinitely(train_hdf5_fname, data_names=['image_curr', 'vel', 'image_diff'],
                                                        batch_size=batch_size, shuffle=True)
 
         # training loss
@@ -308,7 +337,7 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
 
     def test_all(self, val_fn, val_hdf5_fname, batch_size, test_iter):
         loss = 0
-        minibatches = iterate_minibatches_indefinitely(val_hdf5_fname, 'image_curr', 'vel', 'image_diff',
+        minibatches = iterate_minibatches_indefinitely(val_hdf5_fname, data_names=['image_curr', 'vel', 'image_diff'],
                                                        batch_size=batch_size, shuffle=True)
         for _ in range(test_iter):
             X, U, X_diff = next(minibatches)
