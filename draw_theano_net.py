@@ -151,6 +151,7 @@ def main():
     import argparse
     import lasagne
     from predictor import net_theano
+    from predictor import predictor_theano
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--x_shape', type=int, nargs='+', default=[3, 32, 32])
@@ -165,23 +166,27 @@ def main():
     parser.add_argument('--ladder_loss', '--ladder', type=int, default=0, help='net parameter')
     parser.add_argument('--batch_normalization', '--bn', type=int, default=0, help='net parameter')
     parser.add_argument('--concat', type=int, default=0, help='net parameter')
+    parser.add_argument('--axis', type=int, default=2, help='net parameter')
 
     args = parser.parse_args()
     args.output = args.output or (args.predictor + '.pdf')
 
     build_net = getattr(net_theano, args.predictor)
     input_shapes = (tuple(args.x_shape), tuple(args.u_shape))
-    pred_layers = build_net(input_shapes,
-                            levels=args.levels,
-                            x1_c_dim=args.x1_c_dim,
-                            num_downsample=args.num_downsample,
-                            share_bilinear_weights=args.share_bilinear_weights,
-                            ladder_loss=args.ladder_loss,
-                            batch_normalization=args.batch_normalization,
-                            concat=args.concat)[2]
-    output_layer = pred_layers['x0_next_pred']
-
-    layers = lasagne.layers.get_all_layers(output_layer)
+    if args.predictor == 'build_fcn_action_cond_encoder_only_net':
+        TheanoNetFeaturePredictor = predictor_theano.FcnActionCondEncoderOnlyTheanoNetFeaturePredictor
+    else:
+        TheanoNetFeaturePredictor = predictor_theano.TheanoNetFeaturePredictor
+    feature_predictor = TheanoNetFeaturePredictor(*build_net(input_shapes,
+                                                             levels=args.levels,
+                                                             x1_c_dim=args.x1_c_dim,
+                                                             num_downsample=args.num_downsample,
+                                                             share_bilinear_weights=args.share_bilinear_weights,
+                                                             ladder_loss=args.ladder_loss,
+                                                             batch_normalization=args.batch_normalization,
+                                                             concat=args.concat,
+                                                             axis=args.axis))
+    layers = feature_predictor.get_all_layers()
     print('Writing to %s'%args.output)
     draw_to_file(layers, args.output, output_shape=True, verbose=args.verbose)
 

@@ -76,3 +76,17 @@ class BilinearFunction(object):
         Z = np.c_[X.reshape((-1, I*J)), U, Y, np.ones(N)]
         C = np.linalg.solve(Z.T.dot(Z), Z.T.dot(Y_dot)).T
         self.Q, self.R, self.S, self.b = C[:, :I*J].reshape((K, I, J)), C[:, I*J:I*J+J], C[:, I*J+J:I*J+J+I], np.squeeze(C[:, I*J+J+I:])
+
+    @staticmethod
+    def compute_solver_terms(Y, U, Y_dot):
+        N, I = Y.shape
+        _, J = U.shape
+        _, K = Y_dot.shape
+        assert Y.shape == (N, I)
+        assert U.shape == (N, J)
+        assert Y_dot.shape == (N, K)
+        X = np.einsum("ni,nj->nij", Y, U)
+        Z = np.c_[X.reshape((-1, I*J)), U, Y, np.ones(N)]
+        A, B = Z.T.dot(Z), Z.T.dot(Y_dot)
+        post_fit = lambda C: ((C.T)[:, :I*J].reshape((K, I, J)), (C.T)[:, I*J:I*J+J], (C.T)[:, I*J+J:I*J+J+I], np.squeeze((C.T)[:, I*J+J+I:]))
+        return A, B, post_fit

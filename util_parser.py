@@ -41,6 +41,7 @@ def create_ogre_simulator(args, **kwargs):
     args.dof_max = args.dof_max[:args.dof]
     args.vel_min = args.vel_min[:args.dof]
     args.vel_max = args.vel_max[:args.dof]
+    args.vel_scale = args.vel_scale[:args.dof]
     sim = simulator.OgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                   args.vel_scale,
                                   background_color=args.background_color,
@@ -55,7 +56,7 @@ def create_city_simulator(args, **kwargs):
     args.dof_max = args.dof_max[:args.dof]
     args.vel_min = args.vel_min[:args.dof]
     args.vel_max = args.vel_max[:args.dof]
-    args.vel_scale = args.vel_max[:args.dof]
+    args.vel_scale = args.vel_scale[:args.dof]
     sim = simulator.CityOgreSimulator([args.dof_min, args.dof_max], [args.vel_min, args.vel_max],
                                       args.vel_scale,
                                       **kwargs)

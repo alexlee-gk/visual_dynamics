@@ -29,12 +29,13 @@ class ServoingController(Controller):
         self.w = w
         self._image_target = None
         self._y_target = None
+        self.u_prev = np.zeros(self.predictor.u_shape)
 
     def step(self, image):
         if self.image_target is not None:
             x = image
             # use model to optimize for action
-            J, y = self.predictor.jacobian_control(x, None)
+            J, y = self.predictor.jacobian_control(x, self.u_prev)
             if self.w is not None:
                 JW = J * self.w[:, None]
             else:
@@ -46,10 +47,10 @@ class ServoingController(Controller):
         else:
             u = np.zeros(self.predictor.u_shape)
 
-        vel = u
         if self.vel_max is not None:
-            vel = np.clip(vel, -self.vel_max, self.vel_max)
-        return vel
+            u = np.clip(u, -self.vel_max, self.vel_max)
+        self.u_prev = u
+        return u
 
     @property
     def image_target(self):

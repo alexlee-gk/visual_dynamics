@@ -23,7 +23,7 @@ def linspace2d(start,end,n):
     return np.array(cols).T
 
 def upsample_waypoints(waypoints, max_dist):
-    upsampled_waypoints = []    
+    upsampled_waypoints = []
     for wp0, wp1 in zip(waypoints[:-1], waypoints[1:]):
         dist = np.linalg.norm(np.asarray(wp1) - np.asarray(wp0))
         num = np.ceil(dist/max_dist)
@@ -88,14 +88,14 @@ def arrowed_line(img, pt1, pt2, color, thickness=1, shift=0, tip_length=0.1):
     color = tuple(color)
     # draw arrow tail
     cv2.line(img, tuple(pt1), tuple(pt2), color, thickness=thickness, shift=shift)
-    # calc angle of the arrow 
+    # calc angle of the arrow
     angle = np.arctan2(pt1[1]-pt2[1], pt1[0]-pt2[0])
-    # starting point of first line of arrow head 
+    # starting point of first line of arrow head
     pt = (int(pt2[0] + tip_length * np.cos(angle + np.pi/4)),
           int(pt2[1] + tip_length * np.sin(angle + np.pi/4)))
     # draw first half of arrow head
     cv2.line(img, tuple(pt), tuple(pt2), color, thickness=thickness, shift=shift)
-    # starting point of second line of arrow head 
+    # starting point of second line of arrow head
     pt = (int(pt2[0] + tip_length * np.cos(angle - np.pi/4)),
           int(pt2[1] + tip_length * np.sin(angle - np.pi/4)))
     # draw second half of arrow head
@@ -126,7 +126,7 @@ def create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=
     image_curr = (image_curr * 255.0).astype(np.uint8)
     image_diff = ((image_diff + 1.0) * 255.0 / 2).astype(np.uint8)
     image_next = (image_next * 255.0).astype(np.uint8)
-    
+
     images = [resize_from_scale(image, rescale_factor) for image in [image_curr, image_diff, image_next]]
 
     if draw_vel:
@@ -134,35 +134,31 @@ def create_vis_image(image_curr_data, vel_data, image_diff_data, rescale_factor=
         images = [np.repeat(image[:, :, None], 3, axis=2) if image.ndim == 2 else image for image in images]
         h, w = images[0].shape[:2]
         # draw coordinate system
-        arrowed_line(images[0], 
-                     (w/2, h/2), 
-                     (w/2 + rescale_factor, h - h/2), 
+        arrowed_line(images[0],
+                     (w/2, h/2),
+                     (w/2 + rescale_factor, h - h/2),
                      [0, 0, 255],
                      thickness=2,
                      tip_length=rescale_factor*0.2)
-        arrowed_line(images[0], 
-                     (w/2, h/2), 
-                     (w/2, h - (h/2 + rescale_factor)), 
+        arrowed_line(images[0],
+                     (w/2, h/2),
+                     (w/2, h - (h/2 + rescale_factor)),
                      [0, 255, 0],
                      thickness=2,
                      tip_length=rescale_factor*0.2)
         # draw rescaled velocity
-        arrowed_line(images[0], 
-                     (w/2, h/2), 
-                     (w/2 + vel_data[0] * rescale_vel * rescale_factor, 
-                      h - (h/2 + vel_data[1] * rescale_vel * rescale_factor)), 
+        arrowed_line(images[0],
+                     (w/2, h/2),
+                     (w/2 + vel_data[0] * rescale_vel * rescale_factor,
+                      h - (h/2 + vel_data[1] * rescale_vel * rescale_factor)),
                      [255, 0, 0],
                      thickness=2,
                      tip_length=rescale_factor*0.4)
-    
+
     vis_image = np.concatenate(images, axis=1)
     return vis_image
 
-def visualize_images_callback(*images, **kwargs):
-    vis_scale = kwargs.get('vis_scale', 1)
-    window_name = kwargs.get('window_name', 'Image window')
-    delay = kwargs.get('delay', 1)
-    ret_key = kwargs.get('ret_key', False)
+def visualize_images_callback(*images, vis_scale=10, window_name='Image window', delay=1, ret_key=False):
     vis_image = np.concatenate([image_from_obs(image) for image in images], axis=1)
     if vis_scale != 1:
         vis_rescaled_image = cv2.resize(vis_image, (0, 0), fx=vis_scale, fy=vis_scale, interpolation=cv2.INTER_NEAREST)

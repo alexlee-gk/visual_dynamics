@@ -15,8 +15,8 @@ import util_parser
 def main():
     np.random.seed(0)
     parser = argparse.ArgumentParser()
-    parser.add_argument('train_hdf5_fname', type=str)
-    parser.add_argument('val_hdf5_fname', type=str)
+    parser.add_argument('train_hdf5_fnames', nargs='+', type=str)
+    parser.add_argument('--val_hdf5_fname', type=str)
     parser.add_argument('--predictor', '-p', type=str, default='small_action_cond_encoder_net')
     parser.add_argument('--pretrained_fname', '--pf', type=str, default=None)
     parser.add_argument('--solverstate_fname', '--sf', type=str, default=None)
@@ -32,11 +32,11 @@ def main():
     parser.add_argument('--levels', type=int, nargs='+', default=[3], help='net parameter')
     parser.add_argument('--x1_c_dim', '--x1cdim', type=int, default=16, help='net parameter')
     parser.add_argument('--num_downsample', '--numds', type=int, default=0, help='net parameter')
-    parser.add_argument('--share_bilinear_weights', '--share', type=int, default=1, help='net parameter')
     parser.add_argument('--ladder_loss', '--ladder', type=int, default=0, help='net parameter')
     parser.add_argument('--batch_normalization', '--bn', type=int, default=0, help='net parameter')
     parser.add_argument('--concat', type=int, default=0, help='net parameter')
-    parser.add_argument('--axis', type=int, default=2, help='net parameter')
+    parser.add_argument('--bilinear_type', type=str, choices=['full', 'share', 'channelwise', 'factor'], default='share',
+                        help='net parameter. full: eq to axis=1. share: channelwise with shared parameters, eq to share=1. channelwise: eq to share=0. factor: factorized as in action-conditional paper.')
     parser.add_argument('--postfix', type=str, default='')
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
@@ -54,37 +54,38 @@ def main():
     parser.add_argument('--output_results_dir', type=str)
     parser.add_argument('--dof_limit_factor', type=float, default=1.0, help='experiment parameter')
     parser.add_argument('--experiment', '--exp', type=int, default=0, help='experiment parameter')
-    args, remaining_args = parser.parse_known_args()
+    parser.add_argument('--no_sim', action='store_true')
+    args = parser.parse_args()
 
-    if args.val_hdf5_fname is None:
-        args.val_hdf5_fname = args.train_hdf5_fname.replace('train', 'val')
     if args.postfix:
         args.postfix = '_' + args.postfix
     solver_params = ['lr' + str(args.base_lr)]
     if args.solver_type != 'adam':
         solver_params.append('solvertype' + args.solver_type)
-    args.postfix = '_'.join([os.path.basename(args.train_hdf5_fname).split('_')[0]] + solver_params) + args.postfix
+    args.postfix = '_'.join([os.path.basename(args.train_hdf5_fnames[0]).split('_')[0]] + solver_params) + args.postfix
 
     val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
     sim_args = val_container.get_group('sim_args')
     sim_args.pop('image_scale', None) # for backwards compatibility (simulator no longer has these)
     sim_args.pop('crop_size', None)
+    # TODO: fix handling of overriden sim_args using config files
     # parse simulator arguments if specified, and prioritize them in this order: specified arguments, sim_args from the validation data, the default arguments
-    if remaining_args:
-        subparsers = util_parser.add_simulator_subparsers(parser)
-        subparsers.add_parser('none')
-        parser.set_defaults(**sim_args)
-        val_hdf5_fname = args.val_hdf5_fname
-        postfix = args.postfix
-        args = parser.parse_args()
-        args.val_hdf5_fname = val_hdf5_fname
-        args.postfix = postfix
-        sim_args = args.get_sim_args(args)
-    else:
-        args.__dict__.update(sim_args)
-        args.create_simulator = dict(square=util_parser.create_square_simulator,
-                                     ogre=util_parser.create_ogre_simulator,
-                                     servo=lambda args: util_parser.create_servo_simulator(args, delay=False))[args.simulator]
+    # if remaining_args:
+    #     subparsers = util_parser.add_simulator_subparsers(parser)
+    #     subparsers.add_parser('none')
+    #     # parser.set_defaults(**sim_args)
+    #     val_hdf5_fname = args.val_hdf5_fname
+    #     postfix = args.postfix
+    #     args = parser.parse_args(argparse.Namespace(**sim_args))
+    #     args.val_hdf5_fname = val_hdf5_fname
+    #     args.postfix = postfix
+    #     sim_args = args.get_sim_args(args)
+    # else:
+    args.__dict__.update(sim_args)
+    args.create_simulator = dict(square=util_parser.create_square_simulator,
+                                 ogre=util_parser.create_ogre_simulator,
+                                 city=util_parser.create_city_simulator,
+                                 servo=lambda args: util_parser.create_servo_simulator(args, delay=False))[args.simulator]
     # override image tranformer arguments if specified, and sync them
     image_transformer_args = val_container.get_group('image_transformer_args')
     for image_transformer_arg in image_transformer_args.keys():
@@ -94,7 +95,7 @@ def main():
             image_transformer_args[image_transformer_arg] = args.__dict__[image_transformer_arg]
     val_container.close()
 
-    input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fname)
+    input_shapes = predictor.FeaturePredictor.infer_input_shapes(args.train_hdf5_fnames[0])
     if args.predictor == 'bilinear':
         train_file = h5py.File(args.train_hdf5_fname, 'r+')
         X = train_file['image_curr'][:]
@@ -111,25 +112,103 @@ def main():
         if args.solverstate_fname == 'auto':
             args.solverstate_fname = str(args.max_iter)
         build_net = getattr(net_theano, args.predictor)
-        feature_predictor = predictor_theano.TheanoNetFeaturePredictor(*build_net(input_shapes,
-                                                                                  levels=args.levels,
-                                                                                  x1_c_dim=args.x1_c_dim,
-                                                                                  num_downsample=args.num_downsample,
-                                                                                  share_bilinear_weights=args.share_bilinear_weights,
-                                                                                  ladder_loss=args.ladder_loss,
-                                                                                  batch_normalization=args.batch_normalization,
-                                                                                  concat=args.concat,
-                                                                                  axis=args.axis),
-                                                                       pretrained_file=args.pretrained_fname,
-                                                                       postfix=args.postfix)
+        if args.predictor == 'build_fcn_action_cond_encoder_only_net':
+            TheanoNetFeaturePredictor = predictor_theano.FcnActionCondEncoderOnlyTheanoNetFeaturePredictor
+        else:
+            TheanoNetFeaturePredictor = predictor_theano.TheanoNetFeaturePredictor
+        feature_predictor = TheanoNetFeaturePredictor(*build_net(input_shapes,
+                                                                 levels=args.levels,
+                                                                 x1_c_dim=args.x1_c_dim,
+                                                                 num_downsample=args.num_downsample,
+                                                                 bilinear_type=args.bilinear_type,
+                                                                 ladder_loss=args.ladder_loss,
+                                                                 batch_normalization=args.batch_normalization,
+                                                                 concat=args.concat),
+                                                      pretrained_file=args.pretrained_fname,
+                                                      postfix=args.postfix)
         if not args.no_train:
-            feature_predictor.train(args.train_hdf5_fname, args.val_hdf5_fname,
+            feature_predictor.train(*args.train_hdf5_fnames, val_hdf5_fname=args.val_hdf5_fname,
                                     solverstate_fname=args.solverstate_fname,
                                     solver_type='ADAM',
                                     base_lr=args.base_lr, gamma=0.99,
                                     momentum=0.9, momentum2=0.999,
                                     max_iter=args.max_iter,
                                     visualize_response_maps=args.visualize_response_maps)
+
+            # TODO: improve support for curriculum learning
+            # import lasagne
+            # p = feature_predictor
+            # orig_loss = p.loss
+            # orig_loss_deterministic = p.loss_deterministic
+            # loss_fn = lambda X, X_pred: ((X - X_pred) ** 2).mean(axis=0).sum() / 2.
+            #
+            # for param in p.get_all_params(transformation=True):
+            #     p.set_param_tags(param, trainable=False)
+            # p.pred_layers['x2_res'].coeffs[0] = 0
+            # p.pred_layers['x1_res'].coeffs[0] = 0
+            # p.pred_layers['x0_res'].coeffs[0] = 0
+            # loss_level = 0
+            # p.loss = loss_fn(lasagne.layers.get_output(p.pred_layers['x%d_next'%loss_level]),
+            #                  lasagne.layers.get_output(p.pred_layers['x%d_next_pred'%loss_level]))
+            # p.loss_deterministic = loss_fn(lasagne.layers.get_output(p.pred_layers['x%d_next'%loss_level], deterministic=True),
+            #                                lasagne.layers.get_output(p.pred_layers['x%d_next_pred'%loss_level], deterministic=True))
+            #
+            # for level in [3, 2, 1, 0]:
+            #     # restore bilinear connection
+            #     for param in p.get_all_params(transformation=True, **dict([('level%d'%level, True)])):
+            #         p.set_param_tags(param, trainable=True)
+            #     if level != 3:
+            #         p.pred_layers['x%d_res'%level].coeffs[0] = 1
+            #     feature_predictor.train(*args.train_hdf5_fnames, val_hdf5_fname=args.val_hdf5_fname,
+            #                             solverstate_fname=args.solverstate_fname,
+            #                             solver_type='ADAM',
+            #                             base_lr=args.base_lr, gamma=0.99,
+            #                             momentum=0.9, momentum2=0.999,
+            #                             max_iter=args.max_iter,
+            #                             visualize_response_maps=args.visualize_response_maps)
+            #     if level != 0: # this loss already present
+            #         # ladder for next level
+            #         loss_level = level
+            #         p.loss += loss_fn(lasagne.layers.get_output(p.pred_layers['x%d_next'%loss_level]),
+            #                          lasagne.layers.get_output(p.pred_layers['x%d_next_pred'%loss_level]))
+            #         p.loss_deterministic += loss_fn(lasagne.layers.get_output(p.pred_layers['x%d_next'%loss_level], deterministic=True),
+            #                                        lasagne.layers.get_output(p.pred_layers['x%d_next_pred'%loss_level], deterministic=True))
+            #         feature_predictor.train(*args.train_hdf5_fnames, val_hdf5_fname=args.val_hdf5_fname,
+            #                                 solverstate_fname=args.solverstate_fname,
+            #                                 solver_type='ADAM',
+            #                                 base_lr=args.base_lr, gamma=0.99,
+            #                                 momentum=0.9, momentum2=0.999,
+            #                                 max_iter=args.max_iter,
+            #                                 visualize_response_maps=args.visualize_response_maps)
+
+            # import lasagne
+            # p = feature_predictor
+            # orig_loss = p.loss
+            # orig_loss_deterministic = p.loss_deterministic
+            # loss_fn = lambda X, X_pred: ((X - X_pred) ** 2).mean(axis=0).sum() / 2.
+            # for true_tags, loss_level in [(dict(transformation=True, level3=True), 3),
+            #                               (dict(decoding=True, level3=True), 2),
+            #                               (dict(decoding=True, level2=True), 1),
+            #                               (dict(decoding=True, level1=True), 0)]:
+            #     for param in p.get_all_params():
+            #         p.set_param_tags(param, trainable=False)
+            #     for param in p.get_all_params(**true_tags):
+            #         p.set_param_tags(param, trainable=True)
+            #     p.loss = loss_fn(lasagne.layers.get_output(p.pred_layers['x%d_next'%loss_level]),
+            #                      lasagne.layers.get_output(p.pred_layers['x%d_next_pred'%loss_level]))
+            #     p.loss_deterministic = loss_fn(lasagne.layers.get_output(p.pred_layers['x%d_next'%loss_level], deterministic=True),
+            #                                    lasagne.layers.get_output(p.pred_layers['x%d_next_pred'%loss_level], deterministic=True))
+            #     feature_predictor.train(*args.train_hdf5_fnames, val_hdf5_fname=args.val_hdf5_fname,
+            #                             solverstate_fname=args.solverstate_fname,
+            #                             solver_type='ADAM',
+            #                             base_lr=args.base_lr, gamma=0.99,
+            #                             momentum=0.9, momentum2=0.999,
+            #                             max_iter=args.max_iter,
+            #                             visualize_response_maps=args.visualize_response_maps)
+            # p.loss = orig_loss
+            # p.loss_deterministic = orig_loss_deterministic
+
+
     else:
         import caffe
         from caffe.proto import caffe_pb2 as pb2
@@ -209,7 +288,7 @@ def main():
                 val_losses = {blob_name: np.asscalar(blob.data) for blob_name, blob in feature_predictor.val_net.blobs.items() if blob_name.endswith('loss')}
                 print('val_losses', val_losses)
 
-    if args.simulator == 'none':
+    if args.no_sim:
         val_container = data_container.TrajectoryDataContainer(args.val_hdf5_fname)
         for datum_iter in range(val_container.num_data):
             image_curr, image_diff, vel = val_container.get_datum(datum_iter, ['image_curr', 'image_diff', 'vel']).values()
@@ -288,6 +367,7 @@ def main():
     else:
         traj_container = None
 
+    np.random.seed(7)
     done = False
     image_pred_errors = []
     image_errors = []
