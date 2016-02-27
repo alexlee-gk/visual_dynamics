@@ -21,8 +21,11 @@ def main():
     with open(args.sim_config) as config_file:
         sim_args = yaml.load(config_file)
 
-    if sim_args['simulator'] == 'city':
+    if sim_args['simulator'] == 'CityOgreSimulator':
         sim_args = dict(**sim_args, static_car=True)
+    elif sim_args['simulator'] == 'ServoPlatform':
+        background_window = sim_args.pop('background_window', False)
+        background_window_size = sim_args.pop('background_window_size', [5, 8])
     sim = simulator.create_simulator(**sim_args)
 
     if args.output_dir:
@@ -33,7 +36,7 @@ def main():
     else:
         container = None
 
-    if sim_args['simulator'] == 'servo' and sim_args['background_window']:
+    if sim_args['simulator'] == 'ServoPlatform' and background_window:
         cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
         cv2.waitKey(100)
@@ -43,10 +46,9 @@ def main():
     for traj_iter in range(args.num_trajs):
         print('traj_iter', traj_iter)
         try:
-            if sim_args['simulator'] == 'servo' and sim_args['background_window']:
-                window_size = sim_args['background_window_size']
-                background_shape = (np.random.randint(max(0, window_size[0]+1-3), window_size[0]+1),
-                                    np.random.randint(max(0, window_size[0]+1-3), window_size[1]+1))
+            if sim_args['simulator'] == 'ServoPlatform' and background_window:
+                background_shape = (np.random.randint(max(0, background_window_size[0]+1-3), background_window_size[0]+1),
+                                    np.random.randint(max(0, background_window_size[0]+1-3), background_window_size[1]+1))
                 cv2.imshow("Background window", (np.ones(background_shape)[..., None] * np.random.random(3)[None, None, :]))
                 key = cv2.waitKey(100)
                 key &= 255
@@ -75,7 +77,7 @@ def main():
         except KeyboardInterrupt:
             break
     sim.stop()
-    if args.visualize or (sim_args['simulator'] == 'servo' and sim_args['background_window']):
+    if args.visualize or (sim_args['simulator'] == 'ServoPlatform' and background_window):
         cv2.destroyAllWindows()
     if container:
         container.close()

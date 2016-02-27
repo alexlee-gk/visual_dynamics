@@ -5,24 +5,18 @@ import video
 import util
 
 
-def create_simulator(simulator=None, **sim_args):
+def create_simulator(simulator, **sim_args):
     sim_args = sim_args.copy()
-    if simulator == 'square':
-        sim = SquareSimulator(sim_args.pop('image_size'),
-                              sim_args.pop('square_length'),
-                              sim_args.pop('abs_vel_max'))
-    else:
-        dof_slice = slice(sim_args.pop('dof', None))
-        dof_min = sim_args.pop('dof_min')[dof_slice]
-        vel_min = sim_args.pop('vel_min')[dof_slice]
-        dof_max = sim_args.pop('dof_max')[dof_slice]
-        vel_max = sim_args.pop('vel_max')[dof_slice]
-        vel_scale = sim_args.pop('vel_scale')[dof_slice]
-        try:
-            Simulator = dict(ogre=OgreSimulator, city=CityOgreSimulator, servo=ServoPlatform)[simulator]
-        except KeyError:
-            raise ValueError('simulator %s is not supported' % simulator)
-        sim = Simulator([dof_min, dof_max], [vel_min, vel_max], vel_scale, **sim_args)
+    try:
+        Simulator = globals()[simulator]
+    except KeyError:
+        raise ValueError('simulator %s is not supported' % simulator)
+    # slice dof-dependent variables if dof is specified
+    dof_slice = slice(sim_args.pop('dof', None))
+    for limits_key in ['dof_limits', 'vel_limits']:
+        if limits_key in sim_args:
+            sim_args[limits_key] = [limit[dof_slice] for limit in sim_args[limits_key]]
+    sim = Simulator(**sim_args)
     return sim
 
 
@@ -75,7 +69,7 @@ class Simulator(object):
 
 
 class SquareSimulator(object):
-    def __init__(self, image_size, square_length, vel_max, pos_init=None):
+    def __init__(self, image_size, square_length, abs_vel_max, pos_init=None):
         assert len(image_size) == 2
         assert square_length%2 != 0
         self._image = np.zeros(image_size, dtype=np.uint8)
@@ -87,7 +81,7 @@ class SquareSimulator(object):
             self.pos = (self.pos_min + self.pos_max)/2
         else:
             self.pos = pos_init
-        self.vel_max = vel_max
+        self.vel_max = abs_vel_max
 
     @property
     def pos(self):
