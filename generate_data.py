@@ -1,42 +1,39 @@
+import yaml
 import argparse
 import numpy as np
 import cv2
 import controller
-import data_container
-import util
-import util_parser
+import simulator
+import utils.container
+import utils.visualization
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output', '-o', type=str, default=None)
-    parser.add_argument('--traj_container', type=str, default='ImageTrajectoryDataContainer')
+    parser.add_argument('sim_config', type=str, help='config file with simulator arguments')
+    parser.add_argument('--output_dir', '-o', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=0)
     parser.add_argument('--vis_scale', '-s', type=int, default=1, metavar='S', help='rescale image by S for visualization')
-    subparsers = util_parser.add_simulator_subparsers(parser)
-    parser_servo = subparsers.choices['servo']
-    parser_servo.add_argument('--background_window', '-b', action='store_true')
-    parser_servo.add_argument('--background_window_size', type=int, nargs=2, default=[5, 8], metavar=('HEIGHT', 'WIDTH'))
     args = parser.parse_args()
 
-    if args.simulator == 'city':
-        sim = args.create_simulator(args, static_car=True)
-    else:
-        sim = args.create_simulator(args)
+    with open(args.sim_config) as config_file:
+        sim_args = yaml.load(config_file)
 
-    if args.output:
-        TrajectoryDataContainer = getattr(data_container, args.traj_container)
-        if not issubclass(TrajectoryDataContainer, data_container.TrajectoryDataContainer):
-            raise ValueError('trajectory data container %s'%args.traj_container)
-        traj_container = TrajectoryDataContainer(args.output, args.num_trajs, args.num_steps+1, write=True)
-        sim_args = args.get_sim_args(args)
-        traj_container.add_group('sim_args', sim_args)
-    else:
-        traj_container = None
+    if sim_args['simulator'] == 'city':
+        sim_args = dict(**sim_args, static_car=True)
+    sim = simulator.create_simulator(**sim_args)
 
-    if args.simulator == 'servo' and args.background_window:
+    if args.output_dir:
+        container = utils.container.ImageDataContainer(args.output_dir, 'x')
+        container.reserve(['image', 'dof_val'], (args.num_trajs, args.num_steps+1))
+        container.reserve('vel', (args.num_trajs, args.num_steps))
+        container.add_info(sim_args=sim_args)
+    else:
+        container = None
+
+    if sim_args['simulator'] == 'servo' and sim_args['background_window']:
         cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
         cv2.waitKey(100)
@@ -46,15 +43,15 @@ def main():
     for traj_iter in range(args.num_trajs):
         print('traj_iter', traj_iter)
         try:
-            if args.simulator == 'servo' and args.background_window:
-                background_shape = (np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[0]+1),
-                                    np.random.randint(max(0, args.background_window_size[0]+1-3), args.background_window_size[1]+1))
+            if sim_args['simulator'] == 'servo' and sim_args['background_window']:
+                window_size = sim_args['background_window_size']
+                background_shape = (np.random.randint(max(0, window_size[0]+1-3), window_size[0]+1),
+                                    np.random.randint(max(0, window_size[0]+1-3), window_size[1]+1))
                 cv2.imshow("Background window", (np.ones(background_shape)[..., None] * np.random.random(3)[None, None, :]))
                 key = cv2.waitKey(100)
                 key &= 255
                 if key == 27 or key == ord('q'):
                     print("Pressed ESC or q, exiting")
-                    done = True
                     break
 
             dof_val_init = sim.sample_state()
@@ -64,16 +61,13 @@ def main():
                 image = sim.observe()
                 action = ctrl.step(image)
                 action = sim.apply_action(action)
-                if traj_container:
-                    traj_container.add_datum(traj_iter, step_iter, dict(image=image,
-                                                                        dof_val=dof_val,
-                                                                        vel=action))
+                if container:
+                    container.add_datum(traj_iter, step_iter, image=image, dof_val=dof_val, vel=action)
                     if step_iter == (args.num_steps-1):
                         image_next = sim.observe()
-                        traj_container.add_datum(traj_iter, step_iter+1, dict(image=image_next,
-                                                                              dof_val=sim.dof_values))
+                        container.add_datum(traj_iter, step_iter+1, image=image_next, dof_val=sim.dof_values)
                 if args.visualize:
-                    vis_image, done = util.visualize_images_callback(image, vis_scale=args.vis_scale, delay=0)
+                    vis_image, done = utils.visualization.visualize_images_callback(image, vis_scale=args.vis_scale, delay=0)
                 if done:
                     break
             if done:
@@ -81,8 +75,11 @@ def main():
         except KeyboardInterrupt:
             break
     sim.stop()
-    if args.visualize or (args.simulator == 'servo' and args.background_window):
+    if args.visualize or (sim_args['simulator'] == 'servo' and sim_args['background_window']):
         cv2.destroyAllWindows()
+    if container:
+        container.close()
+
 
 if __name__ == "__main__":
     main()

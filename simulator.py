@@ -4,6 +4,28 @@ import cv2
 import video
 import util
 
+
+def create_simulator(simulator=None, **sim_args):
+    sim_args = sim_args.copy()
+    if simulator == 'square':
+        sim = SquareSimulator(sim_args.pop('image_size'),
+                              sim_args.pop('square_length'),
+                              sim_args.pop('abs_vel_max'))
+    else:
+        dof_slice = slice(sim_args.pop('dof', None))
+        dof_min = sim_args.pop('dof_min')[dof_slice]
+        vel_min = sim_args.pop('vel_min')[dof_slice]
+        dof_max = sim_args.pop('dof_max')[dof_slice]
+        vel_max = sim_args.pop('vel_max')[dof_slice]
+        vel_scale = sim_args.pop('vel_scale')[dof_slice]
+        try:
+            Simulator = dict(ogre=OgreSimulator, city=CityOgreSimulator, servo=ServoPlatform)[simulator]
+        except KeyError:
+            raise ValueError('simulator %s is not supported' % simulator)
+        sim = Simulator([dof_min, dof_max], [vel_min, vel_max], vel_scale, **sim_args)
+    return sim
+
+
 def axis2quat(axis, angle):
     axis = np.asarray(axis)
     axis = 1.0*axis/axis.sum();
