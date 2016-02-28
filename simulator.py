@@ -1,10 +1,9 @@
 import time
-import numpy as np
 import cv2
-import video
+import numpy as np
 import utils
+from utils import util
 from utils.math import axis2quat, quaternion_multiply
-import util
 
 
 class Simulator(object):
@@ -394,7 +393,7 @@ class ServoPlatform(DiscreteVelocitySimulator):
                 camera_id = int(camera_id)
             else:
                 camera_id = util.device_id_from_camera_id(camera_id)
-        self.cap = video.VideoCapture(device=camera_id)
+        self.cap = utils.video.VideoCapture(device=camera_id)
         # servos initialization
         self.last_time = -np.inf
         try:

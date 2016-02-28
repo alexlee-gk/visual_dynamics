@@ -1,12 +1,12 @@
 from __future__ import division
 
-import os
 import io
-import numpy as np
+import os
 import cv2
-import yaml
 import h5py
-import util
+import numpy as np
+import yaml
+from utils import util
 
 
 class DataContainer:

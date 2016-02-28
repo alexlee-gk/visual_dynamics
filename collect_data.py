@@ -3,29 +3,30 @@
 from __future__ import division
 
 import argparse
-import numpy as np
-import cv2
 import time
+
+import cv2
+import numpy as np
 import openravepy
-import simulator
-import controller
-from generate_data import DataCollector
-import util
 import trajoptpy
-from lfd.rapprentice import resampling, berkeley_pr2
-from lfd.transfer import  planning
-from lfd.environment.simulation import DynamicSimulationRobotWorld
-from lfd.environment.simulation_object import XmlSimulationObject
 from lfd.environment import environment
 from lfd.environment import sim_util
 from lfd.environment.robot_world import RealRobotWorld
+from lfd.environment.simulation import DynamicSimulationRobotWorld
+from lfd.environment.simulation_object import XmlSimulationObject
+from lfd.rapprentice import resampling, berkeley_pr2
+from lfd.transfer import  planning
+
+import controller
+import simulator
+from generate_data import DataCollector
 try:
     import cloudprocpy
     from lfd.rapprentice import PR2
     import rospy
 except:
     print "Couldn't import libraries for execution"
-import IPython as ipy
+
 
 def rotation_y(theta):
     return np.array([[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]])

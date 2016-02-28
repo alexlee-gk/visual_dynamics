@@ -1,6 +1,6 @@
-import numpy as np
 import data_container
-import util
+import numpy as np
+from utils import util
 
 
 class TargetGenerator(object):

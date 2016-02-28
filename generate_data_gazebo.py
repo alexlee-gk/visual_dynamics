@@ -1,14 +1,13 @@
-from __future__ import division
-
 import argparse
+import cv2
+import h5py
 import numpy as np
 import rospy
 import sensor_msgs
 import tf
-import cv2
 from cv_bridge import CvBridge, CvBridgeError
-import h5py
-import util
+from utils import util
+
 
 class ImageCollectorAndController(object):
     def __init__(self, **kwargs):

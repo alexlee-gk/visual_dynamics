@@ -1,10 +1,10 @@
 import argparse
-import numpy as np
 import itertools
 import cv2
-import h5py
+import numpy as np
 import simulator
-import util
+from utils import util
+
 
 def main():
     parser = argparse.ArgumentParser()

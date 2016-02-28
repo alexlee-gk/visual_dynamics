@@ -1,11 +1,12 @@
-import numpy as np
-import h5py
-import os
 import collections
-import matplotlib.pyplot as plt
+import os
 import cv2
+import h5py
+import matplotlib.pyplot as plt
+import numpy as np
 import bilinear
-import util
+from utils import util
+
 
 class FeaturePredictor(object):
     """

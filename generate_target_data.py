@@ -1,9 +1,9 @@
 import argparse
 import cv2
-import target_generator
 import data_container
-import util
 import util_parser
+import target_generator
+from utils import util
 
 
 def main():

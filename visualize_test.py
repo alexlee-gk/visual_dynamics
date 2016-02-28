@@ -1,8 +1,9 @@
 import argparse
-import numpy as np
-import cv2
 import caffe
-import util
+import cv2
+import numpy as np
+from utils import util
+
 
 def main():
     parser = argparse.ArgumentParser()

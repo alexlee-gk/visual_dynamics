@@ -1,6 +1,6 @@
-import numpy as np
 import cv2
-import util
+import numpy as np
+from utils import util
 
 
 def visualize_images_callback(*images, vis_scale=10, window_name='Image window', delay=1, ret_key=False):
