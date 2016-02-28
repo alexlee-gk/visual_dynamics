@@ -26,7 +26,7 @@ def main():
     elif sim_args['simulator'] == 'ServoPlatform':
         background_window = sim_args.pop('background_window', False)
         background_window_size = sim_args.pop('background_window_size', [5, 8])
-    sim = simulator.create_simulator(**sim_args)
+    sim = simulator.Simulator.create(**sim_args)
 
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')

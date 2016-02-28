@@ -28,8 +28,11 @@ class DataContainer:
 
     def close(self):
         if self.info_file:
-            self.add_info(data_shapes=self.data_shapes_dict)
-            yaml.dump(self.info_dict, self.info_file)
+            try:
+                self.add_info(data_shapes=self.data_shapes_dict)
+                yaml.dump(self.info_dict, self.info_file)
+            except io.UnsupportedOperation:  # container is probably in read mode
+                pass
             self.info_file.close()
             self.info_file = None
         if self.hdf5_file:
@@ -47,12 +50,14 @@ class DataContainer:
 
     def get_info(self, info_names):
         if isinstance(info_names, str):
-            info_names = list([info_names])
+            names = list([info_names])
         else:
-            info_names = list(info_names)
+            names = list(info_names)
         info = []
-        for name in info_names:
+        for name in names:
             info.append(self.info_dict[name])
+        if isinstance(info_names, str):
+            info, = info
         return info
 
     def reserve(self, names, shape):
@@ -78,15 +83,18 @@ class DataContainer:
             datum_ind = self._get_datum_ind(*inds, name=name)
             dset[datum_ind] = value
 
-    def get_datum(self, *inds, datum_names):
+    def get_datum(self, *inds_datum_names):
+        inds, datum_names = inds_datum_names[:-1], inds_datum_names[-1]  # same as the signature (*inds, datum_names) but without requiring keyword datum_names
         if isinstance(datum_names, str):
-            datum_names = list([datum_names])
+            names = list([datum_names])
         else:
-            datum_names = list(datum_names)
+            names = list(datum_names)
         datum = []
-        for name in datum_names:
+        for name in names:
             datum_ind = self._get_datum_ind(*inds, name=name)
             datum.append(self.hdf5_file[name][datum_ind][()])
+        if isinstance(datum_names, str):
+            datum, = datum
         return datum
 
     def get_datum_shape(self, name):
@@ -160,26 +168,29 @@ class ImageDataContainer(DataContainer):
         image_fname = os.path.join(self.data_dir, image_fname)
         return image_fname
 
-    def get_datum(self, *inds, datum_names):
+    def get_datum(self, *inds_datum_names):
+        inds, datum_names = inds_datum_names[:-1], inds_datum_names[-1]
         if isinstance(datum_names, str):
-            datum_names = list([datum_names])
+            names = list([datum_names])
         else:
-            datum_names = list(datum_names)
-        other_names = [name for name in datum_names if not name.startswith('image')]
-        other_datum = super(ImageDataContainer, self).get_datum(*inds, datum_names=other_names)
-        image_names = [name for name in datum_names if name.startswith('image')]
+            names = list(datum_names)
+        other_names = [name for name in names if not name.startswith('image')]
+        other_datum = super(ImageDataContainer, self).get_datum(*inds, other_names)
+        image_names = [name for name in names if name.startswith('image')]
         image_datum = []
         for image_name in image_names:
             image_fname = self._get_image_fname(*inds, name=image_name)
             if not os.path.isfile(image_fname):
-                raise FileNotFoundError('image file %s does not exist'%image_fname)
+                raise FileNotFoundError('image file %s does not exist' % image_fname)
             image = util.obs_from_image(cv2.imread(image_fname))
             image_datum.append(image)
         # reorder items to follow the order of datum_names
         datum = []
-        for datum_name in datum_names:
+        for datum_name in names:
             if datum_name.startswith('image'):
                 datum.append(image_datum.pop(0))
             else:
                 datum.append(other_datum.pop(0))
+        if isinstance(datum_names, str):
+            datum, = datum
         return datum

@@ -2,38 +2,10 @@ import time
 import numpy as np
 import cv2
 import video
+import utils
+from utils.math import axis2quat, quaternion_multiply
 import util
 
-
-def create_simulator(simulator, **sim_args):
-    sim_args = sim_args.copy()
-    try:
-        Simulator = globals()[simulator]
-    except KeyError:
-        raise ValueError('simulator %s is not supported' % simulator)
-    # slice dof-dependent variables if dof is specified
-    dof_slice = slice(sim_args.pop('dof', None))
-    for limits_key in ['dof_limits', 'vel_limits']:
-        if limits_key in sim_args:
-            sim_args[limits_key] = [limit[dof_slice] for limit in sim_args[limits_key]]
-    sim = Simulator(**sim_args)
-    return sim
-
-
-def axis2quat(axis, angle):
-    axis = np.asarray(axis)
-    axis = 1.0*axis/axis.sum();
-    return np.append(np.cos(angle/2.0), axis*np.sin(angle/2.0))
-
-def quaternion_multiply(*qs):
-    if len(qs) == 2:
-        q0, q1 = qs
-        return np.array([-q1[1]*q0[1] - q1[2]*q0[2] - q1[3]*q0[3] + q1[0]*q0[0],
-                          q1[1]*q0[0] + q1[2]*q0[3] - q1[3]*q0[2] + q1[0]*q0[1],
-                         -q1[1]*q0[3] + q1[2]*q0[0] + q1[3]*q0[1] + q1[0]*q0[2],
-                          q1[1]*q0[2] - q1[2]*q0[1] + q1[3]*q0[0] + q1[0]*q0[3]])
-    else:
-        return quaternion_multiply(qs[0], quaternion_multiply(*qs[1:]))
 
 class Simulator(object):
     def apply_action(self, action):
@@ -67,6 +39,21 @@ class Simulator(object):
     def stop(self):
         return
 
+    @staticmethod
+    def create(simulator, **sim_args):
+        sim_args = sim_args.copy()
+        try:
+            Simulator = globals()[simulator]
+        except KeyError:
+            raise ValueError('simulator %s is not supported' % simulator)
+        # slice dof-dependent variables if dof is specified
+        dof_slice = slice(sim_args.pop('dof', None))
+        for limits_key in ['dof_limits', 'vel_limits']:
+            if limits_key in sim_args:
+                sim_args[limits_key] = [limit[dof_slice] for limit in sim_args[limits_key]]
+        sim = Simulator(**sim_args)
+        return sim
+
 
 class SquareSimulator(object):
     def __init__(self, image_size, square_length, abs_vel_max, pos_init=None):
@@ -98,7 +85,7 @@ class SquareSimulator(object):
     def apply_action(self, vel):
         pos_prev = self.pos.copy()
         self.pos += vel
-        vel = self.pos - pos_prev # recompute vel because of clipping
+        vel = self.pos - pos_prev  # recompute vel because of clipping
         return vel
 
     def observe(self):
@@ -134,7 +121,7 @@ class SquareSimulator(object):
 
 
 class DiscreteVelocitySimulator(Simulator):
-    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dtype=None):
+    def __init__(self, dof_limits, dof_vel_limits, dtype=None):
         dof_min, dof_max = dof_limits
         vel_min, vel_max = dof_vel_limits
         assert len(dof_min) == len(dof_max)
@@ -142,10 +129,6 @@ class DiscreteVelocitySimulator(Simulator):
         self.dof_limits = [np.asarray(dof_limit, dtype=dtype) for dof_limit in dof_limits]
         self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=dtype) for dof_vel_limit in dof_vel_limits]
         self._dof_values = np.mean(self.dof_limits, axis=0)
-        if dof_vel_scale is None:
-            self.dof_vel_scale = np.ones(self.state_dim)
-        else:
-            self.dof_vel_scale = dof_vel_scale
 
     @property
     def dof_values(self):
@@ -157,9 +140,10 @@ class DiscreteVelocitySimulator(Simulator):
         self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
 
     def apply_action(self, vel):
+        vel = np.clip(vel, *self.dof_vel_limits)
         dof_values_prev = self.dof_values.copy()
-        self.dof_values += (self.dof_vel_scale * vel).astype(self.dof_values.dtype)
-        vel = (self.dof_values - dof_values_prev) / self.dof_vel_scale # recompute vel because of clipping
+        self.dof_values += vel
+        vel = self.dof_values - dof_values_prev  # recompute vel because of clipping
         return vel
 
     def reset(self, dof_values):
@@ -174,7 +158,7 @@ class DiscreteVelocitySimulator(Simulator):
         return self.dof_values
 
     def sample_state(self):
-        dof_values = self.dof_limits[0] + np.random.random_sample(self.dof_limits[0].shape) * (self.dof_limits[1] - self.dof_limits[0])
+        dof_values = utils.math.sample_interval(*self.dof_limits)
         return dof_values
 
     @property
@@ -186,39 +170,6 @@ class DiscreteVelocitySimulator(Simulator):
     def state_dim(self):
         dim, = self._dof_values.shape
         return dim
-
-
-class ImageTransformer(object):
-    def __init__(self, image_scale=None, crop_size=None, crop_offset=None):
-        self.image_scale = image_scale
-        self.crop_size = np.asarray(crop_size) if crop_size is not None else None
-        self.crop_offset = np.asarray(crop_offset) if crop_offset is not None else None
-
-    def transform(self, image):
-        need_swap_channels = (image.ndim == 3 and image.shape[0] == 3)
-        if need_swap_channels:
-            image = image.transpose(1, 2, 0)
-        if self.image_scale is not None and self.image_scale != 1.0:
-            image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale, interpolation=cv2.INTER_AREA)
-        if self.crop_size is not None and tuple(self.crop_size) != image.shape[:2]:
-            h, w = image_shape = np.asarray(image.shape[:2])
-            crop_h, crop_w = self.crop_size
-            if crop_h > h:
-                raise ValueError('crop height %d is larger than image height %d (after scaling)'%(crop_h, h))
-            if crop_w > w:
-                raise ValueError('crop width %d is larger than image width %d (after scaling)'%(crop_w, w))
-            crop_origin = image_shape/2
-            if self.crop_offset is not None:
-                crop_origin += self.crop_offset
-            crop_corner = crop_origin - self.crop_size/2
-            if not (np.all(np.zeros(2) <= crop_corner) and np.all(crop_corner + self.crop_size <= image_shape)):
-                raise IndexError('crop indices out of range')
-            image = image[crop_corner[0]:crop_corner[0] + crop_h,
-                          crop_corner[1]:crop_corner[1] + crop_w,
-                          ...]
-        if need_swap_channels:
-            image = image.transpose(2, 0, 1)
-        return image
 
 
 class NodeTrajectoryManager(object):
@@ -245,11 +196,11 @@ class NodeTrajectoryManager(object):
 
 
 class OgreSimulator(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
+    def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
         self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
 
         import pygre
@@ -376,8 +327,8 @@ class CarNodeTrajectoryManager(object):
 
 
 class CityOgreSimulator(OgreSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None, dof_vel_offset=None, static_car=False):
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale)
+    def __init__(self, dof_limits, dof_vel_limits, static_car=False):
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
         self._q0 = np.array([1., 0., 0., 0.])
 
         import pygre
@@ -428,14 +379,14 @@ class CityOgreSimulator(OgreSimulator):
         return dof_values
 
 class ServoPlatform(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits, dof_vel_scale=None,
+    def __init__(self, dof_limits, dof_vel_limits,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
                  camera_id=0,
                  delay=True):
         """
         DOFs are pan, tilt
         """
-        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dof_vel_scale=dof_vel_scale, dtype=np.int)
+        DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
         self.delay = delay
         # camera initialization
         if isinstance(camera_id, str):

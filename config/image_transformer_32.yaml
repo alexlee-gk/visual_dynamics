@@ -1,0 +1,4 @@
+transformer: ImageTransformer
+image_scale: 0.125
+crop_size: [32, 32]
+crop_offset: [0, 0]
