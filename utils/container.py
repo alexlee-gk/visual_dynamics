@@ -23,6 +23,7 @@ class DataContainer:
             self.info_dict = dict()
 
         self.data_shapes_dict = self.info_dict.get('data_shapes', None) or dict()
+        self.datum_shapes_dict = self.info_dict.get('datum_shapes', None) or dict()
         data_fname = os.path.join(self.data_dir, 'data.h5')
         self.hdf5_file = h5py.File(data_fname, mode)
 
@@ -30,6 +31,7 @@ class DataContainer:
         if self.info_file:
             try:
                 self.add_info(data_shapes=self.data_shapes_dict)
+                self.add_info(datum_shapes=self.datum_shapes_dict)
                 yaml.dump(self.info_dict, self.info_file)
             except io.UnsupportedOperation:  # container is probably in read mode
                 pass
@@ -77,7 +79,11 @@ class DataContainer:
 
     def add_datum(self, *inds, **datum_dict):
         for name, value in datum_dict.items():
-            datum_size = self.get_datum_size(name)
+            if name in self.datum_shapes_dict and self.datum_shapes_dict[name] != value.shape:
+                raise ValueError('unable to add datum %s with shape %s since the shape %s was expected' %
+                                 (name, value.shape, self.datum_shapes_dict[name]))
+            self.datum_shapes_dict[name] = value.shape
+            datum_size = self.get_data_size(name)
             shape = (datum_size, ) + value.shape
             dset = self.hdf5_file.require_dataset(name, shape, value.dtype, exact=True)
             datum_ind = self._get_datum_ind(*inds, name=name)
@@ -98,16 +104,22 @@ class DataContainer:
         return datum
 
     def get_datum_shape(self, name):
+        shape = self.datum_shapes_dict.get(name, None)
+        if shape is None:
+            raise ValueError('shape for name %s does not exist' % name)
+        return shape
+
+    def get_data_shape(self, name):
         shape = self.data_shapes_dict.get(name, None)
         if shape is None:
             raise ValueError('shape is not reserved for name %s' % name)
         return shape
 
-    def get_datum_size(self, name):
-        return np.prod(self.get_datum_shape(name))
+    def get_data_size(self, name):
+        return np.prod(self.get_data_shape(name))
 
     def _check_ind_range(self, *inds, name):
-        shape = self.get_datum_shape(name)
+        shape = self.get_data_shape(name)
         if len(inds) != len(shape):
             raise IndexError('the number of indices does not match the number of dimensions of the data')
         for i, ind in enumerate(inds):
@@ -116,13 +128,13 @@ class DataContainer:
 
     def _get_datum_ind(self, *inds, name):
         self._check_ind_range(*inds, name=name)
-        shape = self.get_datum_shape(name)
+        shape = self.get_data_shape(name)
         datum_ind = 0
         for i, ind in enumerate(inds):
             if i > 0:
                 datum_ind *= shape[i-1]
             datum_ind += ind
-        assert 0 <= datum_ind < self.get_datum_size(name)
+        assert 0 <= datum_ind < self.get_data_size(name)
         return datum_ind
 
     def _require_data_dir(self, data_dir, mode):
@@ -154,12 +166,16 @@ class ImageDataContainer(DataContainer):
         super(ImageDataContainer, self).add_datum(*inds, **other_dict)
         image_dict = dict([item for item in datum_dict.items() if item[0].startswith('image')])
         for image_name, image in image_dict.items():
+            if image_name in self.datum_shapes_dict and self.datum_shapes_dict[image_name] != image.shape:
+                raise ValueError('unable to add datum %s with shape %s since the shape %s was expected' %
+                                 (image_name, image.shape, self.datum_shapes_dict[image_name]))
+            self.datum_shapes_dict[image_name] = image.shape
             image_fname = self._get_image_fname(*inds, name=image_name)
             cv2.imwrite(image_fname, util.image_from_obs(image), [cv2.IMWRITE_JPEG_QUALITY, 90])
 
     def _get_image_fname(self, *inds, name):
         self._check_ind_range(*inds, name=name)
-        shape = self.get_datum_shape(name)
+        shape = self.get_data_shape(name)
         image_fmt = '%s'
         for dim in shape:
             image_fmt += '_%0{:d}d'.format(len(str(dim-1)))
