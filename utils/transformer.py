@@ -25,24 +25,33 @@ class Transformer:
         return transformer
 
 
-class ScaleOffsetTransformer(Transformer):
-    def __init__(self, scale=1.0, offset=0.0):
+class ScaleOffsetTransposeTransformer(Transformer):
+    def __init__(self, scale=1.0, offset=0.0, transpose=None):
         """
         Scales and offset the numerical values of the input data.
         """
         self.scale = scale
         self.offset = offset
+        self.transpose = transpose
+        self._data_dtype = None
 
     def preprocess(self, data):
-        return self.scale * data + self.offset
+        self._data_dtype = data.dtype
+        data = self.scale * data + self.offset
+        if self.transpose:
+            data = np.transpose(data, self.transpose)
+        return data
 
     def deprocess(self, data):
-        return float(data - self.offset) / self.scale
+        data = ((data - self.offset) * (1.0 / self.scale)).astype(self._data_dtype)
+        if self.transpose:
+            data = np.transpose(data, np.arange(len(self.transpose))[list(self.transpose)])
+        return data
 
 
 class ImageTransformer(Transformer):
-    def __init__(self, image_scale=None, crop_size=None, crop_offset=None):
-        self.image_scale = image_scale
+    def __init__(self, scale_size=None, crop_size=None, crop_offset=None):
+        self.scale_size = scale_size
         self.crop_size = np.asarray(crop_size) if crop_size is not None else None
         self.crop_offset = np.asarray(crop_offset) if crop_offset is not None else None
 
@@ -50,8 +59,8 @@ class ImageTransformer(Transformer):
         need_swap_channels = (image.ndim == 3 and image.shape[0] == 3)
         if need_swap_channels:
             image = image.transpose(1, 2, 0)
-        if self.image_scale is not None and self.image_scale != 1.0:
-            image = cv2.resize(image, (0, 0), fx=self.image_scale, fy=self.image_scale, interpolation=cv2.INTER_AREA)
+        if self.scale_size is not None and self.scale_size != 1.0:
+            image = cv2.resize(image, (0, 0), fx=self.scale_size, fy=self.scale_size, interpolation=cv2.INTER_AREA)
         if self.crop_size is not None and tuple(self.crop_size) != image.shape[:2]:
             h, w = image_shape = np.asarray(image.shape[:2])
             crop_h, crop_w = self.crop_size
@@ -86,3 +95,28 @@ class ImageTransformer(Transformer):
 
     def deprocess_shape(self, shape):
         raise NotImplementedError
+
+
+class CompositionTransformer(Transformer):
+    def __init__(self, transformers):
+        self.transformers = transformers
+
+    def preprocess(self, data):
+        for transformer in self.transformers:
+            data = transformer.preprocess(data)
+        return data
+
+    def deprocess(self, data):
+        for transformer in self.transformers:
+            data = transformer.deprocess(data)
+        return data
+
+    def preprocess_shape(self, shape):
+        for transformer in self.transformers:
+            shape = transformer.preprocess_shape(shape)
+        return shape
+
+    def deprocess_shape(self, shape):
+        for transformer in self.transformers:
+            shape = transformer.deprocess_shape(shape)
+        return shape
