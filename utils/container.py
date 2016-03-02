@@ -137,6 +137,18 @@ class DataContainer:
         assert 0 <= datum_ind < self.get_data_size(name)
         return datum_ind
 
+    def _get_datum_inds(self, datum_ind, name):
+        assert 0 <= datum_ind < self.get_data_size(name)
+        shape = self.get_data_shape(name)
+        ind = datum_ind
+        inds = []
+        for i, dim in enumerate(shape):
+            vol = np.prod(shape[i:-1], dtype=int)
+            inds.append(ind // vol)
+            ind -= inds[-1] * vol
+        assert datum_ind == self._get_datum_ind(*inds, name=name)
+        return tuple(inds)
+
     def _require_data_dir(self, data_dir, mode):
         if 'r' in mode:
             if not os.path.exists(data_dir):
