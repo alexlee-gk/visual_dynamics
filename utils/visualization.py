@@ -1,10 +1,9 @@
 import cv2
 import numpy as np
-from utils import util
 
 
 def visualize_images_callback(*images, vis_scale=10, window_name='Image window', delay=1, ret_key=False):
-    vis_image = np.concatenate([util.image_from_obs(image) for image in images], axis=1)
+    vis_image = np.concatenate([image for image in images], axis=1)
     if vis_scale != 1:
         vis_rescaled_image = cv2.resize(vis_image, (0, 0), fx=vis_scale, fy=vis_scale, interpolation=cv2.INTER_NEAREST)
     else:

@@ -255,7 +255,7 @@ class OgreSimulator(DiscreteVelocitySimulator):
 
     def observe(self):
         image = self.ogre.getScreenshot()
-        return util.obs_from_image(image)
+        return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
 
 class CarNodeTrajectoryManager(object):
@@ -356,11 +356,6 @@ class CityOgreSimulator(OgreSimulator):
     def reset(self, dof_values):
         DiscreteVelocitySimulator.reset(self, dof_values)
 
-    def observe(self):
-        image = self.ogre.getScreenshot()
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        return util.obs_from_image(image)
-
     def sample_state(self):
         car_dof_values = util.sample_interval(*self.car_traj_manager.dof_limits)
         self.car_traj_manager.reset(car_dof_values)
@@ -443,7 +438,7 @@ class ServoPlatform(DiscreteVelocitySimulator):
             image, image_time = self.cap.get()
             if image_time > self.last_time:
                 break
-        return util.obs_from_image(image)
+        return image
 
     def duration_dof_vel(self, dof_vel):
         """

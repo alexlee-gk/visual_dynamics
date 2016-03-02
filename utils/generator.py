@@ -18,8 +18,9 @@ def generator_queue(generator, max_q_size=10, wait_time=0.05, nb_worker=1):
                     try:
                         generator_output = next(generator)
                         # indices_generator
-                    except ValueError:
-                        continue
+                    except StopIteration:
+                        _stop.set()
+                        break
                     q.put(generator_output)
                 else:
                     time.sleep(wait_time)
@@ -47,11 +48,12 @@ class ParallelGenerator:
         return self
 
     def __next__(self):
-        while not self._data_stop.is_set():
+        while not self._data_stop.is_set() or not self.data_gen_queue.empty():
             if not self.data_gen_queue.empty():
                 return self.data_gen_queue.get()
             else:
                 time.sleep(self.wait_time)
+        raise StopIteration
 
     def __del__(self):
         self._data_stop.set()
@@ -60,9 +62,9 @@ class ParallelGenerator:
 
 
 class ImageVelDataGenerator:
-    def __init__(self, *container_fnames, data_names, transformers_dict=None, batch_size=1, shuffle=False, dtype=None):
+    def __init__(self, *container_fnames, data_names, transformers_dict=None, once=False, batch_size=1, shuffle=False, dtype=None):
         """
-        Iterate through all the data indefinitely. The data from contiguous files
+        Iterate through all the data once or indefinitely. The data from contiguous files
         are treated as if they are contiguous. All of the returned minibatches
         contain batch_size data points. If shuffle=True, the data is iterated in a
         random order, and this order differs for each pass of the data.
@@ -72,6 +74,7 @@ class ImageVelDataGenerator:
         self._container_fnames = container_fnames
         self._image_name, self._vel_name = data_names
         self.transformers_dict = transformers_dict or dict()
+        self.once = once
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.dtype = dtype
@@ -100,13 +103,16 @@ class ImageVelDataGenerator:
 
     def _get_excerpt_generator(self):
         indices = []
+        continue_extending = True
         while True:
-            if len(indices) < self.batch_size:
+            if len(indices) < self.batch_size and continue_extending:
                 if self.shuffle:
                     new_indices = np.random.permutation(self._all_data_size)
                 else:
                     new_indices = np.arange(self._all_data_size)
                 indices.extend(new_indices)
+                if self.once:
+                    continue_extending = False
             excerpt = np.asarray(indices[0:self.batch_size])
             del indices[0:self.batch_size]
             yield excerpt
@@ -119,10 +125,12 @@ class ImageVelDataGenerator:
             containers = [stack.enter_context(utils.container.ImageDataContainer(fname)) for fname in self._container_fnames]
             with self._lock:
                 excerpt = next(self._excerpt_generator)
+            if len(excerpt) == 0:
+                raise StopIteration
             batch_data = []
             for data_name, offset in [(self._image_name, 0), (self._vel_name, 0), (self._image_name, 1)]:
                 transformer = self.transformers_dict.get(data_name, None) or utils.transformer.Transformer()
-                datum = np.empty((self.batch_size, *transformer.preprocess_shape(containers[0].get_datum_shape(data_name))), dtype=self.dtype)
+                datum = np.empty((len(excerpt), *transformer.preprocess_shape(containers[0].get_datum_shape(data_name))), dtype=self.dtype)
                 for i, all_ind in enumerate(excerpt):
                     single_datum = self._get_datum(containers, all_ind, data_name, offset=offset)
                     datum[i, ...] = np.asarray(transformer.preprocess(single_datum), dtype=self.dtype)
@@ -141,7 +149,7 @@ def main():
          utils.transformer.ScaleOffsetTransposeTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1))])
     vel_transformer = utils.transformer.ScaleOffsetTransposeTransformer(scale=0.1)
     transformers_dict = dict(image=image_transformer, vel=vel_transformer)
-    generator = ImageVelDataGenerator(*args.container_fname, data_names=['image', 'vel'], transformers_dict=transformers_dict, batch_size=32, shuffle=True)
+    generator = ImageVelDataGenerator(*args.container_fname, data_names=['image', 'vel'], transformers_dict=transformers_dict, batch_size=32, shuffle=True, once=True)
     generator = ParallelGenerator(generator, nb_worker=4)
     time.sleep(1.0)
     start_time = time.time()

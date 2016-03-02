@@ -183,7 +183,7 @@ class ImageDataContainer(DataContainer):
                                  (image_name, image.shape, self.datum_shapes_dict[image_name]))
             self.datum_shapes_dict[image_name] = image.shape
             image_fname = self._get_image_fname(*inds, name=image_name)
-            cv2.imwrite(image_fname, util.image_from_obs(image), [cv2.IMWRITE_JPEG_QUALITY, 90])
+            cv2.imwrite(image_fname, image)
 
     def _get_image_fname(self, *inds, name):
         self._check_ind_range(*inds, name=name)
@@ -191,7 +191,7 @@ class ImageDataContainer(DataContainer):
         image_fmt = '%s'
         for dim in shape:
             image_fmt += '_%0{:d}d'.format(len(str(dim-1)))
-        image_fmt += '.jpg'
+        image_fmt += '.png'
         image_fname = image_fmt % (name, *inds)
         image_fname = os.path.join(self.data_dir, image_fname)
         return image_fname
@@ -210,7 +210,7 @@ class ImageDataContainer(DataContainer):
             image_fname = self._get_image_fname(*inds, name=image_name)
             if not os.path.isfile(image_fname):
                 raise FileNotFoundError('image file %s does not exist' % image_fname)
-            image = util.obs_from_image(cv2.imread(image_fname))
+            image = cv2.imread(image_fname)
             image_datum.append(image)
         # reorder items to follow the order of datum_names
         datum = []
