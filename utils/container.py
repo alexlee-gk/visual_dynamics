@@ -130,9 +130,8 @@ class DataContainer:
         self._check_ind_range(*inds, name=name)
         shape = self.get_data_shape(name)
         datum_ind = 0
-        for i, ind in enumerate(inds):
-            if i > 0:
-                datum_ind *= shape[i-1]
+        for ind, dim in zip(inds, shape):
+            datum_ind *= dim
             datum_ind += ind
         assert 0 <= datum_ind < self.get_data_size(name)
         return datum_ind
@@ -141,11 +140,10 @@ class DataContainer:
         assert 0 <= datum_ind < self.get_data_size(name)
         shape = self.get_data_shape(name)
         ind = datum_ind
-        inds = []
-        for i, dim in enumerate(shape):
-            vol = np.prod(shape[i:-1], dtype=int)
-            inds.append(ind // vol)
-            ind -= inds[-1] * vol
+        inds = [-1]*len(shape)
+        for i, dim in reversed(list(enumerate(shape))):
+            inds[i] = ind % dim
+            ind //= dim
         assert datum_ind == self._get_datum_ind(*inds, name=name)
         return tuple(inds)
 
