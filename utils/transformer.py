@@ -45,8 +45,20 @@ class ScaleOffsetTransposeTransformer(Transformer):
     def deprocess(self, data):
         data = ((data - self.offset) * (1.0 / self.scale)).astype(self._data_dtype)
         if self.transpose:
-            data = np.transpose(data, np.arange(len(self.transpose))[list(self.transpose)])
+            transpose_inv =  np.arange(len(self.transpose))[list(self.transpose)]
+            data = np.transpose(data, transpose_inv)
         return data
+
+    def preprocess_shape(self, shape):
+        if self.transpose:
+            shape = tuple(shape[axis] for axis in self.transpose)
+        return shape
+
+    def deprocess_shape(self, shape):
+        if self.transpose:
+            transpose_inv =  np.arange(len(self.transpose))[list(self.transpose)]
+            shape = tuple(shape[axis] for axis in transpose_inv)
+        return shape
 
 
 class ImageTransformer(Transformer):
@@ -90,7 +102,7 @@ class ImageTransformer(Transformer):
             if need_swap_channels:
                 shape = tuple([shape[0], *self.crop_size])
             else:
-                shape = tuple([*self.crop_size, shape[0]])
+                shape = tuple([*self.crop_size, shape[-1]])
         return shape
 
     def deprocess_shape(self, shape):
