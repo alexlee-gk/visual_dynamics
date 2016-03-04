@@ -15,14 +15,13 @@ def main():
     args = parser.parse_args()
 
     try:
-        with open(args.image_transformer_config) as config:
-            image_transformer_args = yaml.load(config)
-        image_transformer = utils.transformer.Transformer.create(**image_transformer_args)
+        with open(args.image_transformer_config) as config_file:
+            image_transformer = yaml.load(config_file)
     except FileNotFoundError:
         image_transformer = utils.transformer.Transformer()
 
     with utils.container.ImageDataContainer(args.data_dir) as container:
-        num_trajs, num_steps = container.get_datum_shape('image')
+        num_trajs, num_steps = container.get_data_shape('image')
         for traj_iter in range(num_trajs):
             for step_iter in range(num_steps-1):
                 image_curr = container.get_datum(traj_iter, step_iter, 'image')

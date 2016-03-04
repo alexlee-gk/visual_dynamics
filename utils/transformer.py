@@ -1,3 +1,4 @@
+import inspect
 import numpy as np
 import cv2
 
@@ -15,14 +16,16 @@ class Transformer:
     def deprocess_shape(self, shape):
         return shape
 
-    @staticmethod
-    def create(transformer, **transformer_args):
-        try:
-            Transformer = globals()[transformer]
-        except KeyError:
-            raise ValueError('transformer %s is not supported' % transformer)
-        transformer = Transformer(**transformer_args)
-        return transformer
+    def __getstate__(self):
+        """
+        By default, return dict of member variables for variables that appear in the constructor's signature. This
+        assumes that all of the variables in the signature are member variables.
+        """
+        sig = inspect.signature(self.__init__)
+        return dict((arg, self.__dict__[arg]) for arg in sig.parameters)
+
+    def __setstate__(self, state):
+        self.__init__(**state)
 
 
 class ScaleOffsetTransposeTransformer(Transformer):
@@ -45,7 +48,7 @@ class ScaleOffsetTransposeTransformer(Transformer):
     def deprocess(self, data):
         data = ((data - self.offset) * (1.0 / self.scale)).astype(self._data_dtype)
         if self.transpose:
-            transpose_inv =  np.arange(len(self.transpose))[list(self.transpose)]
+            transpose_inv = np.arange(len(self.transpose))[list(self.transpose)]
             data = np.transpose(data, transpose_inv)
         return data
 
@@ -56,7 +59,7 @@ class ScaleOffsetTransposeTransformer(Transformer):
 
     def deprocess_shape(self, shape):
         if self.transpose:
-            transpose_inv =  np.arange(len(self.transpose))[list(self.transpose)]
+            transpose_inv = np.arange(len(self.transpose))[list(self.transpose)]
             shape = tuple(shape[axis] for axis in transpose_inv)
         return shape
 
