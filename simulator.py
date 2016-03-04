@@ -1,3 +1,4 @@
+import inspect
 import time
 import cv2
 import numpy as np
@@ -38,23 +39,23 @@ class Simulator(object):
     def stop(self):
         return
 
-    @staticmethod
-    def create(simulator, **sim_args):
-        sim_args = sim_args.copy()
-        try:
-            Simulator = globals()[simulator]
-        except KeyError:
-            raise ValueError('simulator %s is not supported' % simulator)
-        # slice dof-dependent variables if dof is specified
-        dof_slice = slice(sim_args.pop('dof', None))
-        for limits_key in ['dof_limits', 'vel_limits']:
-            if limits_key in sim_args:
-                sim_args[limits_key] = [limit[dof_slice] for limit in sim_args[limits_key]]
-        sim = Simulator(**sim_args)
-        return sim
+    def __getstate__(self):
+        sig = inspect.signature(self.__init__)
+        state = dict()
+        for name in sig.parameters:
+            value = self.__dict__[name]
+            if isinstance(value, np.ndarray):
+                value = value.tolist()
+            elif isinstance(value, list):
+                value = [v.tolist() if isinstance(v, np.ndarray) else v for v in value]
+            state[name] = value
+        return state
+
+    def __setstate__(self, state):
+        self.__init__(**state)
 
 
-class SquareSimulator(object):
+class SquareSimulator(Simulator):
     def __init__(self, image_size, square_length, abs_vel_max, pos_init=None):
         assert len(image_size) == 2
         assert square_length%2 != 0
@@ -326,7 +327,7 @@ class CarNodeTrajectoryManager(object):
 
 
 class CityOgreSimulator(OgreSimulator):
-    def __init__(self, dof_limits, dof_vel_limits, static_car=False):
+    def __init__(self, dof_limits, dof_vel_limits, static_car=True):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
         self._q0 = np.array([1., 0., 0., 0.])
 
@@ -341,6 +342,7 @@ class CityOgreSimulator(OgreSimulator):
         self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
         car_dof_values_init = [-51, 10.7, 225]
         car_dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
+        self.static_car = static_car
         if static_car:
             car_dof_vel_init = np.zeros(3)
             car_dof_vel_limits = [np.zeros(3), np.zeros(3)]
@@ -376,7 +378,8 @@ class ServoPlatform(DiscreteVelocitySimulator):
     def __init__(self, dof_limits, dof_vel_limits,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
                  camera_id=0,
-                 delay=True):
+                 delay=True,
+                 background_window=False, background_window_size=(5, 8)):
         """
         DOFs are pan, tilt
         """
@@ -406,9 +409,17 @@ class ServoPlatform(DiscreteVelocitySimulator):
         except Exception as e:
             self.use_pwm = False
             print("Exception when using pwm: %s. Disabling it."%e)
+        self.background_window = background_window
+        self.background_window_size = background_window_size
+        if self.background_window:
+            cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
+            cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            cv2.waitKey(100)
 
     def stop(self):
         self.cap.release()
+        if self.background_window:
+            cv2.destroyWindow("Background window")
 
     @DiscreteVelocitySimulator.dof_values.setter
     def dof_values(self, next_dof_values):
@@ -430,6 +441,11 @@ class ServoPlatform(DiscreteVelocitySimulator):
 
     def reset(self, dof_values):
         self.dof_values = dof_values
+        if self.background_window:
+            background_shape = (np.random.randint(max(0, self.background_window_size[0]+1-3), self.background_window_size[0]+1),
+                                np.random.randint(max(0, self.background_window_size[0]+1-3), self.background_window_size[1]+1))
+            cv2.imshow("Background window", (np.ones(background_shape)[..., None] * np.random.random(3)[None, None, :]))
+            cv2.waitKey(100)
         if self.delay:
             time.sleep(2.5)
 

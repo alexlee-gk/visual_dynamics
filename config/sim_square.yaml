@@ -1,4 +1,0 @@
-simulator: SquareSimulator
-image_size: [64, 64]
-square_length: 1
-abs_vel_max: 1.0
