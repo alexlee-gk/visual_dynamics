@@ -1,6 +1,18 @@
-import inspect
 import numpy as np
+import yaml
 import cv2
+
+
+def transformer_from_config(config):
+    class_name = config.pop('class_name')
+    if class_name not in globals():
+        raise ValueError('Unknown transformer %s' % class_name)
+    return globals()[class_name].from_config(config)
+
+
+def transformer_from_yaml(yaml_string):
+    config = yaml.load(yaml_string)
+    return transformer_from_config(config)
 
 
 class Transformer:
@@ -16,16 +28,21 @@ class Transformer:
     def deprocess_shape(self, shape):
         return shape
 
-    def __getstate__(self):
-        """
-        By default, return dict of member variables for variables that appear in the constructor's signature. This
-        assumes that all of the variables in the signature are member variables.
-        """
-        sig = inspect.signature(self.__init__)
-        return dict((arg, self.__dict__[arg]) for arg in sig.parameters)
+    def get_config(self):
+        return dict(class_name=self.__class__.__name__)
 
-    def __setstate__(self, state):
-        self.__init__(**state)
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+    def to_yaml(self):
+        config = self.get_config()
+        return yaml.dump(config)
+
+    @classmethod
+    def from_yaml(cls, yaml_string):
+        config = yaml.load(yaml_string)
+        return cls.from_config(config)
 
 
 class ScaleOffsetTransposeTransformer(Transformer):
@@ -67,6 +84,16 @@ class ScaleOffsetTransposeTransformer(Transformer):
         axis_transpose_inv = sorted(transpose_axis)
         axis, transpose_inv = zip(*axis_transpose_inv)
         return transpose_inv
+
+    def get_config(self):
+        config = dict(class_name=self.__class__.__name__,
+                      scale=self.scale,
+                      offset=self.offset,
+                      transpose=self.transpose)
+        for k, v in config.items():
+            if isinstance(v, np.ndarray):
+                config[k] = v.tolist()
+        return config
 
 
 class ImageTransformer(Transformer):
@@ -116,6 +143,16 @@ class ImageTransformer(Transformer):
     def deprocess_shape(self, shape):
         raise NotImplementedError
 
+    def get_config(self):
+        config = dict(class_name=self.__class__.__name__,
+                      scale_size=self.scale_size,
+                      crop_size=self.crop_size,
+                      crop_offset=self.crop_offset.tolist())
+        for k, v in config.items():
+            if isinstance(v, np.ndarray):
+                config[k] = v.tolist()
+        return config
+
 
 class CompositionTransformer(Transformer):
     def __init__(self, transformers):
@@ -140,3 +177,37 @@ class CompositionTransformer(Transformer):
         for transformer in self.transformers:
             shape = transformer.deprocess_shape(shape)
         return shape
+
+    def get_config(self):
+        transformers = [transformer.get_config() for transformer in self.transformers]
+        config = dict(class_name=self.__class__.__name__,
+                      transformers=transformers)
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        transformers = [transformer_from_config(transformer_config) for transformer_config in config.get('transformers', [])]
+        return cls(transformers)
+
+
+def main():
+    transformers = []
+    transformers.append(ScaleOffsetTransposeTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1)))
+    transformers.append(ImageTransformer(scale_size=0.125, crop_size=[32, 32], crop_offset=[0, 0]))
+    transformers.append(CompositionTransformer(transformers.copy()))
+
+    # get config from the transformer and reconstruct a transformer from this config
+    re_transformers = []
+    for transformer in transformers:
+        yaml_string = transformer.to_yaml()
+        print(yaml_string)
+        re_transformer = transformer_from_yaml(yaml_string)
+        re_transformers.append(re_transformer)
+
+    # make sure the config from both transformers are the same
+    for transformer, re_transformer in zip(transformers, re_transformers):
+        print(transformer.to_yaml() == re_transformer.to_yaml())
+
+
+if __name__ == "__main__":
+    main()
