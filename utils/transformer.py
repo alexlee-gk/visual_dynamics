@@ -48,8 +48,7 @@ class ScaleOffsetTransposeTransformer(Transformer):
     def deprocess(self, data):
         data = ((data - self.offset) * (1.0 / self.scale)).astype(self._data_dtype)
         if self.transpose:
-            transpose_inv = np.arange(len(self.transpose))[list(self.transpose)]
-            data = np.transpose(data, transpose_inv)
+            data = np.transpose(data, self.transpose_inv)
         return data
 
     def preprocess_shape(self, shape):
@@ -59,9 +58,15 @@ class ScaleOffsetTransposeTransformer(Transformer):
 
     def deprocess_shape(self, shape):
         if self.transpose:
-            transpose_inv = np.arange(len(self.transpose))[list(self.transpose)]
-            shape = tuple(shape[axis] for axis in transpose_inv)
+            shape = tuple(shape[axis] for axis in self.transpose_inv)
         return shape
+
+    @property
+    def transpose_inv(self):
+        transpose_axis = zip(self.transpose, range(len(self.transpose)))
+        axis_transpose_inv = sorted(transpose_axis)
+        axis, transpose_inv = zip(*axis_transpose_inv)
+        return transpose_inv
 
 
 class ImageTransformer(Transformer):
