@@ -6,7 +6,6 @@ import cv2
 import h5py
 import numpy as np
 import yaml
-from utils import util
 
 
 class DataContainer:

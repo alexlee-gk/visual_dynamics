@@ -1,3 +1,4 @@
+import os
 import contextlib
 import threading
 import queue
@@ -62,7 +63,7 @@ class ParallelGenerator:
 
 
 class ImageVelDataGenerator:
-    def __init__(self, *container_fnames, data_names, transformers_dict=None, once=False, batch_size=1, shuffle=False, dtype=None):
+    def __init__(self, *container_fnames, data_names, transformers=None, once=False, batch_size=1, shuffle=False, dtype=None):
         """
         Iterate through all the data once or indefinitely. The data from contiguous files
         are treated as if they are contiguous. All of the returned minibatches
@@ -71,9 +72,9 @@ class ImageVelDataGenerator:
         Note: this is not as efficient as it could be when shuffle=False since each
         data point is retrieved one by one regardless of the value of shuffle.
         """
-        self._container_fnames = container_fnames
+        self._container_fnames = [os.path.abspath(fname) for fname in container_fnames]
         self._image_name, self._vel_name = data_names
-        self.transformers_dict = transformers_dict or dict()
+        self.transformers_dict = dict(zip(data_names, transformers or []))
         self.once = once
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -148,8 +149,8 @@ def main():
         [utils.transformer.ImageTransformer(scale_size=0.125, crop_size=(32, 32)),
          utils.transformer.ScaleOffsetTransposeTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1))])
     vel_transformer = utils.transformer.ScaleOffsetTransposeTransformer(scale=0.1)
-    transformers_dict = dict(image=image_transformer, vel=vel_transformer)
-    generator = ImageVelDataGenerator(*args.container_fname, data_names=['image', 'vel'], transformers_dict=transformers_dict, batch_size=32, shuffle=True, once=True)
+    transformers = [image_transformer, vel_transformer]
+    generator = ImageVelDataGenerator(*args.container_fname, data_names=['image', 'vel'], transformers=transformers, batch_size=32, shuffle=True, once=True)
     generator = ParallelGenerator(generator, nb_worker=4)
     time.sleep(1.0)
     start_time = time.time()
