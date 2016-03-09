@@ -24,14 +24,14 @@ class Cv2VideoCapture(object):
         fps = fps or 30
 
         self.cap = cv2.VideoCapture(self.device)
-        cap_height, cap_width = self.cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT), self.cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
+        cap_height, cap_width = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT), self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         if cap_height != self.size[0]:
-            self.cap.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, self.size[0])
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.size[0])
         if cap_width != self.size[1]:
-            self.cap.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, self.size[1])
-        cap_fps = self.cap.get(cv2.cv.CV_CAP_PROP_FPS)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.size[1])
+        cap_fps = self.cap.get(cv2.CAP_PROP_FPS)
         if cap_fps != fps:
-            self.cap.set(cv2.cv.CV_CAP_PROP_FPS, fps)
+            self.cap.set(cv2.CAP_PROP_FPS, fps)
         if sync:
             raise ValueError("sync not supported")
 
