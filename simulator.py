@@ -1,4 +1,3 @@
-import inspect
 import time
 import cv2
 import numpy as np
@@ -7,7 +6,7 @@ from utils import util
 from utils.math import axis2quat, quaternion_multiply
 
 
-class Simulator(object):
+class Simulator(utils.config.ConfigObject):
     def apply_action(self, action):
         raise NotImplementedError
 
@@ -38,21 +37,6 @@ class Simulator(object):
 
     def stop(self):
         return
-
-    def __getstate__(self):
-        sig = inspect.signature(self.__init__)
-        state = dict()
-        for name in sig.parameters:
-            value = self.__dict__[name]
-            if isinstance(value, np.ndarray):
-                value = value.tolist()
-            elif isinstance(value, list):
-                value = [v.tolist() if isinstance(v, np.ndarray) else v for v in value]
-            state[name] = value
-        return state
-
-    def __setstate__(self, state):
-        self.__init__(**state)
 
 
 class SquareSimulator(Simulator):
@@ -171,6 +155,12 @@ class DiscreteVelocitySimulator(Simulator):
         dim, = self._dof_values.shape
         return dim
 
+    def get_config(self):
+        config = super(DiscreteVelocitySimulator, self).get_config()
+        config.update({'dof_limits': [dof_limit.to_list() for dof_limit in self.dof_limits],
+                       'dof_vel_limits': [dof_vel_limit.to_list() for dof_vel_limit in self.dof_vel_limits]})
+        return config
+
 
 class NodeTrajectoryManager(object):
     def __init__(self, ogre, node_name, start, end, num_steps):
@@ -196,29 +186,32 @@ class NodeTrajectoryManager(object):
 
 
 class OgreSimulator(DiscreteVelocitySimulator):
-    def __init__(self, dof_limits, dof_vel_limits, background_color=None, ogrehead=False, random_background_color=False, random_ogrehead=0):
+    def __init__(self, dof_limits, dof_vel_limits, background_color=None,
+                 ogrehead=False, random_background_color=False, random_ogrehead=0):
         """
         DOFs are x, y, z, angle_x, angle_y, angle_z
         """
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
+        self.background_color = background_color
+        self.ogrehead = ogrehead
+        self.random_background_color = random_background_color
+        self.random_ogrehead = random_ogrehead
         self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
 
         import pygre
         self.ogre = pygre.Pygre()
         self.ogre.init()
-        if background_color is not None:
-            self.ogre.setBackgroundColor(np.asarray(background_color))
+        if self.background_color is not None:
+            self.ogre.setBackgroundColor(np.asarray(self.background_color))
         self.ogre.addNode(b'house', b'house.mesh', 0, 0, 0)
         self.traj_managers = []
-        if ogrehead:
+        if self.ogrehead:
             start = np.array([12, 2.5, -2])
             end = np.array([12, 2.5, -14])
             num_steps = 30
             self.ogre.addNode(b'ogrehead', b'ogrehead.mesh', *start) #([far, close], [down, up], [right, left])
             self.ogre.setNodeScale(b'ogrehead', np.array([.03]*3))
             self.traj_managers.append(NodeTrajectoryManager(self.ogre, b'ogrehead', start, end, num_steps))
-        self.random_background_color = random_background_color
-        self.random_ogrehead = random_ogrehead
         for ogrehead_iter in range(self.random_ogrehead):
             self.ogre.addNode(b'ogrehead%d'%ogrehead_iter, b'ogrehead.mesh', 0, 0, 0)
             self.ogre.setNodeScale(b'ogrehead%d'%ogrehead_iter, np.array([.03]*3))
@@ -257,6 +250,14 @@ class OgreSimulator(DiscreteVelocitySimulator):
     def observe(self):
         image = self.ogre.getScreenshot()
         return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    def get_config(self):
+        config = super(OgreSimulator, self).get_config()
+        config.update({'background_color': self.background_color,
+                       'ogrehead': self.ogrehead,
+                       'random_background_color': self.random_background_color,
+                       'random_ogrehead': self.random_ogrehead})
+        return config
 
 
 class CarNodeTrajectoryManager(object):
@@ -329,6 +330,7 @@ class CarNodeTrajectoryManager(object):
 class CityOgreSimulator(OgreSimulator):
     def __init__(self, dof_limits, dof_vel_limits, static_car=True):
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits)
+        self.static_car = static_car
         self._q0 = np.array([1., 0., 0., 0.])
 
         import pygre
@@ -342,8 +344,7 @@ class CityOgreSimulator(OgreSimulator):
         self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
         car_dof_values_init = [-51, 10.7, 225]
         car_dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
-        self.static_car = static_car
-        if static_car:
+        if self.static_car:
             car_dof_vel_init = np.zeros(3)
             car_dof_vel_limits = [np.zeros(3), np.zeros(3)]
             car_dof_acc_limits = [np.zeros(3), np.zeros(3)]
@@ -374,6 +375,12 @@ class CityOgreSimulator(OgreSimulator):
         dof_values = np.concatenate([camera_pos, np.array([tilt, pan])])
         return dof_values
 
+    def get_config(self):
+        config = super(CityOgreSimulator, self).get_config()
+        config.update({'static_car': self.static_car})
+        return config
+
+
 class ServoPlatform(DiscreteVelocitySimulator):
     def __init__(self, dof_limits, dof_vel_limits,
                  pwm_address=0x40, pwm_freq=60, pwm_channels=(0, 1), pwm_extra_delay=.5,
@@ -384,22 +391,28 @@ class ServoPlatform(DiscreteVelocitySimulator):
         DOFs are pan, tilt
         """
         DiscreteVelocitySimulator.__init__(self, dof_limits, dof_vel_limits, dtype=np.int)
+        self.pwm_address = pwm_address
+        self.pwm_freq = pwm_freq
+        self.pwm_channels = pwm_channels
+        self.pwm_extra_delay = pwm_extra_delay
+        self.camera_id = camera_id
         self.delay = delay
+        self.background_window = background_window
+        self.background_window_size = background_window_size
+
         # camera initialization
-        if isinstance(camera_id, str):
-            if camera_id.isdigit():
-                camera_id = int(camera_id)
+        if isinstance(self.camera_id, str):
+            if self.camera_id.isdigit():
+                self.camera_id = int(self.camera_id)
             else:
-                camera_id = util.device_id_from_camera_id(camera_id)
-        self.cap = utils.video.VideoCapture(device=camera_id)
+                self.camera_id = util.device_id_from_camera_id(self.camera_id)
+        self.cap = utils.video.VideoCapture(device=self.camera_id)
         # servos initialization
         self.last_time = -np.inf
         try:
             from ext.adafruit.Adafruit_PWM_Servo_Driver.Adafruit_PWM_Servo_Driver import PWM
-            self.pwm = PWM(pwm_address)
-            self.pwm.setPWMFreq(pwm_freq)
-            self.pwm_channels = pwm_channels
-            self.pwm_extra_delay = pwm_extra_delay
+            self.pwm = PWM(self.pwm_address)
+            self.pwm.setPWMFreq(self.pwm_freq)
             self.use_pwm = True
             self.dof_values = self._dof_values
             duration = self.duration_dof_vel(np.diff(self.dof_limits, axis=0).max())
@@ -409,8 +422,6 @@ class ServoPlatform(DiscreteVelocitySimulator):
         except Exception as e:
             self.use_pwm = False
             print("Exception when using pwm: %s. Disabling it."%e)
-        self.background_window = background_window
-        self.background_window_size = background_window_size
         if self.background_window:
             cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
             cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
@@ -464,6 +475,18 @@ class ServoPlatform(DiscreteVelocitySimulator):
         duration = 0.23 * deg_vel / 60.0
         return abs(duration)
 
+    def get_config(self):
+        config = super(ServoPlatform, self).get_config()
+        config.update({'pwm_address': self.pwm_address,
+                       'pwm_freq': self.pwm_freq,
+                       'pwm_channels': self.pwm_channels,
+                       'pwm_extra_delay': self.pwm_extra_delay,
+                       'camera_id': self.camera_id,
+                       'delay': self.delay,
+                       'background_window': self.background_window,
+                       'background_window_size': self.background_window_size})
+        return config
+
 
 class PR2HeadSimulator(Simulator):
     def __init__(self, robot, vel_max):
@@ -508,6 +531,9 @@ class PR2HeadSimulator(Simulator):
         dim, = self.angle.shape
         return dim
 
+    def get_config(self):
+        raise NotImplementedError
+
 
 class PR2Head(PR2HeadSimulator):
     def __init__(self, robot, pr2, vel_max):
@@ -530,3 +556,6 @@ class PR2Head(PR2HeadSimulator):
     def observe(self):
         rgb, _ = self.grabber.getRGBD()
         return rgb
+
+    def get_config(self):
+        raise NotImplementedError

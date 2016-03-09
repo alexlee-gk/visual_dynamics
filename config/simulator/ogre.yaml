@@ -1,9 +1,7 @@
-!!python/object:simulator.OgreSimulator
-{
-    dof_limits: [[18, 2, -14, -0.3490658503988659, -0.3490658503988659], [24, 6, -2, 0.3490658503988659, 0.3490658503988659]],
-    dof_vel_limits: [[-0.8, -0.8, -0.8, -0.1308996938995747, -0.1308996938995747], [0.8, 0.8, 0.8, 0.1308996938995747, 0.1308996938995747]],
-    background_color: [0.0, 0.0, 0.0],
-    ogrehead: false,
-    random_background_color: false,
-    random_ogrehead: 0
-}
+class: !!python/name:simulator.OgreSimulator ''
+dof_limits: [[18, 2, -14, -0.3490658503988659, -0.3490658503988659], [24, 6, -2, 0.3490658503988659, 0.3490658503988659]]
+dof_vel_limits: [[-0.8, -0.8, -0.8, -0.1308996938995747, -0.1308996938995747], [0.8, 0.8, 0.8, 0.1308996938995747, 0.1308996938995747]]
+background_color: [0.0, 0.0, 0.0]
+ogrehead: false
+random_background_color: false
+random_ogrehead: 0

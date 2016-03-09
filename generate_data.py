@@ -1,11 +1,7 @@
-import yaml
 import argparse
-import numpy as np
 import cv2
 import controller
-import simulator
-import utils.container
-import utils.visualization
+import utils
 
 
 def main():
@@ -18,44 +14,22 @@ def main():
     parser.add_argument('--vis_scale', '-s', type=int, default=1, metavar='S', help='rescale image by S for visualization')
     args = parser.parse_args()
 
-    with open(args.sim_config) as config_file:
-        sim_args = yaml.load(config_file)
-
-    if sim_args['simulator'] == 'CityOgreSimulator':
-        sim_args = dict(**sim_args, static_car=True)
-    elif sim_args['simulator'] == 'ServoPlatform':
-        background_window = sim_args.pop('background_window', False)
-        background_window_size = sim_args.pop('background_window_size', [5, 8])
-    sim = simulator.Simulator.create(**sim_args)
+    with open(args.sim_config) as yaml_string:
+        sim = utils.config.from_yaml(yaml_string)
 
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
         container.reserve(['image', 'dof_val'], (args.num_trajs, args.num_steps+1))
         container.reserve('vel', (args.num_trajs, args.num_steps))
-        container.add_info(sim_args=sim_args)
+        container.add_info(simulator_config=sim.get_config())
     else:
         container = None
-
-    if sim_args['simulator'] == 'ServoPlatform' and background_window:
-        cv2.namedWindow("Background window", cv2.WND_PROP_FULLSCREEN)
-        cv2.setWindowProperty("Background window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-        cv2.waitKey(100)
 
     ctrl = controller.RandomController(*sim.action_bounds)
     done = False
     for traj_iter in range(args.num_trajs):
         print('traj_iter', traj_iter)
         try:
-            if sim_args['simulator'] == 'ServoPlatform' and background_window:
-                background_shape = (np.random.randint(max(0, background_window_size[0]+1-3), background_window_size[0]+1),
-                                    np.random.randint(max(0, background_window_size[0]+1-3), background_window_size[1]+1))
-                cv2.imshow("Background window", (np.ones(background_shape)[..., None] * np.random.random(3)[None, None, :]))
-                key = cv2.waitKey(100)
-                key &= 255
-                if key == 27 or key == ord('q'):
-                    print("Pressed ESC or q, exiting")
-                    break
-
             dof_val_init = sim.sample_state()
             sim.reset(dof_val_init)
             for step_iter in range(args.num_steps):
@@ -77,7 +51,7 @@ def main():
         except KeyboardInterrupt:
             break
     sim.stop()
-    if args.visualize or (sim_args['simulator'] == 'ServoPlatform' and background_window):
+    if args.visualize:
         cv2.destroyAllWindows()
     if container:
         container.close()
