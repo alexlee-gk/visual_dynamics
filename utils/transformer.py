@@ -1,21 +1,9 @@
 import numpy as np
-import yaml
 import cv2
+import utils
 
 
-def transformer_from_config(config):
-    class_name = config.pop('class_name')
-    if class_name not in globals():
-        raise ValueError('Unknown transformer %s' % class_name)
-    return globals()[class_name].from_config(config)
-
-
-def transformer_from_yaml(yaml_string):
-    config = yaml.load(yaml_string)
-    return transformer_from_config(config)
-
-
-class Transformer:
+class Transformer(utils.config.ConfigObject):
     def preprocess(self, data):
         return data
 
@@ -27,22 +15,6 @@ class Transformer:
 
     def deprocess_shape(self, shape):
         return shape
-
-    def get_config(self):
-        return dict(class_name=self.__class__.__name__)
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-    def to_yaml(self):
-        config = self.get_config()
-        return yaml.dump(config)
-
-    @classmethod
-    def from_yaml(cls, yaml_string):
-        config = yaml.load(yaml_string)
-        return cls.from_config(config)
 
 
 class ScaleOffsetTransposeTransformer(Transformer):
@@ -86,10 +58,10 @@ class ScaleOffsetTransposeTransformer(Transformer):
         return transpose_inv
 
     def get_config(self):
-        config = dict(class_name=self.__class__.__name__,
-                      scale=self.scale,
-                      offset=self.offset,
-                      transpose=self.transpose)
+        config = {'class': self.__class__,
+                  'scale': self.scale,
+                  'offset': self.offset,
+                  'transpose': self.transpose}
         for k, v in config.items():
             if isinstance(v, np.ndarray):
                 config[k] = v.tolist()
@@ -144,10 +116,10 @@ class ImageTransformer(Transformer):
         raise NotImplementedError
 
     def get_config(self):
-        config = dict(class_name=self.__class__.__name__,
-                      scale_size=self.scale_size,
-                      crop_size=self.crop_size,
-                      crop_offset=self.crop_offset.tolist())
+        config = {'class': self.__class__,
+                  'scale_size': self.scale_size,
+                  'crop_size': self.crop_size,
+                  'crop_offset': self.crop_offset}
         for k, v in config.items():
             if isinstance(v, np.ndarray):
                 config[k] = v.tolist()
@@ -180,8 +152,8 @@ class CompositionTransformer(Transformer):
 
     def get_config(self):
         transformers = [transformer.get_config() for transformer in self.transformers]
-        config = dict(class_name=self.__class__.__name__,
-                      transformers=transformers)
+        config = {'class': self.__class__,
+                  'transformers': transformers}
         return config
 
     @classmethod
