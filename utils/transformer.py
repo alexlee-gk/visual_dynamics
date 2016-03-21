@@ -100,9 +100,6 @@ class ImageTransformer(Transformer):
             image = image.transpose(2, 0, 1)
         return image
 
-    def deprocess(self, image):
-        raise NotImplementedError
-
     def preprocess_shape(self, shape):
         if self.crop_size is not None:
             need_swap_channels = (len(shape) == 3 and shape[0] == 3)
@@ -111,9 +108,6 @@ class ImageTransformer(Transformer):
             else:
                 shape = tuple([*self.crop_size, shape[-1]])
         return shape
-
-    def deprocess_shape(self, shape):
-        raise NotImplementedError
 
     def get_config(self):
         config = {'class': self.__class__,
