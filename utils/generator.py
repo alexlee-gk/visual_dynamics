@@ -63,7 +63,7 @@ class ParallelGenerator:
 
 
 class ImageVelDataGenerator:
-    def __init__(self, *container_fnames, data_names, transformers=None, once=False, batch_size=1, shuffle=False, dtype=None):
+    def __init__(self, *container_fnames, data_names, transformers=None, once=False, batch_size=0, shuffle=False, dtype=None):
         """
         Iterate through all the data once or indefinitely. The data from contiguous files
         are treated as if they are contiguous. All of the returned minibatches
@@ -71,12 +71,18 @@ class ImageVelDataGenerator:
         random order, and this order differs for each pass of the data.
         Note: this is not as efficient as it could be when shuffle=False since each
         data point is retrieved one by one regardless of the value of shuffle.
+        A batch_size of 0 denotes to return data of batch size 1 but with the leading singleton dimensioned squeezed.
         """
         self._container_fnames = [os.path.abspath(fname) for fname in container_fnames]
         self._image_name, self._vel_name = data_names
         self.transformers_dict = dict(zip(data_names, transformers or []))
         self.once = once
-        self.batch_size = batch_size
+        if batch_size == 0:
+            self.batch_size = 1
+            self.squeeze = True
+        else:
+            self.batch_size = batch_size
+            self.squeeze = False
         self.shuffle = shuffle
         self.dtype = dtype
         self._lock = threading.Lock()
@@ -136,6 +142,8 @@ class ImageVelDataGenerator:
                     single_datum = self._get_datum(containers, all_ind, data_name, offset=offset)
                     datum[i, ...] = np.asarray(transformer.preprocess(single_datum), dtype=self.dtype)
                 batch_data.append(datum)
+            if self.squeeze:
+                batch_data = [np.squeeze(datum, axis=0) for datum in batch_data]
             return tuple(batch_data)
 
 
