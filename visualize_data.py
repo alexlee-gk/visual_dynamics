@@ -7,7 +7,7 @@ import utils
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('data_dir', type=str)
-    parser.add_argument('--image_transformer_config', default='config/image_transformer_32.yaml')
+    parser.add_argument('--image_transformer_fname', default='config/image_transformer_32.yaml')
     parser.add_argument('--vis_scale', '-s', type=int, default=1, metavar='S', help='rescale image by S for visualization')
     parser.add_argument('--reverse', action='store_true')
     parser.add_argument('--image_names', type=str, nargs='+', default=['image_curr', 'image_diff'])
@@ -15,8 +15,8 @@ def main():
     args = parser.parse_args()
 
     try:
-        with open(args.image_transformer_config) as config_file:
-            image_transformer = yaml.load(config_file)
+        with open(args.image_transformer_fname) as image_transformer_file:
+            image_transformer = yaml.load(image_transformer_file)
     except FileNotFoundError:
         image_transformer = utils.transformer.Transformer()
 

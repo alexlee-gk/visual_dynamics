@@ -145,14 +145,13 @@ class CompositionTransformer(Transformer):
         return shape
 
     def get_config(self):
-        transformers = [transformer.get_config() for transformer in self.transformers]
         config = {'class': self.__class__,
-                  'transformers': transformers}
+                  'transformers': [transformer.get_config() for transformer in self.transformers]}
         return config
 
     @classmethod
     def from_config(cls, config):
-        transformers = [transformer_from_config(transformer_config) for transformer_config in config.get('transformers', [])]
+        transformers = [utils.config.from_config(transformer_config) for transformer_config in config.get('transformers', [])]
         return cls(transformers)
 
 
@@ -167,7 +166,7 @@ def main():
     for transformer in transformers:
         yaml_string = transformer.to_yaml()
         print(yaml_string)
-        re_transformer = transformer_from_yaml(yaml_string)
+        re_transformer = utils.config.from_yaml(yaml_string)
         re_transformers.append(re_transformer)
 
     # make sure the config from both transformers are the same

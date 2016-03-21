@@ -2,6 +2,7 @@ import yaml
 
 
 def from_config(config):
+    config = dict(config)  # shallow copy
     return config.pop('class').from_config(config)
 
 
@@ -16,11 +17,12 @@ class ConfigObject:
 
     @classmethod
     def from_config(cls, config):
+        # TODO pop class?
         return cls(**config)
 
-    def to_yaml(self):
+    def to_yaml(self, *args, **kwargs):
         config = self.get_config()
-        return yaml.dump(config)
+        return yaml.dump(config, *args, **kwargs)
 
     @classmethod
     def from_yaml(cls, yaml_string):

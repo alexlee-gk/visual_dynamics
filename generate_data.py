@@ -6,7 +6,7 @@ import utils
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('sim_config', type=str, help='config file with simulator arguments')
+    parser.add_argument('sim_fname', type=str, help='config file with simulator arguments')
     parser.add_argument('--output_dir', '-o', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
@@ -14,7 +14,7 @@ def main():
     parser.add_argument('--vis_scale', '-s', type=int, default=1, metavar='S', help='rescale image by S for visualization')
     args = parser.parse_args()
 
-    with open(args.sim_config) as yaml_string:
+    with open(args.sim_fname) as yaml_string:
         sim = utils.config.from_yaml(yaml_string)
 
     if args.output_dir:

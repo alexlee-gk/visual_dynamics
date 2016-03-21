@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import utils
 from utils import util
-from utils.math import axis2quat, quaternion_multiply
+from utils.math_utils import axis2quat, quaternion_multiply
 
 
 class Simulator(utils.config.ConfigObject):
@@ -142,7 +142,7 @@ class DiscreteVelocitySimulator(Simulator):
         return self.dof_values
 
     def sample_state(self):
-        dof_values = utils.math.sample_interval(*self.dof_limits)
+        dof_values = utils.math_utils.sample_interval(*self.dof_limits)
         return dof_values
 
     @property
@@ -157,8 +157,8 @@ class DiscreteVelocitySimulator(Simulator):
 
     def get_config(self):
         config = super(DiscreteVelocitySimulator, self).get_config()
-        config.update({'dof_limits': [dof_limit.to_list() for dof_limit in self.dof_limits],
-                       'dof_vel_limits': [dof_vel_limit.to_list() for dof_vel_limit in self.dof_vel_limits]})
+        config.update({'dof_limits': [dof_limit.tolist() for dof_limit in self.dof_limits],
+                       'dof_vel_limits': [dof_vel_limit.tolist() for dof_vel_limit in self.dof_vel_limits]})
         return config
 
 
