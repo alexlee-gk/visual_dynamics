@@ -141,10 +141,13 @@ class ImageVelDataGenerator:
             batch_data = []
             for data_name, offset in [(self._image_name, 0), (self._vel_name, 0), (self._image_name, 1)]:
                 transformer = self.transformers_dict.get(data_name, None) or utils.transformer.Transformer()
-                datum = np.empty((len(excerpt), *transformer.preprocess_shape(containers[0].get_datum_shape(data_name))), dtype=self.dtype)
+                datum = None  # initialize later to use dtype of first single_datum
                 for i, all_ind in enumerate(excerpt):
                     single_datum = self._get_datum(containers, all_ind, data_name, offset=offset)
-                    datum[i, ...] = np.asarray(transformer.preprocess(single_datum), dtype=self.dtype)
+                    single_datum = np.asarray(transformer.preprocess(single_datum), dtype=self.dtype)
+                    if datum is None:
+                        datum = np.empty((len(excerpt), *single_datum.shape), dtype=single_datum.dtype)
+                    datum[i, ...] = single_datum
                 batch_data.append(datum)
             if self.squeeze:
                 batch_data = [np.squeeze(datum, axis=0) for datum in batch_data]
