@@ -130,7 +130,7 @@ class CompositionTransformer(Transformer):
         return data
 
     def deprocess(self, data):
-        for transformer in self.transformers:
+        for transformer in reversed(self.transformers):
             data = transformer.deprocess(data)
         return data
 
@@ -140,7 +140,7 @@ class CompositionTransformer(Transformer):
         return shape
 
     def deprocess_shape(self, shape):
-        for transformer in self.transformers:
+        for transformer in reversed(self.transformers):
             shape = transformer.deprocess_shape(shape)
         return shape
 
