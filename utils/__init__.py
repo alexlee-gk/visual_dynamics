@@ -6,3 +6,4 @@ from .transformer import *
 from .util import *
 from .video import *
 from .visualization import *
+from .visualization_theano import *

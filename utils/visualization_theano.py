@@ -91,7 +91,7 @@ def get_pydot_graph(layers, output_shape=True, verbose=False):
         if output_shape:
             try:
                 label += '\n' + \
-                    'Output shape: {0}'.format(layer.get_output_shape())
+                    'Output shape: {0}'.format(layer.output_shape)
             except AttributeError:
                 pass
         pydot_nodes[key] = pydot.Node(key,
