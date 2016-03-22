@@ -13,5 +13,6 @@ momentum2: 0.999
 weight_decay: 0.0005
 snapshot_interval: 1000
 snapshot_prefix: ''
+average_loss: 10
 loss_interval: 100
 plot_interval: 0

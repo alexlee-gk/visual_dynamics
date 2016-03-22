@@ -44,6 +44,7 @@ class ParallelGenerator:
         self.wait_time = wait_time
         self.data_gen_queue, self._data_stop, self.generator_threads = \
             generator_queue(generator, max_q_size=max_q_size, wait_time=wait_time, nb_worker=nb_worker)
+        self._size = generator.size()
 
     def __iter__(self):
         return self
@@ -60,6 +61,9 @@ class ParallelGenerator:
         self._data_stop.set()
         for thread in self.generator_threads:
             thread.join()
+
+    def size(self):
+        return self._size
 
 
 class ImageVelDataGenerator:
@@ -145,6 +149,9 @@ class ImageVelDataGenerator:
             if self.squeeze:
                 batch_data = [np.squeeze(datum, axis=0) for datum in batch_data]
             return tuple(batch_data)
+
+    def size(self):
+        return self._all_data_size
 
 
 def main():

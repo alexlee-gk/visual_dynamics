@@ -10,8 +10,8 @@ import utils
 class TheanoNetSolver(utils.config.ConfigObject):
     def __init__(self, batch_size=32, test_iter=10, solver_type='ADAM', test_interval=1000, base_lr=0.001, gamma=1.0,
                  stepsize=1000, display=20, max_iter=10000, momentum=0.9, momentum2=0.999, weight_decay=0.0005,
-                 snapshot_interval=1000, snapshot_prefix='', loss_interval=100, plot_interval=100,
-                 iter_=0, losses=None, val_losses=None, loss_iters=None):
+                 snapshot_interval=1000, snapshot_prefix='', average_loss=10, loss_interval=100, plot_interval=100,
+                 iter_=0, losses=None, train_losses=None, val_losses=None, loss_iters=None):
         self.batch_size = batch_size
         self.test_iter = test_iter
         self.solver_type = solver_type
@@ -26,11 +26,13 @@ class TheanoNetSolver(utils.config.ConfigObject):
         self.weight_decay = weight_decay
         self.snapshot_interval = snapshot_interval
         self.snapshot_prefix = snapshot_prefix
+        self.average_loss = average_loss
         self.loss_interval = loss_interval
         self.plot_interval = plot_interval
 
         self.iter_ = iter_
         self.losses = losses or []
+        self.train_losses = train_losses or []
         self.val_losses = val_losses or []
         self.loss_iters = loss_iters or []
 
@@ -95,20 +97,18 @@ class TheanoNetSolver(utils.config.ConfigObject):
             self.snapshot(net)
 
         # display losses after optimization is done
-        try:
-            loss, val_loss = losses
-        except ValueError:
-            loss = losses
-            val_loss = None
+        train_loss, val_loss = losses
         print("Iteration {} of {}".format(self.iter_, self.max_iter))
-        print("    training loss = {:.6f}".format(loss))
-        if val_loss:
+        print("    training loss = {:.6f}".format(train_loss))
+        if val_loss is not None:
             print("    validation loss = {:.6f}".format(val_loss))
 
-    def step(self, iters, net, input_names, output_names, train_data_gen, val_data_gen=None, callback=None):
+    def step(self, iters, net, input_names, output_names, train_data_gen, val_data_gen=None):
+        print("Size of training data is %d" % train_data_gen.size())
         train_fn = self.compile_train_fn(net, input_names, output_names)
         validate = self.test_interval and val_data_gen is not None
         if validate:
+            print("Size of validation data is %d" % val_data_gen.size())
             val_fn = self.compile_val_fn(net, input_names, output_names)
 
         print("Starting training...")
@@ -121,6 +121,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
             current_step = self.iter_ // self.stepsize
             learning_rate = self.base_lr * self.gamma ** current_step
             loss = float(train_fn(*next(train_data_gen), learning_rate))
+            self.losses.append(loss)
 
             if self.display and self.iter_ % self.display == 0:
                 print("Iteration {} of {}, lr = {}".format(self.iter_, self.max_iter, learning_rate))
@@ -128,9 +129,12 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
             if self.loss_interval and (self.iter_ % self.loss_interval == 0 or
                                        self.snapshot_interval and self.iter_ % self.snapshot_interval == 0):  # update loss plot for snapshot
-                self.losses.append(loss)
-                val_loss = float(sum([val_fn(*next(val_data_gen)) for _ in range(self.test_iter)]) / self.test_iter)
-                self.val_losses.append(val_loss)
+                average_loss = min(self.average_loss, len(self.losses))
+                train_loss = float(sum(self.losses[-average_loss:]) / average_loss)
+                self.train_losses.append(train_loss)
+                if validate:
+                    val_loss = float(sum([val_fn(*next(val_data_gen)) for _ in range(self.test_iter)]) / self.test_iter)
+                    self.val_losses.append(val_loss)
                 self.loss_iters.append(self.iter_)
                 self.visualize_loss(net.name)
 
@@ -143,12 +147,13 @@ class TheanoNetSolver(utils.config.ConfigObject):
             if self.snapshot_interval and self.iter_ % self.snapshot_interval == 0:
                 self.snapshot(net)
 
+        average_loss = min(self.average_loss, len(self.losses))
+        train_loss = float(sum(self.losses[-average_loss:]) / average_loss)
         if validate:
-            val_loss = sum([val_fn(*next(val_data_gen)) for _ in range(self.test_iter)]) / self.test_iter
-            losses = (loss, val_loss)
+            val_loss = float(sum([val_fn(*next(val_data_gen)) for _ in range(self.test_iter)]) / self.test_iter)
         else:
-            losses = loss
-        return losses
+            val_loss = None
+        return train_loss, val_loss
 
     def visualize_loss(self, window_title=None):
         plt.ion()
@@ -156,14 +161,15 @@ class TheanoNetSolver(utils.config.ConfigObject):
         plt.cla()
         if window_title is not None:
             fig.canvas.set_window_title(window_title)
-        plt.plot(self.loss_iters, self.losses, label='train')
-        plt.plot(self.loss_iters, self.val_losses, label='val')
+        plt.plot(self.loss_iters, self.train_losses, label='train')
+        if self.val_losses:
+            plt.plot(self.loss_iters, self.val_losses, label='val')
         plt.ylabel('iteration')
         plt.ylabel('loss')
         plt.legend()
         axes = plt.gca()
         ylim = axes.get_ylim()
-        ylim = (min(0, ylim[0]), min(2 * np.median([*self.losses, *self.val_losses]), ylim[1]))
+        ylim = (min(0, ylim[0]), min(2 * np.median([*self.train_losses, *self.val_losses]), ylim[1]))
         axes.set_ylim(ylim)
         plt.draw()
 
@@ -172,12 +178,14 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
     def snapshot(self, net):
         model_fname = self.get_snapshot_fname('_model.yaml')
+        print("Saving predictor to file", model_fname)
         with open(model_fname, 'w') as model_file:
             config = net.get_config(model_fname)
             yaml.dump(config, model_file)
         solver_fname = self.get_snapshot_fname('_solver.yaml')
+        print("Saving solver to file", solver_fname)
         with open(solver_fname, 'w') as solver_file:
-            self.to_yaml(solver_file)
+            self.to_yaml(solver_file, width=float('inf'))
         if self.loss_interval:
             loss_fig_fname = self.get_snapshot_fname('_loss.pdf')
             plt.savefig(loss_fig_fname)
@@ -197,6 +205,12 @@ class TheanoNetSolver(utils.config.ConfigObject):
                   'weight_decay': self.weight_decay,
                   'snapshot_interval': self.snapshot_interval,
                   'snapshot_prefix': self.snapshot_prefix,
+                  'average_loss': self.average_loss,
                   'loss_interval': self.loss_interval,
-                  'plot_interval': self.plot_interval}
+                  'plot_interval': self.plot_interval,
+                  'iter_': self.iter_,
+                  'losses': self.losses,
+                  'train_losses': self.train_losses,
+                  'val_losses': self.val_losses,
+                  'loss_iters': self.loss_iters}
         return config
