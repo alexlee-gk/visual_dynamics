@@ -529,7 +529,7 @@ def build_small_action_cond_encoder_net(input_shapes):
     pred_layers = OrderedDict([('y_diff_pred', l_y2_diff_pred), ('y', l_y2), ('x0_next_pred', l_x_next_pred)])
     return net_name, input_vars, pred_layers, loss
 
-def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, num_downsample=0, bilinear_type='share', ladder_loss=True, batch_normalization=False, concat=False, tanh=True):
+def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, num_downsample=0, bilinear_type='share', ladder_loss=True, batch_norm=False, concat=False, tanh=False):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -583,7 +583,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
                                        nonlinearity=None,
                                        name='x%d_conv1'%level)
             TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_1, encoding=True, **dict([('level%d'%level, True)]))
-            if batch_normalization:
+            if batch_norm:
                 l_xlevel_1 = L.BatchNormLayer(l_xlevel_1, name='x%d_bn1'%level)
                 TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_1, encoding=True, **dict([('level%d'%level, True)]))
             l_xlevel_1 = L.NonlinearityLayer(l_xlevel_1, nonlinearity=nl.rectify, name='x%d_1'%level)
@@ -591,7 +591,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
                                        nonlinearity=None,
                                        name='x%d_conv2'%level)
             TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_2, encoding=True, **dict([('level%d'%level, True)]))
-            if batch_normalization:
+            if batch_norm:
                 l_xlevel_2 = L.BatchNormLayer(l_xlevel_2, name='x%d_bn2'%level)
                 TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_2, encoding=True, **dict([('level%d'%level, True)]))
             l_xlevel_2 = L.NonlinearityLayer(l_xlevel_2, nonlinearity=nl.rectify, name='x%d_2'%level)
@@ -630,7 +630,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
                                                  nonlinearity=None,
                                                  name='x%d_next_pred_deconv2'%(level+1))
             TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_next_pred_1, decoding=True, **dict([('level%d'%(level+1), True)]))
-            if batch_normalization:
+            if batch_norm:
                 l_xlevel_next_pred_1 = L.BatchNormLayer(l_xlevel_next_pred_1, name='x%d_next_pred_bn2'%(level+1))
                 TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_next_pred_1, decoding=True, **dict([('level%d'%(level+1), True)]))
             l_xlevel_next_pred_1 = L.NonlinearityLayer(l_xlevel_next_pred_1, nonlinearity=nl.rectify, name='x%d_next_pred_1'%(level+1))
@@ -641,7 +641,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
                                                    nonlinearity=None,
                                                    name='x%d_next_pred_deconv1'%(level+1))
                 TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_next_pred, decoding=True, **dict([('level%d'%(level+1), True)]))
-                if batch_normalization: # TODO batch normat level 0?
+                if batch_norm: # TODO batch normat level 0?
                     l_xlevel_next_pred = L.BatchNormLayer(l_xlevel_next_pred, name='x%d_next_pred_bn1'%(level+1))
                     TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_next_pred, decoding=True, **dict([('level%d'%(level+1), True)]))
             else:
@@ -649,7 +649,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
                                                       nonlinearity=None,
                                                       name='x%d_next_pred_deconv1'%(level+1))
                 TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_next_pred, decoding=True, **dict([('level%d'%(level+1), True)]))
-                if batch_normalization:
+                if batch_norm:
                     l_xlevel_next_pred = L.BatchNormLayer(l_xlevel_next_pred, name='x%d_next_pred_bn1'%(level+1))
                     TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_next_pred, decoding=True, **dict([('level%d'%(level+1), True)]))
                 if level in l_xlevels_next_trans:
@@ -660,6 +660,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
         if level in levels:
             l_ylevels_diff_pred[level] = L.FlattenLayer(L.ElemwiseSumLayer([l_xlevel_next_pred, l_xlevels[level]], coeffs=[1.0, -1.0], name='x%d_diff_pred'%level), name='y%d_diff_pred'%level)
     l_y_diff_pred = L.ConcatLayer(list(l_ylevels_diff_pred.values())[::-1], name='y_diff_pred')
+    l_y_next_pred = L.ElemwiseSumLayer([l_y, l_y_diff_pred], name='y_next_pred')
 
     l_x0_next_pred = l_xlevels_next_pred[0]
 
@@ -702,7 +703,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
                                                 b=encoder_layers['x%d_conv1'%level].b,
                                                 nonlinearity=None,
                                                 name='x%d_next_conv1'%level)
-                if batch_normalization: # TODO: share batch normalization variables?
+                if batch_norm: # TODO: share batch normalization variables?
                     l_xlevel_next_1 = L.BatchNormLayer(l_xlevel_next_1,
                                                        beta=encoder_layers['x%d_bn1'%level].beta,
                                                        gamma=encoder_layers['x%d_bn1'%level].gamma,
@@ -715,7 +716,7 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
                                                 b=encoder_layers['x%d_conv2'%level].b,
                                                 nonlinearity=None,
                                                 name='x%d_next_conv2'%level)
-                if batch_normalization:
+                if batch_norm:
                     l_xlevel_next_2 = L.BatchNormLayer(l_xlevel_next_2,
                                                        beta=encoder_layers['x%d_bn2'%level].beta,
                                                        gamma=encoder_layers['x%d_bn2'%level].gamma,
@@ -740,12 +741,13 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
     net_name += '_numds' + str(num_downsample)
     net_name += '_bi' + bilinear_type
     net_name += '_ladder' + str(int(ladder_loss))
-    net_name += '_bn' + str(int(batch_normalization))
+    net_name += '_bn' + str(int(batch_norm))
     net_name += '_concat' + str(int(concat))
 
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
     pred_layers = OrderedDict([('y_diff_pred', l_y_diff_pred),
                                ('y', l_y),
+                               ('y_next_pred', l_y_next_pred),
                                ('x0_next_pred', l_x0_next_pred),
                                ('x%d_next_pred'%levels[-1], l_xlevels_next_pred[levels[-1]])])
     if ladder_loss:
@@ -753,142 +755,40 @@ def build_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, nu
     return net_name, input_vars, pred_layers, loss, loss_deterministic
 
 
-def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, num_downsample=0, bilinear_type='share', ladder_loss=True, batch_normalization=False, concat=False, tanh=True):
-    if batch_normalization:
-        raise NotImplementedError("Parameters og batch normalization should be shared")
+def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, bilinear_type='share', batch_norm=False, tanh=False):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
     levels = levels or [3]
     levels = sorted(set(levels))
 
-    X_var = T.tensor4('X')
-    U_var = T.matrix('U')
-    X_diff_var = T.tensor4('X_diff')
-    X_next_var = X_var + X_diff_var
+    X_var = T.tensor4('x')
+    U_var = T.matrix('u')
+    X_next_var = T.tensor4('x_next')
 
     l_x = L.InputLayer(shape=(None,) + x_shape, input_var=X_var, name='x')
     l_u = L.InputLayer(shape=(None,) + u_shape, input_var=U_var, name='u')
     l_x_next = L.InputLayer(shape=(None,) + x_shape, input_var=X_next_var, name='x_next')
 
-    # preprocess
-    l_x0 = l_x
-    x0_shape = x_shape
-    if num_downsample > 0:
-        import cv2
-        ds_kernel = cv2.getGaussianKernel(ksize=2, sigma=-1)
-        ds_weight_filler = ds_kernel.dot(ds_kernel.T).astype(theano.config.floatX)
-        ds_weight_filler = ds_weight_filler.reshape((1, 1, *ds_weight_filler.shape))
-    for i_ds in range(num_downsample):
-        l_x0_channels = []
-        for channel in range(x0_shape[0]):
-            l_x0_channel = L.SliceLayer(l_x0, indices=slice(channel, channel+1), axis=1)
-            l_x0_channel = L.Conv2DLayer(l_x0_channel, 1, filter_size=2, stride=2, pad=0,
-                                         W=ds_weight_filler,
-                                         b=init.Constant(0.),
-                                         nonlinearity=None)
-            TheanoNetFeaturePredictor.set_layer_param_tags(l_x0_channel, trainable=False)
-            l_x0_channels.append(l_x0_channel)
-        l_x0 = L.ConcatLayer(l_x0_channels, axis=1, name='x0' if i_ds == (num_downsample-1) else 'x0_ds%d'%(i_ds+1))
-        x0_shape = (x0_shape[0], x0_shape[1]//2, x0_shape[2]//2)
-
     xlevels_c_dim = OrderedDict()
     for level in range(levels[-1]+1):
         if level == 0:
-            xlevels_c_dim[level] = x0_shape[0]
+            xlevels_c_dim[level] = x_shape[0]
         else:
             xlevels_c_dim[level] = x1_c_dim * 2**(level-1)
-
-    encode_params = OrderedDict()
-    def encode(l_xlevelm1, level, name):
-        tags = dict([('encoding', True), ('level%d'%level, True)])
-        params = dict([param for param in [('W', encode_params.get('%d_conv1.W'%level, None)),
-                                           ('b', encode_params.get('%d_conv1.b'%level, None))] if param[1] is not None])
-        l_xlevel_1 = L.Conv2DLayer(l_xlevelm1, xlevels_c_dim[level], filter_size=3, stride=1, pad=1,
-                                   nonlinearity=None,
-                                   **params,
-                                   name=(name+'_conv1')%level)
-        if not params:
-            encode_params['%d_conv1.W'%level] = l_xlevel_1.W
-            encode_params['%d_conv1.b'%level] = l_xlevel_1.b
-        TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_1, **tags)
-        if batch_normalization:
-            l_xlevel_1 = L.BatchNormLayer(l_xlevel_1, name=(name+'_bn1')%level)
-            TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_1, **tags)
-        l_xlevel_1 = L.NonlinearityLayer(l_xlevel_1, nonlinearity=nl.rectify, name=(name+'_1')%level)
-        params = dict([param for param in [('W', encode_params.get('%d_conv2.W'%level, None)),
-                                           ('b', encode_params.get('%d_conv2.b'%level, None))] if param[1] is not None])
-        l_xlevel_2 = L.Conv2DLayer(l_xlevel_1, xlevels_c_dim[level], filter_size=3, stride=1, pad=1,
-                                   nonlinearity=None,
-                                   **params,
-                                   name=(name+'_conv2')%level)
-        if not params:
-            encode_params['%d_conv2.W'%level] = l_xlevel_2.W
-            encode_params['%d_conv2.b'%level] = l_xlevel_2.b
-        TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_2, **tags)
-        if batch_normalization:
-            l_xlevel_2 = L.BatchNormLayer(l_xlevel_2, name=(name+'_bn2')%level)
-            TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_2, **tags)
-        l_xlevel_2 = L.NonlinearityLayer(l_xlevel_2, nonlinearity=nl.rectify, name=(name+'_2')%level)
-        l_xlevel = L.MaxPool2DLayer(l_xlevel_2, pool_size=2, stride=2, pad=0, name=name%level)
-        return l_xlevel
-
-    decode_params = OrderedDict()
-    def decode(l_xlevelp1, level, name):
-        tags = dict([('decoding', True), ('level%d'%(level+1), True)])
-        params = dict([param for param in [('W', decode_params.get('%d_2.W'%(level+1), None)),
-                                           ('b', decode_params.get('%d_2.b'%(level+1), None))] if param[1] is not None])
-        l_xlevel_2 = Deconv2DLayer(l_xlevelp1, xlevels_c_dim[level+1], filter_size=2, stride=2, pad=0,
-                                   nonlinearity=None,
-                                   **params,
-                                   name=(name+'_2')%(level+1)) # TODO initialize with bilinear weights # TODO should rectify? # TODO: channel-wise (groups) # TODO: no bias term
-        if not params:
-            decode_params['%d_2.W'%(level+1)] = l_xlevel_2.W
-            decode_params['%d_2.b'%(level+1)] = l_xlevel_2.b
-        TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_2, **tags)
-        params = dict([param for param in [('W', decode_params.get('%d_deconv2.W'%(level+1), None)),
-                                           ('b', decode_params.get('%d_deconv2.b'%(level+1), None))] if param[1] is not None])
-        l_xlevel_1 = Deconv2DLayer(l_xlevel_2, xlevels_c_dim[level+1], filter_size=3, stride=1, pad=1,
-                                   nonlinearity=None,
-                                   **params,
-                                   name=(name+'_deconv2')%(level+1))
-        if not params:
-            decode_params['%d_deconv2.W'%(level+1)] = l_xlevel_1.W
-            decode_params['%d_deconv2.b'%(level+1)] = l_xlevel_1.b
-        TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_1, **tags)
-        if batch_normalization:
-            l_xlevel_1 = L.BatchNormLayer(l_xlevel_1, name=(name+'_bn2')%(level+1))
-            TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel_1, **tags)
-        l_xlevel_1 = L.NonlinearityLayer(l_xlevel_1, nonlinearity=nl.rectify, name=(name+'_1')%(level+1))
-        params = dict([param for param in [('W', decode_params.get('%d_deconv1.W'%(level+1), None)),
-                                           ('b', decode_params.get('%d_deconv1.b'%(level+1), None))] if param[1] is not None])
-        l_xlevel = Deconv2DLayer(l_xlevel_1, xlevels_c_dim[level], filter_size=3, stride=1, pad=1,
-                                 nonlinearity=None,
-                                 **params,
-                                 name=(name+'_deconv1')%(level+1))
-        if not params:
-            decode_params['%d_deconv1.W'%(level+1)] = l_xlevel.W
-            decode_params['%d_deconv1.b'%(level+1)] = l_xlevel.b
-        TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel, **tags)
-        if batch_normalization: # TODO batch normalization at level 0?
-            l_xlevel = L.BatchNormLayer(l_xlevel, name=(name+'_bn1')%(level+1))
-            TheanoNetFeaturePredictor.set_layer_param_tags(l_xlevel, **tags)
-        # l_xlevel = L.NonlinearityLayer(l_xlevel, nonlinearity=nl.tanh if (level == 0 and tanh) else nl.rectify, name=name%level)
-        return l_xlevel
 
     # encoding
     l_xlevels = OrderedDict()
     for level in range(levels[-1]+1):
         if level == 0:
-            l_xlevel = l_x0
+            l_xlevel = l_x
         else:
-            # l_xlevel = VggEncodingLayer(l_xlevels[level-1], xlevels_c_dim[level], batch_norm=batch_normalization, name='x%d'%level)
-            l_xlevel = encode(l_xlevels[level-1], level, 'x%d')
+            l_xlevel = VggEncodingLayer(l_xlevels[level-1], xlevels_c_dim[level], batch_norm=batch_norm, name='x%d' % level)
         l_xlevels[level] = l_xlevel
 
     # bilinear
-    l_xlevels_next_trans = OrderedDict()
-    l_xlevels_bar = OrderedDict()
+    l_xlevels_next_res = OrderedDict()
+    l_xlevels_dec = OrderedDict()
     l_ylevels = OrderedDict()
     l_ylevels_diff_pred = OrderedDict()
     for level in levels:
@@ -896,98 +796,61 @@ def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_
         if level == levels[-1]:
             l_xlevel_res = l_xlevel
         else:
-            # l_xlevel_bar = VggDecodingLayer(l_xlevels[level+1], xlevels_c_dim[level],
-            #                                 batch_norm=batch_normalization, name='x%d_bar'%level)
-            l_xlevel_bar = decode(l_xlevels[level+1], level, 'x%d_bar')
-            l_xlevels_bar[level] = l_xlevel_bar
-            l_xlevel_res = L.ElemwiseSumLayer([l_xlevel, l_xlevel_bar], coeffs=[1.0, -1.0], name='x%d_res'%level)
-        l_xlevel_diff_trans = create_bilinear_layer(l_xlevel_res, l_u, level, bilinear_type=bilinear_type, name='x%d_diff_trans'%level)
-        l_xlevel_next_trans = L.ElemwiseMergeLayer([l_xlevel_res, l_xlevel_diff_trans], T.add, name='x%d_next_trans'%level)
-        l_xlevels_next_trans[level] = l_xlevel_next_trans
-        l_ylevels[level] = L.FlattenLayer(l_xlevel_res, name='y%d'%level)
-        l_ylevels_diff_pred[level] = L.FlattenLayer(l_xlevel_diff_trans, name='y%d_diff_pred'%level)
+            l_xlevels_dec[level] = VggDecodingLayer(l_xlevels[level+1], xlevels_c_dim[level],
+                                                    batch_norm=batch_norm, name='x%d_dec' % level)
+            l_xlevel_res = L.ElemwiseSumLayer([l_xlevel, l_xlevels_dec[level]], coeffs=[1.0, -1.0], name='x%d_res' % level)
+        l_xlevel_diff_res = create_bilinear_layer(l_xlevel_res, l_u, level, bilinear_type=bilinear_type, name='x%d_diff_res' % level)
+        l_xlevels_next_res[level] = L.ElemwiseSumLayer([l_xlevel_res, l_xlevel_diff_res], name='x%d_next_res' % level)
+        l_ylevels[level] = L.FlattenLayer(l_xlevel_res, name='y%d' % level)
+        l_ylevels_diff_pred[level] = L.FlattenLayer(l_xlevel_diff_res, name='y%d_diff_pred' % level)
     l_y = L.ConcatLayer(l_ylevels.values(), name='y')
-    l_y_diff_pred = L.ConcatLayer(list(l_ylevels_diff_pred.values())[::-1], name='y_diff_pred')
+    l_y_diff_pred = L.ConcatLayer(l_ylevels_diff_pred.values(), name='y_diff_pred')
+    l_y_next_pred = L.ElemwiseSumLayer([l_y, l_y_diff_pred], name='y_next_pred')
 
     # decoding
     l_xlevels_next_pred = OrderedDict()
     for level in range(levels[-1]+1)[::-1]:
         if level == levels[-1]:
-            l_xlevel_next_pred = l_xlevels_next_trans[level]
+            l_xlevel_next_pred = l_xlevels_next_res[level]
         else:
-            # l_xlevel_next_pred = VggDecodingLayer(l_xlevels_next_pred[level+1], xlevels_c_dim[level],
-            #                                       *l_xlevels_bar[level].get_params(),
-            #                                       batch_norm=batch_normalization, name='x%d_next_bar'%level)
-            l_xlevel_next_pred = decode(l_xlevels_next_pred[level+1], level, 'x%d_next_bar')
-            if level in l_xlevels_next_trans:
-                l_xlevel_next_pred = L.ElemwiseSumLayer([l_xlevels_next_trans[level], l_xlevel_next_pred], name='x%d_next_pred_sum'%level)
+            if level in l_xlevels_dec:
+                params = l_xlevels_dec[level].get_params()
+            else:
+                params = tuple()
+            l_xlevel_next_pred = VggDecodingLayer(l_xlevels_next_pred[level+1], xlevels_c_dim[level],
+                                                  *params,
+                                                  batch_norm=batch_norm, name='x%d_next_dec' % level)
+            if level in l_xlevels_next_res:
+                l_xlevel_next_pred = L.ElemwiseSumLayer([l_xlevels_next_res[level], l_xlevel_next_pred], name='x%d_next_dec_res_sum' % level)
             l_xlevel_next_pred = L.NonlinearityLayer(l_xlevel_next_pred, nonlinearity=nl.tanh if (level == 0 and tanh) else nl.rectify, name='x%d_next_pred'%level)
         l_xlevels_next_pred[level] = l_xlevel_next_pred
 
-    l_x0_next_pred = l_xlevels_next_pred[0]
+    l_x_next_pred = l_xlevels_next_pred[0]
 
-    # preprocess
-    l_x0_next = l_x_next
-    for i_ds in range(num_downsample):
-        l_x0_next_channels = []
-        for channel in range(x0_shape[0]):
-            l_x0_next_channel = L.SliceLayer(l_x0_next, indices=slice(channel, channel+1), axis=1)
-            l_x0_next_channel = L.Conv2DLayer(l_x0_next_channel, 1, filter_size=2, stride=2, pad=0,
-                                              W=ds_weight_filler,
-                                              b=init.Constant(0.),
-                                              nonlinearity=None)
-            TheanoNetFeaturePredictor.set_layer_param_tags(l_x0_next_channel, trainable=False)
-            l_x0_next_channels.append(l_x0_next_channel)
-        l_x0_next = L.ConcatLayer(l_x0_next_channels, axis=1, name='x0_next' if i_ds == (num_downsample-1) else 'x0_next_ds%d'%(i_ds+1))
+    # encoding of next image
+    l_xlevels_next = OrderedDict()
+    for level in range(levels[-1]+1):
+        if level == 0:
+            l_xlevel_next = l_x_next
+        else:
+            l_xlevel_next = VggEncodingLayer(l_xlevels_next[level-1], xlevels_c_dim[level],
+                                             *l_xlevels[level].get_params(),
+                                             batch_norm=batch_norm, name='x%d_next'%level)
+        l_xlevels_next[level] = l_xlevel_next
 
-    loss_fn = lambda X, X_pred: ((X - X_pred) ** 2).mean(axis=0).sum() / 2.
-    loss = loss_fn(lasagne.layers.get_output(l_x0_next),
-                   lasagne.layers.get_output(l_x0_next_pred))
-    loss_deterministic = loss_fn(lasagne.layers.get_output(l_x0_next, deterministic=True),
-                                 lasagne.layers.get_output(l_x0_next_pred, deterministic=True))
-
-    if ladder_loss:
-        encoder_layers = OrderedDict((layer.name, layer) for layer in lasagne.layers.get_all_layers(l_xlevels[levels[-1]]) if layer.name is not None)
-        # encoding of next image
-        l_xlevels_next = OrderedDict()
-        for level in range(levels[-1]+1):
-            if level == 0:
-                l_xlevel_next = l_x0_next
-            else:
-                # l_xlevel_next = VggEncodingLayer(l_xlevels_next[level-1], xlevels_c_dim[level],
-                #                                  *l_xlevels[level].get_params(),
-                #                                  batch_norm=batch_normalization, name='x%d_next'%level)
-                l_xlevel_next = encode(l_xlevels_next[level-1], level, 'x%d_next')
-            l_xlevels_next[level] = l_xlevel_next
-
-        for level in levels:
-            if level == 0:
-                continue
-            loss += loss_fn(lasagne.layers.get_output(l_xlevels_next[level]),
-                            lasagne.layers.get_output(l_xlevels_next_pred[level]))
-            loss_deterministic += loss_fn(lasagne.layers.get_output(l_xlevels_next[level], deterministic=True),
-                                          lasagne.layers.get_output(l_xlevels_next_pred[level], deterministic=True))
-
-    net_name = 'LaplacianFcnActionCondEncoderNet'
-    net_name +='_levels' + ''.join([str(level) for level in levels])
-    net_name += '_x1cdim' + str(x1_c_dim)
-    net_name += '_numds' + str(num_downsample)
-    net_name += '_bi' + bilinear_type
-    net_name += '_ladder' + str(int(ladder_loss))
-    net_name += '_bn' + str(int(batch_normalization))
-    net_name += '_concat' + str(int(concat))
-
-    input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
     pred_layers = OrderedDict([('y_diff_pred', l_y_diff_pred),
                                ('y', l_y),
-                               ('x0_next_pred', l_x0_next_pred),
-                               ('x%d_next_pred'%levels[-1], l_xlevels_next_pred[levels[-1]])])
-    if ladder_loss:
-        pred_layers.update([('x%d_next'%levels[-1], l_xlevels_next[levels[-1]])])
-    return net_name, input_vars, pred_layers, loss, loss_deterministic
+                               ('y_next_pred', l_y_next_pred),
+                               ('x_next_pred', l_xlevels_next_pred[0]),
+                               ('x0_next_pred', l_xlevels_next_pred[0]),
+                               ('x_next', l_x_next),
+                               ('x0_next', l_x_next),
+                               ('x%d_next_pred' % levels[-1], l_xlevels_next_pred[levels[-1]]),
+                               ('x%d_next' % levels[-1], l_xlevels_next[levels[-1]])])
+    return pred_layers
 
 
-def build_fcn_action_cond_encoder_only_net(input_shapes, levels=None, x1_c_dim=16, num_downsample=0, bilinear_type='share', ladder_loss=True, batch_normalization=False, **kwargs):
+def build_fcn_action_cond_encoder_only_net(input_shapes, levels=None, x1_c_dim=16, num_downsample=0, bilinear_type='share', ladder_loss=True, batch_norm=False, **kwargs):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -1025,13 +888,13 @@ def build_fcn_action_cond_encoder_only_net(input_shapes, levels=None, x1_c_dim=1
             l_xlevel_1 = L.Conv2DLayer(l_xlevels[level-1], xlevel_c_dim, filter_size=3, stride=1, pad=1,
                                        nonlinearity=None,
                                        name='x%d_conv1'%level)
-            if batch_normalization:
+            if batch_norm:
                 l_xlevel_1 = L.BatchNormLayer(l_xlevel_1, name='x%d_bn1'%level)
             l_xlevel_1 = L.NonlinearityLayer(l_xlevel_1, nonlinearity=nl.rectify, name='x%d_1'%level)
             l_xlevel_2 = L.Conv2DLayer(l_xlevel_1, xlevel_c_dim, filter_size=3, stride=1, pad=1,
                                        nonlinearity=None,
                                        name='x%d_conv2'%level)
-            if batch_normalization:
+            if batch_norm:
                 l_xlevel_2 = L.BatchNormLayer(l_xlevel_2, name='x%d_bn2'%level)
             l_xlevel_2 = L.NonlinearityLayer(l_xlevel_2, nonlinearity=nl.rectify, name='x%d_2'%level)
             l_xlevel = L.MaxPool2DLayer(l_xlevel_2, pool_size=2, stride=2, pad=0, name='x%d'%level)
@@ -1073,7 +936,7 @@ def build_fcn_action_cond_encoder_only_net(input_shapes, levels=None, x1_c_dim=1
                                             b=encoder_layers['x%d_conv1'%level].b,
                                             nonlinearity=None,
                                             name='x%d_next_conv1'%level)
-            if batch_normalization: # TODO: share batch normalization variables?
+            if batch_norm: # TODO: share batch normalization variables?
                 l_xlevel_next_1 = L.BatchNormLayer(l_xlevel_next_1,
                                                    beta=encoder_layers['x%d_bn1'%level].beta,
                                                    gamma=encoder_layers['x%d_bn1'%level].gamma,
@@ -1086,7 +949,7 @@ def build_fcn_action_cond_encoder_only_net(input_shapes, levels=None, x1_c_dim=1
                                             b=encoder_layers['x%d_conv2'%level].b,
                                             nonlinearity=None,
                                             name='x%d_next_conv2'%level)
-            if batch_normalization:
+            if batch_norm:
                 l_xlevel_next_2 = L.BatchNormLayer(l_xlevel_next_2,
                                                    beta=encoder_layers['x%d_bn2'%level].beta,
                                                    gamma=encoder_layers['x%d_bn2'%level].gamma,
@@ -1112,7 +975,7 @@ def build_fcn_action_cond_encoder_only_net(input_shapes, levels=None, x1_c_dim=1
     net_name += '_numds' + str(num_downsample)
     net_name += '_bi' + bilinear_type
     net_name += '_ladder' + str(int(ladder_loss))
-    net_name += '_bn' + str(int(batch_normalization))
+    net_name += '_bn' + str(int(batch_norm))
 
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
     pred_layers = OrderedDict([('y_diff_pred', l_y_diff_pred),

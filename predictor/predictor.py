@@ -1,58 +1,114 @@
-import collections
 import os
 import cv2
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import bilinear
+import utils
 from utils import util
 
 
-class FeaturePredictor(object):
-    """
-    Predicts change in features (y_dot) given the current input (x) and control (u):
-        x, u -> y_dot
-    """
-    def __init__(self, x_shape, u_shape, input_names=None, output_names=None, net_name=None, postfix=None, backend=None):
-        self.input_names = input_names or ['image_curr', 'vel']
-        self.output_names = output_names or ['y_diff_pred', 'y', 'y_next_pred', 'image_next_pred', 'x0_next_pred'] # ok if some of these don't exist
-        self.x_shape = x_shape
-        self.u_shape = u_shape
-        self.net_name = net_name
-        self.postfix = postfix
-        self.backend = backend
+class Predictor:
+    def __init__(self, input_shapes, transformers=None, name=None):
+        self.input_shapes = input_shapes
+        self.transformers = transformers or []
+        while len(self.transformers) < len(self.input_shapes):
+            self.transformers.append(utils.Transformer())  # identity transformation by default
+        self.preprocessed_input_shapes = [transformer.preprocess_shape(shape)
+                                          for (transformer, shape) in zip(self.transformers, self.input_shapes)]
+        self.name = name or self.__class__.__name__
 
-    def train(self, data):
+    def train(self, *train_data_fnames, val_data_fname=None, data_names=None, output_names=None):
         raise NotImplementedError
 
-    def predict(self, X, U):
+    def predict(self, name_or_names, *inputs, preprocessed=False):
         raise NotImplementedError
 
-    def jacobian_control(self, X, U):
+    def jacobian(self, name, wrt_name, *inputs, preprocessed=False):
         raise NotImplementedError
 
-    def feature_from_input(self, X):
+    def preprocess(self, *inputs):
+        transformers = [*self.transformers, self.transformers[0]]
+        return tuple([transformer.preprocess(input_) for input_, transformer in zip(inputs, transformers)])
+
+    def batch_size(self, *inputs, preprocessed=False):
+        if preprocessed:
+            input_shapes = self.preprocessed_input_shapes
+        else:
+            input_shapes = self.input_shapes
+        batch_size = -1
+        for input_, shape in zip(inputs, input_shapes):
+            if batch_size == -1:
+                if input_.shape == shape:
+                    batch_size = 0
+                elif input_.shape[1:] == shape:
+                    batch_size = input_.shape[0]
+                else:
+                    raise ValueError('expecting input of shape %r or %r but got input of shape %r' %
+                                     (shape, (None, *shape), input_.shape))
+            else:
+                if input_.shape == shape or input_.shape == (batch_size, *shape):
+                    continue
+                else:
+                    raise ValueError('expecting input of shape %r or %r but got input of shape %r' %
+                                     (shape, (batch_size, *shape), input_.shape))
+        return batch_size
+
+    def plot(self, *inputs, preprocessed=False):
         raise NotImplementedError
 
-    def preprocess_input(self, X):
-        return X
 
-    def response_maps_from_input(self, X):
-        return collections.OrderedDict()
+class FeaturePredictor(Predictor):
+    def __init__(self, input_shapes, transformers=None, name=None,
+                 feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None):
+        Predictor.__init__(self, input_shapes, transformers=transformers, name=name)
+        self.feature_name = feature_name or 'y'
+        self.next_feature_name = next_feature_name or 'y_next_pred'
+        self.feature_jacobian_name = feature_jacobian_name or 'y_diff_pred'
+        self.control_name = control_name or 'vel'
 
-    def predict_response_maps_from_input(self, X, U):
-        return collections.OrderedDict()
+    def feature(self, X, preprocessed=False):
+        return self.predict(self.feature_name, X, preprocessed=preprocessed)
 
-    def copy_from(self, params_fname):
+    def next_feature(self, X, U, preprocessed=False):
+        return self.predict(self.next_feature_name, X, U, preprocessed=preprocessed)
+
+    def feature_jacobian(self, X, U, preprocessed=False):
+        jac = self.jacobian(self.feature_jacobian_name, self.control_name, X, U, preprocessed=preprocessed)
+        y = self.feature(X, preprocessed=preprocessed)
+        return jac, y
+
+    def plot(self, X, U, preprocessed=False):
+        # TODO
         raise NotImplementedError
 
-    def visualize_response_maps(self, x, u, x_next=None, w=None):
-        xlevels = self.response_maps_from_input(x)
-        xlevels_next_pred = self.predict_response_maps_from_input(x, u)
+
+class HierarchicalFeaturePredictor(FeaturePredictor):
+    def __init__(self, input_shapes, transformers=None, name=None,
+                 feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None,
+                 levels=None, loss_levels=None, map_names=None, next_map_names=None):
+        FeaturePredictor.__init__(self, input_shapes, transformers=transformers, name=name,
+                                  feature_name=feature_name, next_feature_name=next_feature_name,
+                                  feature_jacobian_name=feature_jacobian_name, control_name=control_name)
+        self.levels = levels or [0]
+        self.loss_levels = loss_levels or list(self.levels)
+        self.map_names = map_names or ['x%d' % level for level in range(max(self.levels)+1)]
+        self.next_map_names = next_map_names or ['x%d_next_pred' % level for level in range(max(self.levels)+1)]
+
+    def maps(self, X, preprocessed=False):
+        return self.predict(self.map_names, X, preprocessed=preprocessed)
+
+    def next_maps(self, X, U, preprocessed=False):
+        return self.predict(self.next_map_names, X, U, preprocessed=preprocessed)
+
+    def plot(self, x, u, x_next=None, w=None, preprocessed=False):
+        # TODO
+        xlevels = self.maps(x, preprocessed=preprocessed)
+        xlevels_next_pred = self.next_maps(x, u, preprocessed=preprocessed)
         xlevels_all = [[('x', x), *xlevels.items()],
                        [(None, None), *xlevels_next_pred.items()]]
         if x_next is not None:
-            xlevels_next = self.response_maps_from_input(x_next)
+            xlevels_next = self.maps(x_next, preprocessed=preprocessed)
             xlevels_all.append([('x_next', x_next), *[(name+'_next', xlevel) for (name, xlevel) in xlevels_next.items()]])
 
         if w is None:
@@ -98,44 +154,17 @@ class FeaturePredictor(object):
             row += (1 if is_w_ones else 2)
         plt.draw()
 
-    def restore_losses(self, curr_iter=0, num_test_nets=1):
-        loss_txt_fname = self.get_loss_fname()
-        headers = ['iter', 'train loss'] + ['test %d loss'%i_test for i_test in range(num_test_nets)]
-        if os.path.isfile(loss_txt_fname):
-            iter_loss_items = np.loadtxt(loss_txt_fname, dtype={'names': headers, 'formats': [np.int] + [np.float]*(1+num_test_nets)}, unpack=True)
-            iters, losses, *val_losses = [item.reshape(-1) for item in iter_loss_items]
-            iters = [iter_ for iter_ in iters if iter_ < curr_iter]
-            losses = losses[:len(iters)].tolist()
-            val_losses = [test_losses[:len(iters)].tolist() for test_losses in val_losses]
-        else:
-            iters = []
-            losses = []
-            val_losses = [[] for _ in range(num_test_nets)]
-        return iters, losses, val_losses
 
-    def save_losses(self, iters, losses, val_losses):
-        loss_txt_fname = self.get_loss_fname()
-        headers = ['iter', 'train loss'] + ['test %d loss'%i_test for i_test in range(len(val_losses))]
-        np.savetxt(loss_txt_fname, np.asarray([iters, losses] + val_losses).T, fmt=['%d'] + ['%.2f']*(1+len(val_losses)), delimiter='\t', header='\t'.join(headers))
-        loss_fig_fname = self.get_loss_fname(ext='.pdf')
-        plt.ion()
-        fig = plt.figure(2)
-        plt.cla()
-        fig.canvas.set_window_title(self.net_name + '_' + self.postfix)
-        plt.plot(iters, losses, label='train')
-        for i_test, test_losses in enumerate(val_losses):
-            plt.plot(iters, test_losses, label='test %d'%i_test)
-        plt.ylabel('iteration')
-        plt.ylabel('loss')
-        plt.legend()
-        plt.draw()
-        plt.savefig(loss_fig_fname)
+class NetPredictor(Predictor):
+    def __init__(self, input_shapes, transformers=None, name=None, backend=None):
+        Predictor.__init__(self, input_shapes, transformers=transformers, name=name)
+        self.backend = backend
 
     def get_model_dir(self):
         if self.backend is not None:
-            model_dir = os.path.join('models', self.backend, self.net_name + '_' + self.postfix)
+            model_dir = os.path.join('models', self.backend, self.name)
         else:
-            model_dir = os.path.join('models', self.net_name + '_' + self.postfix)
+            model_dir = os.path.join('models', self.name)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
         return model_dir
@@ -150,18 +179,8 @@ class FeaturePredictor(object):
     def get_loss_fname(self, ext='.txt'):
         return os.path.join(self.get_model_dir(), 'loss' + ext)
 
-    @staticmethod
-    def infer_input_shapes(hdf5_fname_hint, inputs=None):
-        inputs = inputs or ['image_curr', 'vel']
-        input_shapes = []
-        with h5py.File(hdf5_fname_hint, 'r+') as f:
-            for input_ in inputs:
-                input_shape = f[input_].shape[1:]
-                input_shapes.append(input_shape)
-        return input_shapes
 
-
-class BilinearFeaturePredictor(bilinear.BilinearFunction, FeaturePredictor):
+class BilinearFeaturePredictor(FeaturePredictor, bilinear.BilinearFunction):
     """
     Predicts change in features (y_dot) given the current input image (x) and control (u):
         x, u -> y_dot

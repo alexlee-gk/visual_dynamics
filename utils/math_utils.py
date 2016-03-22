@@ -1,6 +1,27 @@
 import numpy as np
 
 
+def divide_nonzero(a, b):
+    """
+    Return a/b for the nonzero elements of b and return 0 for the zero elements of b.
+    """
+    shape = (a * b).shape
+    nonzero = b != 0
+    c = np.zeros(shape)
+    try:
+        if a.shape == shape:
+            a = a[nonzero]
+    except AttributeError:
+        pass
+    try:
+        if b.shape == shape:
+            b = b[nonzero]
+    except AttributeError:
+        pass
+    c[nonzero] = a / b
+    return c
+
+
 def sample_interval(min_limit, max_limit):
     assert min_limit.shape == max_limit.shape
     assert min_limit.dtype == max_limit.dtype

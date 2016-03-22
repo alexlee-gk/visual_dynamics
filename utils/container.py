@@ -88,8 +88,8 @@ class DataContainer:
             datum_ind = self._get_datum_ind(*inds, name=name)
             dset[datum_ind] = value
 
-    def get_datum(self, *inds_datum_names):
-        inds, datum_names = inds_datum_names[:-1], inds_datum_names[-1]  # same as the signature (*inds, datum_names) but without requiring keyword datum_names
+    def get_datum(self, *inds_and_datum_names):
+        *inds, datum_names = inds_and_datum_names
         if isinstance(datum_names, str):
             names = list([datum_names])
         else:
@@ -193,8 +193,8 @@ class ImageDataContainer(DataContainer):
         image_fname = os.path.join(self.data_dir, image_fname)
         return image_fname
 
-    def get_datum(self, *inds_datum_names):
-        inds, datum_names = inds_datum_names[:-1], inds_datum_names[-1]
+    def get_datum(self, *inds_and_datum_names):
+        *inds, datum_names = inds_and_datum_names
         if isinstance(datum_names, str):
             names = list([datum_names])
         else:
@@ -219,3 +219,65 @@ class ImageDataContainer(DataContainer):
         if isinstance(datum_names, str):
             datum, = datum
         return datum
+
+
+class MultiDataContainer(DataContainer):
+    """
+    Light wrapper of multiple data containers to get basic information from a container while ensuring that all
+    containers have the same information.
+    """
+    def __init__(self, data_dirs, mode='r'):
+        if mode != 'r':
+            raise NotImplementedError
+        self.containers = [ImageDataContainer(data_dir, mode=mode) for data_dir in data_dirs]
+
+    def close(self):
+        for container in self.containers:
+            container.close()
+
+    def add_info(self, **info_dict):
+        raise NotImplementedError
+
+    def get_info(self, info_names):
+        info = None
+        for container in self.containers:
+            if info is None:
+                info = container.get_info(info_names)
+            else:
+                other_info = container.get_info(info_names)
+                try:
+                    equal = other_info == info
+                except ValueError:
+                    equal = (np.asarray(other_info) == np.asarray(info)).all()
+                if not equal:
+                    raise ValueError('infos are inconsistent across containers: %r, %r' % (info, other_info))
+        return info
+
+    def reserve(self, names, shape):
+        raise NotImplementedError
+
+    def add_datum(self, *inds, **datum_dict):
+        raise NotImplementedError
+
+    def get_datum(self, *inds_and_datum_names):
+        raise NotImplementedError
+
+    def get_datum_shape(self, name):
+        shape = None
+        for container in self.containers:
+            if shape is None:
+                shape = container.get_datum_shape(name)
+            else:
+                other_shape = container.get_datum_shape(name)
+                if other_shape != shape:
+                    raise ValueError('shapes are inconsistent across containers: %r, %r' % (shape, other_shape))
+        return shape
+
+    def get_data_shape(self, name):
+        raise NotImplementedError
+
+    def get_data_size(self, name):
+        size = 0
+        for container in self.containers:
+            size += container.get_data_size(name)
+        return size

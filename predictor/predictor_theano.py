@@ -1,394 +1,159 @@
+import os
+import inspect
 import numpy as np
-import h5py
 import pickle
 from collections import OrderedDict
-import contextlib
 import time
-import re
 import theano
-import theano.tensor as T
 import lasagne
 from . import predictor
+from .solver import TheanoNetSolver
 import bilinear
+import utils
 
 
-def iterate_minibatches_once(*hdf5_fnames, data_names, batch_size=1):
-    """
-    Iterate through all the data once in order. The data from contiguous files
-    are treated as if they are contiguous. All of the returned minibatches
-    contain batch_size data points except for possibly the last batch.
-    """
-    with contextlib.ExitStack() as stack:
-        files = [stack.enter_context(h5py.File(fname, 'r+')) for fname in hdf5_fnames]
-        for f in files:
-            for data_name in data_names[1:]:
-                assert len(f[data_name]) == len(f[data_names[0]])
-        files = iter(files)
-        f = next(files)
-        idx = 0
-        while f:
-            excerpts_data = []
-            total_excerpt_size = 0
-            while total_excerpt_size < batch_size and f:
-                excerpt_size = min(idx + batch_size - total_excerpt_size, len(f[data_names[0]])) - idx
-                excerpt = slice(idx, idx + excerpt_size)
-                excerpt_data = tuple(np.asarray(f[data_name][excerpt][()], dtype=theano.config.floatX) for data_name in data_names)
-                excerpts_data.append(excerpt_data)
-                total_excerpt_size += excerpt_size
-                if idx + excerpt_size == len(f[data_names[0]]):
-                    try:
-                        f = next(files)
-                    except StopIteration:
-                        f = None
-                    idx = 0
-                else:
-                    idx += excerpt_size
-            batch_data = [np.concatenate(data, axis=0) for data in zip(*excerpts_data)]
-            yield batch_data
-
-
-def iterate_minibatches_indefinitely(*hdf5_fnames, data_names, batch_size=1, shuffle=False):
-    """
-    Iterate through all the data indefinitely. The data from contiguous files
-    are treated as if they are contiguous. All of the returned minibatches
-    contain batch_size data points. If shuffle=True, the data is iterated in a
-    random order, and this order differs for each pass of the data.
-    Note: this is not as efficient as it could be when shuffle=False since each
-    data point is retrieved one by one regardless of the value of shuffle.
-    """
-    with contextlib.ExitStack() as stack:
-        files = [stack.enter_context(h5py.File(fname, 'r+')) for fname in hdf5_fnames]
-        for f in files:
-            for data_name in data_names[1:]:
-                assert len(f[data_name]) == len(f[data_names[0]])
-        data_sizes = [len(f[data_names[0]]) for f in files]
-        total_data_size = sum(data_sizes)
-        data_sizes_cs = np.r_[0, np.cumsum(data_sizes)]
-        def get_file_local_idx(idx):
-            local_idx = idx - data_sizes_cs
-            file_idx = np.asscalar(np.where(local_idx >= 0)[0][-1]) # get index of last non-negative entry
-            local_idx = local_idx[file_idx]
-            return file_idx, local_idx
-        indices = []
-        while True:
-            if len(indices) < batch_size:
-                new_indices = np.arange(total_data_size)
-                if shuffle:
-                    np.random.shuffle(new_indices)
-                indices.extend(new_indices)
-            excerpt = np.asarray(indices[0:batch_size])
-            batch_data = tuple(np.empty((batch_size, *f[data_name].shape[1:]), dtype=theano.config.floatX) for data_name in data_names)
-            for data_name, datum in zip(data_names, batch_data):
-                datasets = [file[data_name] for file in files] # datasets[file_idx] == files[file_idx][data_name]
-                for i, idx in enumerate(excerpt):
-                    file_idx, local_idx = get_file_local_idx(idx)
-                    datum[i, ...] = np.asarray(datasets[file_idx][local_idx][()], dtype=theano.config.floatX)
-            del indices[0:batch_size]
-            yield batch_data
-
-
-class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
-    def __init__(self, net_name, input_vars, pred_layers, loss, loss_deterministic=None, pretrained_file=None, postfix=''):
+class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
+    def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None, **kwargs):
         """
-        input_vars: dict of input variables
-        pred_layers: dict of layers of the network, which should contain at least all the root layers of the network.
-            Also, allows to specify layers that have multiple names (i.e. different names can map to the same layer).
+        Args:
+            build_net: Function that builds the net and returns a dict the network layers, which should contain at least
+                all the root layers of the network. Different keys of this dict can map to the same layer.
+            input_shapes: Iterable of shapes for the image and velocity inputs.
+            input_names: Iterable of names of the input variables for the image and velocity
+            transformers: Iterable of transformers for the image and velocity inputs.
+            name: Name of this net predictor. Defaults to class name.
+            pretrained_fname: File name of pickle file with parameters to initialize the parameters of this net. The
+                file name could also be an iteration number, in which case the file with the corresponding number
+                in the default snapshot directory is used.
+            kwargs: Optional arguments that are passed to build_net.
         """
-        self.X_var, self.U_var, self.X_diff_var = [input_vars[var_name] for var_name in ['X', 'U', 'X_diff']]
-        self.pred_layers = OrderedDict(pred_layers)
-        for pred_layer in list(pred_layers.values()):
+        self.build_net = build_net
+        self._kwargs = kwargs
+        self.__dict__.update(kwargs)
+        self.input_names = input_names or ['x', 'u']
+        predictor.NetPredictor.__init__(self, input_shapes, transformers=transformers, name=name, backend='theano')
+        self.pred_layers = self.build_net(self.preprocessed_input_shapes, **kwargs)
+        for pred_layer in list(self.pred_layers.values()):
             self.pred_layers.update((layer.name, layer) for layer in lasagne.layers.get_all_layers(pred_layer) if layer.name is not None)
-        layer_name_aliases = [('x0', 'x'), ('x', 'x0'), ('x0_next', 'x_next'), ('x_next', 'x0_next'), ('x0', 'image_curr'), ('x0_next', 'image_next'), ('x0_next_pred', 'image_next_pred')]
-        for name, name_alias  in layer_name_aliases:
-            if name in self.pred_layers and name_alias not in self.pred_layers:
-                self.pred_layers[name_alias] = self.pred_layers[name]
-        self.pred_vars = dict(zip(self.pred_layers.keys(),
-                                  lasagne.layers.get_output(self.pred_layers.values(), deterministic=True)))
-        print("Network %s has %d parameters"%(net_name, lasagne.layers.count_params(self.pred_layers['x0_next_pred'])))
-        x_shape, u_shape = (self.pred_layers['x'].shape[1:], self.pred_layers['u'].shape[1:])
-        predictor.FeaturePredictor.__init__(self, x_shape, u_shape, net_name=net_name, postfix=postfix, backend='theano')
-        self.loss = loss
-        self.loss_deterministic = loss_deterministic or loss
+        self.input_vars = [self.pred_layers[name].input_var for name in self.input_names]
+        # layer_name_aliases = [('x0', 'x'), ('x', 'x0'), ('x0_next', 'x_next'), ('x_next', 'x0_next'), ('x0', 'image_curr'), ('x0_next', 'image_next'), ('x0_next_pred', 'image_next_pred')]
+        # for name, name_alias  in layer_name_aliases:
+        #     if name in self.pred_layers and name_alias not in self.pred_layers:
+        #         self.pred_layers[name_alias] = self.pred_layers[name]
+        # self.pred_vars = OrderedDict(zip(self.pred_layers.keys(),
+        #                              lasagne.layers.get_output(self.pred_layers.values(), deterministic=True)))
+        print("Network %s has %d parameters" % (self.name, lasagne.layers.count_params(self.pred_layers.values())))
+        self.transformers = transformers or [utils.Transformer() for _ in self.preprocessed_input_shapes]
         self.pred_fns = {}
         self.jac_fns = {}
-        if pretrained_file is not None and not pretrained_file.endswith('.pkl'):
-            pretrained_file = self.get_snapshot_prefix() + '_iter_' + pretrained_file + '.pkl'
-        if pretrained_file is not None:
+        if pretrained_fname is not None and not pretrained_fname.endswith('.pkl'):
+            pretrained_file = self.get_snapshot_prefix() + '_iter_%s' % str(pretrained_fname) + '_model.pkl'
+        if pretrained_fname is not None:
             self.copy_from(pretrained_file)
 
-    def train(self, *train_hdf5_fnames, val_hdf5_fname, solverstate_fname=None,
-              batch_size=32,
-              test_iter = 10,
-              solver_type = 'SGD',
-              test_interval = 1000,
-              base_lr = 0.05,
-              gamma = 0.9,
-              stepsize = 1000,
-              display = 20,
-              max_iter=10000,
-              momentum = 0.9,
-              momentum2 = 0.999,
-              weight_decay=0.0005,
-              snapshot=1000,
-              snapshot_prefix=None,
-              visualize_response_maps=False):
+    def train(self, *train_data_fnames, val_data_fname=None, data_names=None, input_names=None, output_names=None,
+              solver_fname=None, train_nb_worker=4, val_nb_worker=1):
+        """
+        Args:
+            data_names: Iterable of names for the image and velocity inputs in the data files.
+            input_names: Iterable of names of the input variables for the image, velocity and next image
+            output_names: Iterable of tuples, each being a tuple of prediction and target names of the variables to be
+                used for the loss.
+        """
+        if solver_fname is not None:
+            with open(solver_fname) as yaml_string:
+                solver = utils.config.from_yaml(yaml_string)
+        else:
+            solver = TheanoNetSolver()
+        solver.snapshot_prefix = solver.snapshot_prefix or self.get_snapshot_prefix()
+
         # training data
-        minibatches = iterate_minibatches_indefinitely(*train_hdf5_fnames, data_names=['image_curr', 'vel', 'image_diff'],
-                                                       batch_size=batch_size, shuffle=True)
-        # training loss
-        param_l2_penalty = lasagne.regularization.regularize_network_params(self.pred_layers['x0_next_pred'], lasagne.regularization.l2)
-        loss = self.loss + weight_decay * param_l2_penalty / 2.
-        # training function
-        params = self.get_all_params(trainable=True)
-        learning_rate_var = T.scalar(name='learning_rate')
-        if solver_type == 'SGD':
-            if momentum:
-                updates = lasagne.updates.momentum(loss, params, learning_rate_var, momentum)
-            else:
-                updates = lasagne.updates.sgd(loss, params, learning_rate_var)
-        elif solver_type == 'ADAM':
-            updates = lasagne.updates.adam(loss, params, learning_rate=learning_rate_var, beta1=momentum, beta2=momentum2)
-        else:
-            raise
-
-        start_time = time.time()
-        print("Compiling training function...")
-        train_fn = theano.function([self.X_var, self.U_var, self.X_diff_var, learning_rate_var], loss, updates=updates)
-        print("... finished in %.2f s"%(time.time() - start_time))
-
-        validate = test_interval and val_hdf5_fname is not None
-        if validate:
+        data_names = data_names or ['image', 'vel']
+        train_data_gen = utils.generator.ImageVelDataGenerator(*train_data_fnames,
+                                                               data_names=data_names,
+                                                               transformers=self.transformers,
+                                                               batch_size=solver.batch_size,
+                                                               shuffle=True,
+                                                               dtype=theano.config.floatX)
+        train_data_gen = utils.generator.ParallelGenerator(train_data_gen,
+                                                           nb_worker=train_nb_worker)
+        if solver.test_interval and val_data_fname is not None:
             # validation data
-            val_minibatches = iterate_minibatches_indefinitely(val_hdf5_fname, data_names=['image_curr', 'vel', 'image_diff'],
-                                                               batch_size=batch_size, shuffle=True)
-            # validation loss
-            test_loss = self.loss_deterministic + weight_decay * param_l2_penalty / 2.
-            # validation function
-            start_time = time.time()
-            print("Compiling validation function...")
-            val_fn = theano.function([self.X_var, self.U_var, self.X_diff_var], test_loss)
-            print("... finished in %.2f s"%(time.time() - start_time))
-
-        if solverstate_fname is not None and not solverstate_fname.endswith('.pkl'):
-            solverstate_fname = self.get_snapshot_prefix() + '_iter_' + solverstate_fname + '.pkl'
-        curr_iter = self.restore_solver(solverstate_fname)
-        # load losses for visualization
-        iters, losses, val_losses = self.restore_losses(curr_iter=curr_iter)
-        print("Starting training...")
-        for iter_ in range(curr_iter, max_iter):
-            current_step = iter_ // stepsize
-            learning_rate = base_lr * gamma ** current_step
-
-            if validate and iter_ % test_interval == 0:
-                test_loss = sum([val_fn(*next(val_minibatches)) for _ in range(test_iter)]) / test_iter
-                print("    validation loss = {:.6f}".format(float(test_loss)))
-
-            X, U, X_diff = next(minibatches)
-            loss = train_fn(X, U, X_diff, learning_rate)
-
-            if display and iter_ % display == 0:
-                print(("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate)))
-                print(("    training loss = {:.6f}".format(float(loss))))
-                # update, save and visualize losses
-                iters.append(iter_)
-                losses.append(loss)
-                test_losses = val_losses[0]
-                test_loss = sum([val_fn(*next(val_minibatches)) for _ in range(test_iter)]) / test_iter
-                test_losses.append(test_loss)
-                self.save_losses(iters, losses, val_losses)
-            # visualize response maps of first image in batch
-            if visualize_response_maps and iter_ % visualize_response_maps == 0:
-                X, U, X_diff = next(val_minibatches)
-                self.visualize_response_maps(X[0], U[0], x_next=X[0]+X_diff[0])
-            iter_ += 1
-            if snapshot and iter_ % snapshot == 0 and iter_ > 0:
-                self.snapshot(iter_, snapshot_prefix)
-
-        if snapshot and not (snapshot and iter_ % snapshot == 0 and iter_ > 0):
-            self.snapshot(iter_, snapshot_prefix)
-        if display and iter_ % display == 0:
-            print("Iteration {} of {}, lr = {}".format(iter_, max_iter, learning_rate))
-            print("    training loss = {:.6f}".format(float(loss)))
-        if validate and iter_ % test_interval == 0:
-            test_loss = sum([val_fn(*next(val_minibatches)) for _ in range(test_iter)]) / test_iter
-            print("    validation loss = {:.6f}".format(float(test_loss)))
-
-
-    def restore_solver(self, solverstate_fname):
-        """
-        Restores if solverstate_fname is not None and returns the iteration at which the network is restored
-        """
-        if solverstate_fname is not None:
-            self.copy_from(solverstate_fname)
-            match = re.match('.*_iter_(\d+).pkl$', solverstate_fname)
-            if match:
-                assert len(match.groups()) == 1
-                iter_ = int(match.group(1))
+            val_data_gen = utils.generator.ImageVelDataGenerator(val_data_fname,
+                                                                 data_names=data_names,
+                                                                 transformers=self.transformers,
+                                                                 batch_size=solver.batch_size,
+                                                                 shuffle=True,
+                                                                 dtype=theano.config.floatX)
+            val_data_gen = utils.generator.ParallelGenerator(val_data_gen,
+                                                             max_q_size=solver.test_iter,
+                                                             nb_worker=val_nb_worker)
         else:
-            iter_ = 0
-        return iter_
+            val_data_gen = None
 
-    def _predict(self, *inputs, prediction_name=None):
-        prediction_name = prediction_name or 'x0_next_pred'
-        if prediction_name in self.pred_fns:
-            pred_fn = self.pred_fns[prediction_name]
+        input_names = input_names or ['x', 'u', 'x_next']
+        output_names = output_names or [('x_next_pred', 'x_next')]
+        solver.solve(self, input_names, output_names, train_data_gen, val_data_gen=val_data_gen)
+
+    def _compile_pred_fn(self, name_or_names):
+        if isinstance(name_or_names, str):
+            output_layer_or_layers = self.pred_layers[name_or_names]
         else:
-            pred_var = self.pred_vars[prediction_name]
-            input_vars = [self.X_var]
-            if self.U_var in theano.gof.graph.inputs([pred_var]):
-                input_vars.append(self.U_var)
-            start_time = time.time()
-            print("Compiling prediction function...")
-            pred_fn = theano.function(input_vars, pred_var)
-            print("... finished in %.2f s"%(time.time() - start_time))
-            self.pred_fns[prediction_name] = pred_fn
-        return pred_fn(*inputs)
+            output_layer_or_layers = [self.pred_layers[name] for name in name_or_names]
+        pred_var_or_vars = lasagne.layers.get_output(output_layer_or_layers, deterministic=True)
+        input_vars = [input_var for input_var in self.input_vars if input_var in
+                      theano.gof.graph.inputs(pred_var_or_vars if isinstance(pred_var_or_vars, list) else [pred_var_or_vars])]
+        start_time = time.time()
+        print("Compiling prediction function...")
+        pred_fn = theano.function(input_vars, pred_var_or_vars)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return pred_fn
 
-    def predict(self, *inputs, prediction_name=None):
-        X = inputs[0]
-        assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
-        is_batched = X.shape == self.x_shape
+    def predict(self, name_or_names, *inputs, preprocessed=False):
+        if not isinstance(name_or_names, str):
+            name_or_names = tuple(name_or_names)
+        batch_size = self.batch_size(*inputs, preprocessed=preprocessed)
+        if not preprocessed:
+            inputs = self.preprocess(*inputs)
         inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
-        if is_batched:
+        if batch_size == 0:
             inputs = [input_[None, ...] for input_ in inputs]
-        pred = self._predict(*inputs, prediction_name=prediction_name)
-        if is_batched:
-            pred = np.squeeze(pred, 0)
-        return pred
-
-    def _theano_jacobian(self, output_var, wrt_var, *inputs):
-        X = inputs[0]
-        singleton_batched = X.shape[0] == 1 and X.shape[1:] == self.x_shape
-        if X.shape == self.x_shape or singleton_batched:
-            if not singleton_batched:
-                inputs = [input_[None, :] for input_ in inputs]
-            vars_ = (output_var, wrt_var)
-            if vars_ in self.jac_fns:
-                jac_fn = self.jac_fns[vars_]
+        pred_fn = self.pred_fns.get(name_or_names) or self.pred_fns.setdefault(name_or_names, self._compile_pred_fn(name_or_names))
+        pred_or_preds = pred_fn(*inputs)
+        if batch_size == 0:
+            if isinstance(name_or_names, str):
+                pred_or_preds = np.squeeze(pred_or_preds, 0)
             else:
-                jac_var = theano.gradient.jacobian(output_var.flatten(), wrt_var)
-                input_vars = [self.X_var]
-                if self.U_var in theano.gof.graph.inputs([jac_var]):
-                    input_vars.append(self.U_var)
-                start_time = time.time()
-                print("Compiling jacobian function...")
-                jac_fn = theano.function(input_vars, jac_var)
-                print("... finished in %.2f s"%(time.time() - start_time))
-                self.jac_fns[vars_] = jac_fn
+                pred_or_preds = [np.squeeze(pred, 0) for pred in pred_or_preds]
+        return pred_or_preds
+
+    def _compile_jacobian_fn(self, name, wrt_name):
+        output_var, wrt_var = lasagne.layers.get_output([self.pred_layers[name], self.pred_layers[wrt_name]], deterministic=True)
+        jac_var = theano.gradient.jacobian(output_var.flatten(), wrt_var)
+        input_vars = [input_var for input_var in self.input_vars if input_var in theano.gof.graph.inputs([jac_var])]
+        start_time = time.time()
+        print("Compiling jacobian function...")
+        jac_fn = theano.function(input_vars, jac_var)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return jac_fn
+
+    def jacobian(self, name, wrt_name, *inputs, preprocessed=False):
+        batch_size = self.batch_size(*inputs, preprocessed=preprocessed)
+        if not preprocessed:
+            inputs = self.preprocess(*inputs)
+        inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
+        if batch_size in (0, 1):
+            if batch_size == 0:
+                inputs = [input_[None, :] for input_ in inputs]
+            jac_fn = self.jac_fns.get((name, wrt_name)) or self.jac_fns.setdefault((name, wrt_name), self._compile_jacobian_fn(name, wrt_name))
             jac = jac_fn(*inputs)
             jac = jac.swapaxes(0, 1)
             jac = jac.reshape((*jac.shape[:2], -1))
-            if not singleton_batched:
+            if batch_size == 0:
                 jac = np.squeeze(jac, axis=0)
             return jac
         else:
-            return np.asarray([self._theano_jacobian(output_var, wrt_var, *single_inputs) for single_inputs in zip(inputs)])
-
-    def _jacobian_control(self, *inputs, use_theano=False):
-        """
-        Inputs must be batched
-        """
-        X = inputs[0]
-        assert X.shape[1:] == self.x_shape
-        if use_theano:
-            xlevels = self.response_maps_from_input(X)
-            jac = self._theano_jacobian(self.pred_vars['y_diff_pred'], self.U_var, *inputs)
-        else:
-            jaclevels, xlevels = self.response_map_jacobians_from_input(*inputs)
-            jac = np.concatenate(list(jaclevels.values()), axis=1)
-        y = np.concatenate([xlevel.reshape(xlevel.shape[0], -1) for xlevel in xlevels.values()], axis=1)
-        return jac, y
-
-    def jacobian_control(self, *inputs):
-        X = inputs[0]
-        assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
-        is_batched = X.shape == self.x_shape
-        inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
-        if is_batched:
-            inputs = [input_[None, ...] for input_ in inputs]
-        jac, y = self._jacobian_control(*inputs)
-        if is_batched:
-            jac = np.squeeze(jac, 0)
-            y = np.squeeze(y, 0)
-        return jac, y
-
-    def feature_from_input(self, X):
-        return self.predict(X, prediction_name='y')
-
-    def preprocess_input(self, X):
-        return self.predict(X, prediction_name='x0')
-
-    def get_levels(self):
-        levels = []
-        for key in self.pred_layers.keys():
-            match = re.match('x(\d+)$', key)
-            if match:
-                assert len(match.groups()) == 1
-                levels.append(int(match.group(1)))
-        levels = sorted(levels)
-        return levels
-
-    def get_bilinear_levels(self):
-        levels = []
-        for key in self.pred_layers.keys():
-            match = re.match('x(\d+)_next_trans$', key)
-            if match:
-                assert len(match.groups()) == 1
-                levels.append(int(match.group(1)))
-        levels = sorted(levels)
-        return levels
-
-    def response_maps_from_input(self, X):
-        levels = self.get_levels()
-        xlevels = OrderedDict()
-        for level in levels:
-            output_name = 'x%d'%level
-            xlevels[output_name] = self.predict(X, prediction_name=output_name)
-        return xlevels
-
-    def predict_response_maps_from_input(self, X, U):
-        levels = self.get_levels()
-        xlevels_next_pred = OrderedDict()
-        for level in levels:
-            output_name = 'x%d_next_pred'%level
-            xlevels_next_pred[output_name] = self.predict(X, U, prediction_name=output_name)
-        return xlevels_next_pred
-
-    def response_map_jacobians_from_input(self, X, U):
-        xlevels_all = self.response_maps_from_input(X)
-        jaclevels_next_pred = dict()
-
-        def response_map_jacobian(level):
-            if 'x%d_next_pred'%level in jaclevels_next_pred:
-                jaclevel_next_pred = jaclevels_next_pred['x%d_next_pred'%level]
-            else:
-                xlevel_next_pred_var = self.pred_vars['x%d_next_pred'%level]
-                xlevel_diff_trans_var = self.pred_vars.get('x%d_diff_trans'%level, None)
-                xlevelp1_next_pred_var = self.pred_vars.get('x%d_next_pred'%(level+1), None)
-                jaclevel_next_pred = 0
-                if xlevel_diff_trans_var:
-                    xlevel_diff_trans_layer = self.pred_layers['x%d_diff_trans'%level]
-                    jaclevel_diff_trans = xlevel_diff_trans_layer.get_output_jacobian_for([xlevels_all['x%d'%level], U])
-                    if self.pred_vars['x%d_next_pred'%level] == self.pred_vars['x%d_next_trans'%level]:
-                        jaclevel_next_pred += jaclevel_diff_trans
-                    else:
-                        jaclevel_next_pred += np.einsum('nik,nkj->nij',
-                                                        self._theano_jacobian(xlevel_next_pred_var, xlevel_diff_trans_var, X, U),
-                                                        jaclevel_diff_trans)
-                if xlevelp1_next_pred_var:
-                    jaclevelp1_next_pred = response_map_jacobian(level+1)
-                    jaclevel_next_pred += np.einsum('nik,nkj->nij',
-                                                    self._theano_jacobian(xlevel_next_pred_var, xlevelp1_next_pred_var, X, U),
-                                                    jaclevelp1_next_pred)
-                jaclevels_next_pred['x%d_next_pred'%level] = jaclevel_next_pred
-            return jaclevel_next_pred
-
-        jaclevels = OrderedDict()
-        xlevels = OrderedDict()
-        for level in self.get_bilinear_levels():
-            xlevels[level] = xlevels_all['x%d'%level]
-            jaclevels['x%d_next_pred'%level] = response_map_jacobian(level)
-        return jaclevels, xlevels
+            return np.asarray([self.jacobian(name, wrt_name, *single_inputs) for single_inputs in zip(inputs)])
 
     def get_all_layers(self):
         layers = []
@@ -397,13 +162,28 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
         return lasagne.utils.unique(layers)
 
     def get_all_params(self, **tags):
-        return lasagne.layers.get_all_params(self.pred_layers.values(), **tags)
+        params = lasagne.layers.get_all_params(self.pred_layers.values(), **tags)
+        params_dict = OrderedDict([(param.name, param) for param in params])
+        if len(params_dict) != len(params):
+            raise ValueError('parameters do not have unique names')
+        return params_dict
 
     def get_all_param_values(self, **tags):
-        return lasagne.layers.get_all_param_values(self.pred_layers.values(), **tags)
+        params_dict = self.get_all_params(**tags)
+        param_values_dict = OrderedDict([(name, param.get_value()) for (name, param) in params_dict.items()])
+        return param_values_dict
 
-    def set_all_param_values(self, all_param_values, **tags):
-        lasagne.layers.set_all_param_values(self.pred_layers.values(), all_param_values, **tags)
+    def set_all_param_values(self, param_values_dict, **tags):
+        params_dict = self.get_all_params(**tags)
+        for name, value in param_values_dict.items():
+            try:
+                param = params_dict[name]
+            except KeyError:
+                raise ValueError('there is no parameter with name %s')
+            if param.get_value().shape != value.shape:
+                raise ValueError('mismatch: parameter has shape %r but value to set has shape %r' %
+                                 (param.get_value().shape, value.shape))
+            param.set_value(value)
 
     @staticmethod
     def set_layer_param_tags(layer, **tags):
@@ -424,39 +204,67 @@ class TheanoNetFeaturePredictor(predictor.FeaturePredictor):
                     else:
                         param_tags.discard(tag)
 
-    def snapshot(self, iter_, snapshot_prefix):
-        snapshot_prefix = snapshot_prefix or self.get_snapshot_prefix()
-        snapshot_fname = snapshot_prefix + '_iter_%s.pkl'%str(iter_)
-        snapshot_file = open(snapshot_fname, 'wb')
-        all_param_values = self.get_all_param_values()
-        print("Snapshotting to pickle file", snapshot_fname)
-        pickle.dump(all_param_values, snapshot_file, protocol=pickle.HIGHEST_PROTOCOL)
-        snapshot_file.close()
+    def save_model(self, model_fname):
+        model_fname = model_fname.replace('.yaml', '.pkl')
+        print("Saving model parameters to file", model_fname)
+        with open(model_fname, 'wb') as model_file:
+            all_param_values = self.get_all_param_values()
+            pickle.dump(all_param_values, model_file, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def copy_from(self, snapshot_fname):
-        print("Copying weights from pickle file", snapshot_fname)
-        all_param_values = pickle.load(open(snapshot_fname, 'rb'))
-        for i, param_value in enumerate(all_param_values):
-            if param_value.dtype != theano.config.floatX:
-                all_param_values[i] = param_value.astype(theano.config.floatX)
-        try:
-            self.set_all_param_values(all_param_values)
-        except ValueError:
-            # TODO: better way load parameters from other models
-            new_params = self.get_all_params(transformation=True, **dict([('level%d'%self.get_bilinear_levels()[0], True)]))
-            for param in new_params:
-                self.set_param_tags(param, new=True)
-            old_params = self.get_all_params(new=False)
-            if len(old_params) != len(all_param_values):
-                raise ValueError("mismatch: got %d values to set %d parameters" %
-                                 (len(all_param_values), len(old_params)))
-            for p, v in zip(old_params, all_param_values):
-                if p.get_value().shape != v.shape:
-                    pv = p.get_value()
-                    pv[-v.shape[0]:, ...] = v
-                    p.set_value(pv)
-                else:
-                    p.set_value(v)
+    def copy_from(self, model_fname):
+        print("Copying model parameters from file", model_fname)
+        with open(model_fname, 'rb') as model_file:
+            param_values = pickle.load(model_file)
+            param_values = OrderedDict([(name, value.astype(theano.config.floatX, copy=False)) for (name, value) in param_values.items()])
+            self.set_all_param_values(param_values)
+
+    def get_config(self, model_fname=None):
+        model_fname = model_fname or os.path.join(self.get_model_dir(), time.strftime('%Y%m%d_%H%M%S_model.pkl'))
+        self.save_model(model_fname)
+        config = {'class': self.__class__,
+                  'build_net': self.build_net,
+                  'input_shapes': self.input_shapes,
+                  'input_names': self.input_names,
+                  'transformers': [transformer.get_config() for transformer in self.transformers],
+                  'name': self.name,
+                  'pretrained_fname': model_fname}
+        config.update(self._kwargs)
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        config['transformers'] = [utils.config.from_config(transformer_config) for transformer_config in config.get('transformers', [])]
+        return cls(**config)
+
+
+class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
+    def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None,
+                 feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None, **kwargs):
+        TheanoNetPredictor.__init__(
+            self, build_net, input_shapes, input_names=input_names, transformers=transformers, name=name,
+            pretrained_fname=pretrained_fname, **kwargs)
+        predictor.FeaturePredictor.__init__(
+            self, input_shapes, transformers=transformers, name=name,
+            feature_name=feature_name, next_feature_name=next_feature_name,
+            feature_jacobian_name=feature_jacobian_name, control_name=control_name)
+
+
+class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.HierarchicalFeaturePredictor):
+    def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None,
+                 feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None,
+                 levels=None, loss_levels=None, map_names=None, next_map_names=None, **kwargs):
+        TheanoNetPredictor.__init__(
+            self, build_net, input_shapes, input_names=input_names, transformers=transformers, name=name,
+            pretrained_fname=pretrained_fname, levels=levels, **kwargs)
+        predictor.HierarchicalFeaturePredictor.__init__(
+            self, input_shapes, transformers=transformers, name=name,
+            feature_name=feature_name, next_feature_name=next_feature_name,
+            feature_jacobian_name=feature_jacobian_name, control_name=control_name,
+            levels=levels, loss_levels=loss_levels, map_names=map_names, next_map_names=next_map_names)
+
+    def train(self, *args, **kwargs):
+        output_names = kwargs.get('output_names') or [('x%d_next_pred' % loss_level, 'x%d_next' % loss_level) for loss_level in self.loss_levels]
+        TheanoNetPredictor.train(self, *args, **dict(**kwargs, output_names=output_names))
 
 
 class FcnActionCondEncoderOnlyTheanoNetFeaturePredictor(TheanoNetFeaturePredictor):

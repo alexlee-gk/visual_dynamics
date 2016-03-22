@@ -1,0 +1,13 @@
+class: !!python/name:predictor.predictor_theano.TheanoNetHierarchicalFeaturePredictor ''
+build_net: !!python/name:predictor.net_theano.build_laplacian_fcn_action_cond_encoder_net ''
+levels: [1]
+loss_levels: [0]
+x1_c_dim: 32
+bilinear_type: share
+batch_norm: true
+
+transformers:
+- class: !!python/name:utils.transformer.ImageTransformer ''
+  scale_size: 0.125
+  crop_size: [32, 32]
+  crop_offset: [0, 0]
