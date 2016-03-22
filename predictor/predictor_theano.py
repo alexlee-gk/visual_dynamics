@@ -47,9 +47,9 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         self.pred_fns = {}
         self.jac_fns = {}
         if pretrained_fname is not None and not pretrained_fname.endswith('.pkl'):
-            pretrained_file = self.get_snapshot_prefix() + '_iter_%s' % str(pretrained_fname) + '_model.pkl'
+            pretrained_fname = self.get_snapshot_prefix() + '_iter_%s' % str(pretrained_fname) + '_model.pkl'
         if pretrained_fname is not None:
-            self.copy_from(pretrained_file)
+            self.copy_from(pretrained_fname)
 
     def train(self, *train_data_fnames, val_data_fname=None, data_names=None, input_names=None, output_names=None,
               solver_fname=None, train_nb_worker=4, val_nb_worker=1):
@@ -65,7 +65,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                 solver = utils.config.from_yaml(yaml_string)
         else:
             solver = TheanoNetSolver()
-        solver.snapshot_prefix = solver.snapshot_prefix or self.get_snapshot_prefix()
+        solver.snapshot_prefix = self.get_snapshot_prefix(solver.snapshot_prefix)
 
         # training data
         data_names = data_names or ['image', 'vel']
@@ -191,6 +191,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         with open(model_fname, 'wb') as model_file:
             all_param_values = self.get_all_param_values()
             pickle.dump(all_param_values, model_file, protocol=pickle.HIGHEST_PROTOCOL)
+        return model_fname
 
     def copy_from(self, model_fname):
         print("Copying model parameters from file", model_fname)
@@ -201,7 +202,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
 
     def get_config(self, model_fname=None):
         model_fname = model_fname or os.path.join(self.get_model_dir(), time.strftime('%Y%m%d_%H%M%S_model.pkl'))
-        self.save_model(model_fname)
+        model_fname = self.save_model(model_fname)
         config = {'class': self.__class__,
                   'build_net': self.build_net,
                   'input_shapes': self.input_shapes,
@@ -229,6 +230,11 @@ class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
             feature_name=feature_name, next_feature_name=next_feature_name,
             feature_jacobian_name=feature_jacobian_name, control_name=control_name)
 
+    def get_config(self, model_fname=None):
+        config = {**TheanoNetPredictor.get_config(self, model_fname=model_fname),
+                  **predictor.FeaturePredictor.get_config(self)}
+        return config
+
 
 class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.HierarchicalFeaturePredictor):
     def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None,
@@ -246,6 +252,11 @@ class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.Hierar
     def train(self, *args, **kwargs):
         output_names = kwargs.get('output_names') or [('x%d_next_pred' % loss_level, 'x%d_next' % loss_level) for loss_level in self.loss_levels]
         TheanoNetPredictor.train(self, *args, **dict(**kwargs, output_names=output_names))
+
+    def get_config(self, model_fname=None):
+        config = {**TheanoNetPredictor.get_config(self, model_fname=model_fname),
+                  **predictor.HierarchicalFeaturePredictor.get_config(self)}
+        return config
 
 
 class FcnActionCondEncoderOnlyTheanoNetFeaturePredictor(TheanoNetFeaturePredictor):

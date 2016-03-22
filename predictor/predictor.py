@@ -57,6 +57,13 @@ class Predictor:
     def plot(self, *inputs, preprocessed=False):
         raise NotImplementedError
 
+    def get_config(self):
+        config = {'class': self.__class__,
+                  'input_shapes': self.input_shapes,
+                  'transformers': [transformer.get_config() for transformer in self.transformers],
+                  'name': self.name}
+        return config
+
 
 class FeaturePredictor(Predictor):
     def __init__(self, input_shapes, transformers=None, name=None,
@@ -81,6 +88,14 @@ class FeaturePredictor(Predictor):
     def plot(self, X, U, preprocessed=False):
         # TODO
         raise NotImplementedError
+
+    def get_config(self):
+        config = Predictor.get_config(self)
+        config.update({'feature_name': self.feature_name,
+                       'next_feature_name': self.next_feature_name,
+                       'feature_jacobian_name': self.feature_jacobian_name,
+                       'control_name': self.control_name})
+        return config
 
 
 class HierarchicalFeaturePredictor(FeaturePredictor):
@@ -154,6 +169,14 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
             row += (1 if is_w_ones else 2)
         plt.draw()
 
+    def get_config(self):
+        config = FeaturePredictor.get_config(self)
+        config.update({'levels': self.levels,
+                       'loss_levels': self.loss_levels,
+                       'map_names': self.map_names,
+                       'next_map_names': self.next_map_names})
+        return config
+
 
 class NetPredictor(Predictor):
     def __init__(self, input_shapes, transformers=None, name=None, backend=None):
@@ -169,8 +192,8 @@ class NetPredictor(Predictor):
             os.makedirs(model_dir)
         return model_dir
 
-    def get_snapshot_prefix(self):
-        snapshot_dir = os.path.join(self.get_model_dir(), 'snapshot')
+    def get_snapshot_prefix(self, snapshot_prefix=''):
+        snapshot_dir = os.path.join(self.get_model_dir(), snapshot_prefix or 'snapshot')
         if not os.path.exists(snapshot_dir):
             os.makedirs(snapshot_dir)
         snapshot_prefix = os.path.join(snapshot_dir, '')
