@@ -1,5 +1,4 @@
 import os
-import inspect
 import numpy as np
 import pickle
 from collections import OrderedDict
@@ -10,6 +9,7 @@ from . import predictor
 from .solver import TheanoNetSolver
 import bilinear
 import utils
+from .layers_theano import set_layer_param_tags
 
 
 class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
@@ -185,25 +185,6 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                                  (param.get_value().shape, value.shape))
             param.set_value(value)
 
-    @staticmethod
-    def set_layer_param_tags(layer, **tags):
-        for param_tags in layer.params.values():
-            for tag, value in tags.items():
-                if value:
-                    param_tags.add(tag)
-                else:
-                    param_tags.discard(tag)
-
-    def set_param_tags(self, param, **tags):
-        for layer in self.get_all_layers():
-            if param in layer.params:
-                param_tags = layer.params[param]
-                for tag, value in tags.items():
-                    if value:
-                        param_tags.add(tag)
-                    else:
-                        param_tags.discard(tag)
-
     def save_model(self, model_fname):
         model_fname = model_fname.replace('.yaml', '.pkl')
         print("Saving model parameters to file", model_fname)
@@ -287,8 +268,8 @@ class FcnActionCondEncoderOnlyTheanoNetFeaturePredictor(TheanoNetFeaturePredicto
                     param_b = all_params['x%d_conv%d.b'%(level, i_conv)]
                     param_W.set_value(W)
                     param_b.set_value(b)
-                    self.set_param_tags(param_W, trainable=False)
-                    self.set_param_tags(param_b, trainable=False)
+                    for layer in self.get_all_layers():
+                        set_layer_param_tags(layer, params=(param_W, param_b), trainable=False)
 
     def train(self, *train_hdf5_fnames, val_hdf5_fname, solverstate_fname=None,
               batch_size=32,
