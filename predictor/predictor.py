@@ -117,14 +117,13 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
         return self.predict(self.next_map_names, X, U, preprocessed=preprocessed)
 
     def plot(self, x, u, x_next=None, w=None, preprocessed=False):
-        # TODO
         xlevels = self.maps(x, preprocessed=preprocessed)
         xlevels_next_pred = self.next_maps(x, u, preprocessed=preprocessed)
-        xlevels_all = [[('x', x), *xlevels.items()],
-                       [(None, None), *xlevels_next_pred.items()]]
+        xlevels_all = [[('x', x), *zip(self.map_names, xlevels)],
+                       [(None, None), *zip(self.next_map_names, xlevels_next_pred)]]
         if x_next is not None:
             xlevels_next = self.maps(x_next, preprocessed=preprocessed)
-            xlevels_all.append([('x_next', x_next), *[(name+'_next', xlevel) for (name, xlevel) in xlevels_next.items()]])
+            xlevels_all.append([('x_next', x_next), *[(name+'_next', xlevel) for (name, xlevel) in zip(self.map_names, xlevels_next)]])
 
         if w is None:
             is_w_ones = True
@@ -154,15 +153,20 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
                 if xlevel is None:
                     fig.delaxes(axarr[row, i])
                     continue
-                if xlevel.shape[0] == 3:
-                    axarr[row, i].imshow(cv2.cvtColor(util.image_from_obs(xlevel), cv2.COLOR_BGR2RGB))
+                if i in (0, 1):
+                    if i == 0 and not preprocessed:
+                        image = xlevel
+                    else:
+                        image_transformer = self.transformers[0]
+                        image = image_transformer.transformers[-1].deprocess(xlevel)
+                    axarr[row, i].imshow(cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2RGB))
                 else:
-                    axarr[row, i].imshow(util.vis_square(xlevel,
+                    axarr[row, i].imshow(utils.vis_square(xlevel,
                                                          data_min=xlevels_min[i],
                                                          data_max=xlevels_max[i]))
                 axarr[row, i].set_title(name)
                 if i != 0 and not is_w_ones:
-                    axarr[row+1, i].imshow(util.vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape),
+                    axarr[row+1, i].imshow(utils.vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape),
                                                            data_min=xlevels_min[i],
                                                            data_max=xlevels_max[i]))
                     w = w[xlevel.size:]
