@@ -399,7 +399,7 @@ def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_
             l_xlevel_res = l_xlevel
         else:
             l_xlevels_dec[level] = LT.VggDecodingLayer(l_xlevels[level+1], xlevels_c_dim[level],
-                                                    batch_norm=batch_norm, name='x%d_dec' % level)
+                                                       batch_norm=batch_norm, name='x%d_dec' % level)
             l_xlevel_res = L.ElemwiseSumLayer([l_xlevel, l_xlevels_dec[level]], coeffs=[1.0, -1.0], name='x%d_res' % level)
         l_xlevel_diff_res = LT.create_bilinear_layer(l_xlevel_res, l_u, level, bilinear_type=bilinear_type, name='x%d_diff_res' % level)
         l_xlevels_next_res[level] = L.ElemwiseSumLayer([l_xlevel_res, l_xlevel_diff_res], name='x%d_next_res' % level)
@@ -420,14 +420,15 @@ def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_
             else:
                 params = tuple()
             l_xlevel_next_pred = LT.VggDecodingLayer(l_xlevels_next_pred[level+1], xlevels_c_dim[level],
-                                                  *params,
-                                                  batch_norm=batch_norm, name='x%d_next_dec' % level)
+                                                     *params,
+                                                     batch_norm=batch_norm, name='x%d_next_dec' % level)
             if level in l_xlevels_next_res:
                 l_xlevel_next_pred = L.ElemwiseSumLayer([l_xlevels_next_res[level], l_xlevel_next_pred], name='x%d_next_dec_res_sum' % level)
-            l_xlevel_next_pred = L.NonlinearityLayer(l_xlevel_next_pred, nonlinearity=nl.tanh if (level == 0 and tanh) else nl.rectify, name='x%d_next_pred'%level)
+            if level != 0:
+                l_xlevel_next_pred = L.NonlinearityLayer(l_xlevel_next_pred, nl.rectify, name='x%d_next_pred' % level)
+            elif tanh:
+                l_xlevel_next_pred = L.NonlinearityLayer(l_xlevel_next_pred, nl.tanh, name='x%d_next_pred' % level)
         l_xlevels_next_pred[level] = l_xlevel_next_pred
-
-    l_x_next_pred = l_xlevels_next_pred[0]
 
     # encoding of next image
     l_xlevels_next = OrderedDict()
@@ -436,14 +437,15 @@ def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_
             l_xlevel_next = l_x_next
         else:
             l_xlevel_next = LT.VggEncodingLayer(l_xlevels_next[level-1], xlevels_c_dim[level],
-                                             *l_xlevels[level].get_params(),
-                                             batch_norm=batch_norm, name='x%d_next'%level)
+                                                *l_xlevels[level].get_params(),
+                                                batch_norm=batch_norm, name='x%d_next'%level)
         l_xlevels_next[level] = l_xlevel_next
 
     pred_layers = OrderedDict([('y_diff_pred', l_y_diff_pred),
                                ('y', l_y),
                                ('y_next_pred', l_y_next_pred),
                                ('x_next_pred', l_xlevels_next_pred[0]),
+                               ('x0', l_xlevels[0]),
                                ('x0_next_pred', l_xlevels_next_pred[0]),
                                ('x_next', l_x_next),
                                ('x0_next', l_x_next),
