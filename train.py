@@ -71,20 +71,26 @@ def main():
         data_names = ['image', 'vel']
         val_data_gen = utils.generator.ImageVelDataGenerator(args.val_data_fname,
                                                              data_names=data_names,
-                                                             transformers=transformers,
+                                                             transformers=transformers if args.visualize == 1 else None,
                                                              once=True,
                                                              batch_size=0,
                                                              shuffle=False)
-        for image_curr, vel, image_next in val_data_gen:
-            image_next_pred = feature_predictor.next_maps(image_curr, vel, preprocessed=True)[0]
-            image_pred_error = (image_next_pred - image_next)/2.0
-            vis_image, done = utils.visualization.visualize_images_callback(
-                image_curr, image_next_pred, image_next, image_pred_error,
-                image_transformer=image_transformer,
-                vis_scale=args.vis_scale, delay=0)
-            if done:
-                break
-        cv2.destroyAllWindows()
+        if args.visualize == 1:
+            for image_curr, vel, image_next in val_data_gen:
+                image_next_pred = feature_predictor.next_maps(image_curr, vel, preprocessed=True)[0]
+                image_pred_error = (image_next_pred - image_next)/2.0
+                vis_image, done = utils.visualization.visualize_images_callback(
+                    image_curr, image_next_pred, image_next, image_pred_error,
+                    window_name=feature_predictor.name,
+                    image_transformer=image_transformer,
+                    vis_scale=args.vis_scale, delay=0)
+                if done:
+                    break
+            cv2.destroyAllWindows()
+        else:
+            for image_curr, vel, image_next in val_data_gen:
+                feature_predictor.plot(image_curr, vel, image_next, preprocessed=False)
+
 
 if __name__ == "__main__":
     main()
