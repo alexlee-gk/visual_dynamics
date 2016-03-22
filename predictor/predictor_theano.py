@@ -54,6 +54,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         # draw net and save to file
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
         utils.visualization_theano.draw_to_file(self.get_all_layers(), net_graph_fname, output_shape=True, verbose=True)
+        self.draw()
 
     def train(self, *train_data_fnames, val_data_fname=None, data_names=None, input_names=None, output_names=None,
               solver_fname=None, train_nb_worker=4, val_nb_worker=1):
@@ -204,12 +205,16 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             param_values = OrderedDict([(name, value.astype(theano.config.floatX, copy=False)) for (name, value) in param_values.items()])
             self.set_all_param_values(param_values)
 
-    def plot(self):
+    def draw(self):
+        plt.ion()
+        fig = plt.figure(3)
+        plt.axis('off')
+        fig.canvas.set_window_title('Net graph for %s' % self.name)
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
         with open(net_graph_fname, 'rb') as net_graph_file:
             image = plt.imread(net_graph_file)
         plt.imshow(image)
-        plt.show()
+        plt.draw()
 
     def get_config(self, model_fname=None):
         model_fname = model_fname or os.path.join(self.get_model_dir(), time.strftime('%Y%m%d_%H%M%S_model.pkl'))
