@@ -58,9 +58,11 @@ class ChannelwiseLayer(L.Layer):
 
 
 class CompositionLayer(L.Layer):
-    def __init__(self, incoming, name=None):
+    def __init__(self, incoming, layers=None, name=None):
         super(CompositionLayer, self).__init__(incoming, name=name)
         self.layers = []
+        for layer in layers or []:
+            self.add_layer(layer)
 
     def add_layer(self, layer):
         self.layers.append(layer)
