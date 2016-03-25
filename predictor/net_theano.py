@@ -416,11 +416,11 @@ def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_
             l_xlevel_next_pred = l_xlevels_next_res[level]
         else:
             if level in l_xlevels_dec:
-                params = l_xlevels_dec[level].get_params()
+                param_kwargs = l_xlevels_dec[level].get_param_kwargs()
             else:
-                params = tuple()
+                param_kwargs = dict()
             l_xlevel_next_pred = LT.VggDecodingLayer(l_xlevels_next_pred[level+1], xlevels_c_dim[level],
-                                                     *params,
+                                                     **param_kwargs,
                                                      batch_norm=batch_norm, name='x%d_next_dec' % level)
             if level in l_xlevels_next_res:
                 l_xlevel_next_pred = L.ElemwiseSumLayer([l_xlevels_next_res[level], l_xlevel_next_pred], name='x%d_next_dec_res_sum' % level)
@@ -437,7 +437,7 @@ def build_laplacian_fcn_action_cond_encoder_net(input_shapes, levels=None, x1_c_
             l_xlevel_next = l_x_next
         else:
             l_xlevel_next = LT.VggEncodingLayer(l_xlevels_next[level-1], xlevels_c_dim[level],
-                                                *l_xlevels[level].get_params(),
+                                                **l_xlevels[level].get_param_kwargs(),
                                                 batch_norm=batch_norm, name='x%d_next'%level)
         l_xlevels_next[level] = l_xlevel_next
 

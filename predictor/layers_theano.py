@@ -81,6 +81,10 @@ class CompositionLayer(L.Layer):
             output = layer.get_output_for(output, **kwargs)
         return output
 
+    def get_param_kwargs(self, **tags):
+        params = self.get_params(**tags)
+        return dict([(self.param_keys[param], param) for param in params])
+
 
 class VggEncodingLayer(CompositionLayer):
     def __init__(self, incoming, num_filters,
@@ -140,15 +144,30 @@ class VggEncodingLayer(CompositionLayer):
         tags['encoding'] = tags.get('encoding', True)
         set_layer_param_tags(self, **tags)
 
+        self.param_keys = dict()
+        for layer, base_name in [(self.l_conv1, 'conv1'), (self.l_conv2, 'conv2')]:
+            self.param_keys.update({
+                layer.W: '%s_W' % base_name,
+                layer.b: '%s_b' % base_name,
+            })
+        for layer, base_name in [(self.l_bn1, 'bn1'), (self.l_bn2, 'bn2')]:
+            if layer is not None:
+                self.param_keys.update({
+                    layer.beta: '%s_beta' % base_name,
+                    layer.gamma: '%s_gamma' % base_name,
+                    layer.mean: '%s_mean' % base_name,
+                    layer.inv_std: '%s_inv_std' % base_name
+                })
+
 
 class VggDecodingLayer(CompositionLayer):
     def __init__(self, incoming, num_filters,
-                 deconv1_W=init.GlorotUniform(), deconv1_b=init.Constant(0.),
-                 bn1_beta=init.Constant(0.), bn1_gamma=init.Constant(1.),
-                 bn1_mean=init.Constant(0.), bn1_inv_std=init.Constant(1.),
                  deconv2_W=init.GlorotUniform(), deconv2_b=init.Constant(0.),
                  bn2_beta=init.Constant(0.), bn2_gamma=init.Constant(1.),
                  bn2_mean=init.Constant(0.), bn2_inv_std=init.Constant(1.),
+                 deconv1_W=init.GlorotUniform(), deconv1_b=init.Constant(0.),
+                 bn1_beta=init.Constant(0.), bn1_gamma=init.Constant(1.),
+                 bn1_mean=init.Constant(0.), bn1_inv_std=init.Constant(1.),
                  batch_norm=False, last_nonlinearity=None, name=None,
                  **tags):
         super(VggDecodingLayer, self).__init__(incoming, name=name)
@@ -201,6 +220,21 @@ class VggDecodingLayer(CompositionLayer):
                 raise ValueError("tag should be a string, %s given" % type(tag))
         tags['decoding'] = tags.get('decoding', True)
         set_layer_param_tags(self, **tags)
+
+        self.param_keys = dict()
+        for layer, base_name in [(self.l_deconv1, 'deconv1'), (self.l_deconv2, 'deconv2')]:
+            self.param_keys.update({
+                layer.W: '%s_W' % base_name,
+                layer.b: '%s_b' % base_name,
+            })
+        for layer, base_name in [(self.l_bn1, 'bn1'), (self.l_bn2, 'bn2')]:
+            if layer is not None:
+                self.param_keys.update({
+                    layer.beta: '%s_beta' % base_name,
+                    layer.gamma: '%s_gamma' % base_name,
+                    layer.mean: '%s_mean' % base_name,
+                    layer.inv_std: '%s_inv_std' % base_name
+                })
 
 
 # deconv_length and Deconv2DLayer adapted from https://github.com/ebenolson/Lasagne/blob/deconv/lasagne/layers/dnn.py
