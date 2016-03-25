@@ -101,12 +101,11 @@ class FeaturePredictor(Predictor):
 class HierarchicalFeaturePredictor(FeaturePredictor):
     def __init__(self, input_shapes, transformers=None, name=None,
                  feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None,
-                 levels=None, loss_levels=None, map_names=None, next_map_names=None):
+                 levels=None, map_names=None, next_map_names=None):
         FeaturePredictor.__init__(self, input_shapes, transformers=transformers, name=name,
                                   feature_name=feature_name, next_feature_name=next_feature_name,
                                   feature_jacobian_name=feature_jacobian_name, control_name=control_name)
         self.levels = levels or [0]
-        self.loss_levels = loss_levels or list(self.levels)
         self.map_names = map_names or ['x%d' % level for level in range(max(self.levels)+1)]
         self.next_map_names = next_map_names or ['x%d_next_pred' % level for level in range(max(self.levels)+1)]
 
@@ -176,7 +175,6 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
     def get_config(self):
         config = FeaturePredictor.get_config(self)
         config.update({'levels': self.levels,
-                       'loss_levels': self.loss_levels,
                        'map_names': self.map_names,
                        'next_map_names': self.next_map_names})
         return config

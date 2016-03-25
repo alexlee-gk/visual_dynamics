@@ -11,7 +11,12 @@ class TheanoNetSolver(utils.config.ConfigObject):
     def __init__(self, batch_size=32, test_iter=10, solver_type='ADAM', test_interval=1000, base_lr=0.001, gamma=1.0,
                  stepsize=1000, display=20, max_iter=10000, momentum=0.9, momentum2=0.999, weight_decay=0.0005,
                  snapshot_interval=1000, snapshot_prefix='', average_loss=10, loss_interval=100, plot_interval=100,
-                 iter_=0, losses=None, train_losses=None, val_losses=None, loss_iters=None):
+                 iter_=0, losses=None, train_losses=None, val_losses=None, loss_iters=None,
+                 input_names=None, output_names=None):
+        """
+        output_names: Iterable of tuples, each being a tuple of prediction and target names of the variables to be
+            used for the loss.
+        """
         self.batch_size = batch_size
         self.test_iter = test_iter
         self.solver_type = solver_type
@@ -36,11 +41,44 @@ class TheanoNetSolver(utils.config.ConfigObject):
         self.val_losses = val_losses or []
         self.loss_iters = loss_iters or []
 
-    def get_loss_var(self, net, output_names, deterministic=False):
-        pred_names, target_names = zip(*output_names)
-        output_layers = [net.pred_layers[name] for name in pred_names + target_names]
-        output_vars = lasagne.layers.get_output(output_layers, deterministic=deterministic)
-        pred_vars, target_vars = output_vars[:len(output_names)], output_vars[len(output_names):]
+        self.input_names = input_names or ['x', 'u', 'x_next']
+        self.output_names = output_names or [('x_next_pred', 'x_next')]
+
+    def get_output_vars(self, net, deterministic=False):
+        for output_name in self.output_names:
+            if not (isinstance(output_name, tuple) or isinstance(output_name, list))\
+                    or len(output_name) != 2:
+                raise ValueError("output_names should be iterable of pair tuples")
+        names = [name for pair in self.output_names for name in pair]  # flatten output_names
+        time_inames_dict = dict()
+        for i, name in enumerate(names):
+            if isinstance(name, tuple) or isinstance(name, list):
+                name, t = name
+            else:
+                t = 0
+            if t not in time_inames_dict:
+                time_inames_dict[t] = []
+            time_inames_dict[t].append((i, name))
+        ivars = []
+        for t, inames in time_inames_dict.items():
+            inds, names = zip(*inames)
+            layers = [net.pred_layers[name] for name in names]
+            if t == 0:
+                vars_ = lasagne.layers.get_output(layers, deterministic=deterministic)
+            elif t == 1:
+                input_vars = [net.pred_layers[name].input_var for name in self.input_names]
+                vars_ = lasagne.layers.get_output(layers, inputs=input_vars[-1], deterministic=deterministic)
+            else:
+                raise NotImplementedError("output name with time %d" % t)
+            ivars.extend(zip(inds, vars_))
+        _, output_vars = zip(*sorted(ivars))
+        return list(zip(output_vars[0::2], output_vars[1::2]))
+
+    def get_loss_var(self, net, deterministic=False):
+        # import IPython as ipy; ipy.embed()
+        # output_names = [('x0_next_pred', ('x0', 1)),
+        #                 (('x1', 1), 'x1_next_pred')]
+        pred_vars, target_vars = zip(*self.get_output_vars(net, deterministic=deterministic))
         loss = 0
         for pred_var, target_var in zip(pred_vars, target_vars):
             loss += ((target_var - pred_var) ** 2).mean(axis=0).sum() / 2.
@@ -50,15 +88,15 @@ class TheanoNetSolver(utils.config.ConfigObject):
         loss += self.weight_decay * param_l2_penalty / 2.
         return loss
 
-    def compile_train_fn(self, net, input_names, output_names):
-        input_vars = [net.pred_layers[name].input_var for name in input_names]
+    def compile_train_fn(self, net):
+        input_vars = [net.pred_layers[name].input_var for name in self.input_names]
         # training loss
-        loss = self.get_loss_var(net, output_names, deterministic=False)
+        loss = self.get_loss_var(net, deterministic=False)
         # training function
         params = list(net.get_all_params(trainable=True).values())
         unused_params = [param for param in params if param not in theano.gof.graph.inputs([loss])]
         if unused_params:
-            print('parameters %r are unused for training with output names %r' % (unused_params, output_names))
+            print('parameters %r are unused for training with output names %r' % (unused_params, self.output_names))
         params = [param for param in params if param in theano.gof.graph.inputs([loss])]
         learning_rate_var = theano.tensor.scalar(name='learning_rate')
         if self.solver_type == 'SGD':
@@ -77,10 +115,10 @@ class TheanoNetSolver(utils.config.ConfigObject):
         print("... finished in %.2f s" % (time.time() - start_time))
         return train_fn
 
-    def compile_val_fn(self, net, input_names, output_names):
-        input_vars = [net.pred_layers[name].input_var for name in input_names]
+    def compile_val_fn(self, net):
+        input_vars = [net.pred_layers[name].input_var for name in self.input_names]
         # validation loss
-        val_loss = self.get_loss_var(net, output_names, deterministic=True)
+        val_loss = self.get_loss_var(net, deterministic=True)
         # validation function
         start_time = time.time()
         print("Compiling validation function...")
@@ -88,8 +126,8 @@ class TheanoNetSolver(utils.config.ConfigObject):
         print("... finished in %.2f s" % (time.time() - start_time))
         return val_fn
 
-    def solve(self, net, input_names, output_names, train_data_gen, val_data_gen=None):
-        losses = self.step(self.max_iter - self.iter_, net, input_names, output_names, train_data_gen,
+    def solve(self, net, train_data_gen, val_data_gen=None):
+        losses = self.step(self.max_iter - self.iter_, net, train_data_gen,
                            val_data_gen=val_data_gen)
 
         # save snapshot after the optimization is done if it hasn't already been saved
@@ -103,13 +141,13 @@ class TheanoNetSolver(utils.config.ConfigObject):
         if val_loss is not None:
             print("    validation loss = {:.6f}".format(val_loss))
 
-    def step(self, iters, net, input_names, output_names, train_data_gen, val_data_gen=None):
+    def step(self, iters, net, train_data_gen, val_data_gen=None):
         print("Size of training data is %d" % train_data_gen.size())
-        train_fn = self.compile_train_fn(net, input_names, output_names)
+        train_fn = self.compile_train_fn(net)
         validate = self.test_interval and val_data_gen is not None
         if validate:
             print("Size of validation data is %d" % val_data_gen.size())
-            val_fn = self.compile_val_fn(net, input_names, output_names)
+            val_fn = self.compile_val_fn(net)
 
         print("Starting training...")
         stop_iter = self.iter_ + iters
@@ -212,5 +250,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
                   'losses': self.losses,
                   'train_losses': self.train_losses,
                   'val_losses': self.val_losses,
-                  'loss_iters': self.loss_iters}
+                  'loss_iters': self.loss_iters,
+                  'input_names': self.input_names,
+                  'output_names': self.output_names}
         return config

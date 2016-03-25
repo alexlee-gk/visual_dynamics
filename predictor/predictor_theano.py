@@ -56,14 +56,12 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         utils.visualization_theano.draw_to_file(self.get_all_layers(), net_graph_fname, output_shape=True, verbose=True)
         self.draw()
 
-    def train(self, *train_data_fnames, val_data_fname=None, data_names=None, input_names=None, output_names=None,
-              solver_fname=None, train_nb_worker=4, val_nb_worker=1):
+    def train(self, *train_data_fnames, val_data_fname=None, data_names=None, solver_fname=None,
+              train_nb_worker=4, val_nb_worker=1):
         """
         Args:
             data_names: Iterable of names for the image and velocity inputs in the data files.
             input_names: Iterable of names of the input variables for the image, velocity and next image
-            output_names: Iterable of tuples, each being a tuple of prediction and target names of the variables to be
-                used for the loss.
         """
         if solver_fname is not None:
             with open(solver_fname) as yaml_string:
@@ -96,9 +94,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         else:
             val_data_gen = None
 
-        input_names = input_names or ['x', 'u', 'x_next']
-        output_names = output_names or [('x_next_pred', 'x_next')]
-        solver.solve(self, input_names, output_names, train_data_gen, val_data_gen=val_data_gen)
+        solver.solve(self, train_data_gen, val_data_gen=val_data_gen)
 
     def _compile_pred_fn(self, name_or_names):
         if isinstance(name_or_names, str):
@@ -255,7 +251,7 @@ class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
 class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.HierarchicalFeaturePredictor):
     def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None,
                  feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None,
-                 levels=None, loss_levels=None, map_names=None, next_map_names=None, **kwargs):
+                 levels=None, map_names=None, next_map_names=None, **kwargs):
         TheanoNetPredictor.__init__(
             self, build_net, input_shapes, input_names=input_names, transformers=transformers, name=name,
             pretrained_fname=pretrained_fname, levels=levels, **kwargs)
@@ -263,11 +259,7 @@ class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.Hierar
             self, input_shapes, transformers=transformers, name=name,
             feature_name=feature_name, next_feature_name=next_feature_name,
             feature_jacobian_name=feature_jacobian_name, control_name=control_name,
-            levels=levels, loss_levels=loss_levels, map_names=map_names, next_map_names=next_map_names)
-
-    def train(self, *args, **kwargs):
-        output_names = kwargs.get('output_names') or [('x%d_next_pred' % loss_level, 'x%d_next' % loss_level) for loss_level in self.loss_levels]
-        TheanoNetPredictor.train(self, *args, **dict(**kwargs, output_names=output_names))
+            levels=levels, map_names=map_names, next_map_names=next_map_names)
 
     def get_config(self, model_fname=None):
         config = {**TheanoNetPredictor.get_config(self, model_fname=model_fname),
