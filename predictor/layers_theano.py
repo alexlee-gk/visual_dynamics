@@ -22,6 +22,41 @@ def set_layer_param_tags(layer, params=None, **tags):
                     param_tags.discard(tag)
 
 
+class ChannelwiseLayer(L.Layer):
+    def __init__(self, incoming, channel_layer_class, name=None, **channel_layer_kwargs):
+        super(ChannelwiseLayer, self).__init__(incoming, name=name)
+        self.channel_layer_class = channel_layer_class
+        self.channel_incomings = []
+        self.channel_outcomings = []
+        for channel in range(lasagne.layers.get_output_shape(incoming)[0]):
+            channel_incoming = L.SliceLayer(incoming, indices=slice(channel, channel+1), axis=1,
+                                            name='%s.%s%d' % (name, 'slice', channel) if name is not None else None)
+            channel_outcoming = channel_layer_class(channel_incoming, **channel_layer_kwargs,
+                                                    name='%s.%s%d' % (name, 'op', channel) if name is not None else None)
+            self.channel_incomings.append(channel_incoming)
+            self.channel_outcomings.append(channel_outcoming)
+        self.outcoming = L.ConcatLayer(self.channel_outcomings, axis=1,
+                                       name='%s.%s' % (name, 'concat') if name is not None else None)
+
+    def get_output_shape_for(self, input_shape):
+        channel_output_shapes = []
+        for channel_incoming, channel_outcoming in zip(self.channel_incomings, self.channel_outcomings):
+            channel_input_shape = channel_incoming.get_output_shape_for(input)
+            channel_output_shape = channel_outcoming.get_output_shape_for(channel_input_shape)
+            channel_output_shapes.append(channel_output_shape)
+        output_shape = self.outcoming.get_output_shape_for(channel_output_shapes)
+        return output_shape
+
+    def get_output_for(self, input, **kwargs):
+        channel_outputs = []
+        for channel_incoming, channel_outcoming in zip(self.channel_incomings, self.channel_outcomings):
+            channel_input= channel_incoming.get_output_for(input, **kwargs)
+            channel_output = channel_outcoming.get_output_for(channel_input, **kwargs)
+            channel_outputs.append(channel_output)
+        output = self.outcoming.get_output_for(channel_outputs, **kwargs)
+        return output
+
+
 class CompositionLayer(L.Layer):
     def __init__(self, incoming, name=None):
         super(CompositionLayer, self).__init__(incoming, name=name)
