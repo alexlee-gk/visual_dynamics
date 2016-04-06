@@ -13,16 +13,16 @@ def from_yaml(yaml_string):
 
 class ConfigObject:
     def get_config(self):
-        return dict(class_name=self.__class__.__name__)
+        return {'class': self.__class__}
 
     @classmethod
     def from_config(cls, config):
         # TODO pop class?
         return cls(**config)
 
-    def to_yaml(self, *args, **kwargs):
+    def to_yaml(self, *args, width=float('inf'), **kwargs):
         config = self.get_config()
-        return yaml.dump(config, *args, **kwargs)
+        return yaml.dump(config, *args, width=width, **kwargs)
 
     @classmethod
     def from_yaml(cls, yaml_string):
