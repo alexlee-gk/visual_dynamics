@@ -360,7 +360,7 @@ class CityOgreSimulator(OgreSimulator):
         DiscreteVelocitySimulator.reset(self, dof_values)
 
     def sample_state(self):
-        car_dof_values = util.sample_interval(*self.car_traj_manager.dof_limits)
+        car_dof_values = utils.math_utils.sample_interval(*self.car_traj_manager.dof_limits)
         self.car_traj_manager.reset(car_dof_values)
         # constrain sampled state to be in the 45 deg line of sight
         val = 5 + np.random.random_sample(1) * 50
@@ -376,7 +376,7 @@ class CityOgreSimulator(OgreSimulator):
         return dof_values
 
     def get_config(self):
-        config = super(CityOgreSimulator, self).get_config()
+        config = super(OgreSimulator, self).get_config()
         config.update({'static_car': self.static_car})
         return config
 
