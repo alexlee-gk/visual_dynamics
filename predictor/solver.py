@@ -319,3 +319,248 @@ class TheanoNetSolver(utils.config.ConfigObject):
                   'val_losses': self.val_losses,
                   'loss_iters': self.loss_iters}
         return config
+
+
+class BilinearSolver(TheanoNetSolver):
+    def __init__(self, train_data_fnames, val_data_fname=None, data_names=None, input_names=None, output_names=None,
+                 loss_batch_size=32, aggregating_batch_size=1000, test_iter=10, max_iter=1, weight_decay=0.0005,
+                 snapshot_prefix='', average_loss=10, iter_=0):
+        self.train_data_fnames = train_data_fnames or []
+        self.val_data_fname = val_data_fname
+        self.data_names = data_names or ['image', 'vel']
+        self.input_names = input_names or ['x', 'u', 'x_next']
+        self.output_names = output_names or [('x_next_pred', 'x_next')]
+
+        self.loss_batch_size = loss_batch_size
+        self.aggregating_batch_size = aggregating_batch_size
+        self.test_iter = test_iter
+        self.max_iter = max_iter
+        self.weight_decay = weight_decay
+        self.snapshot_prefix = snapshot_prefix
+        self.average_loss = average_loss
+
+        self.iter_ = iter_
+
+        self._last_snapshot_iter = None
+
+    def solve(self, net):
+        losses = self.step(self.max_iter - self.iter_, net)
+        # save snapshot after the optimization is done if it hasn't already been saved
+        if self._last_snapshot_iter != self.iter_:
+            self.snapshot(net)
+
+        # display losses after optimization is done
+        train_loss, val_loss = losses
+        print("Iteration {} of {}".format(self.iter_, self.max_iter))
+        print("    training loss = {:.6f}".format(train_loss))
+        if val_loss is not None:
+            print("    validation loss = {:.6f}".format(val_loss))
+
+    def step(self, iters, net):
+        # training data
+        train_data_gen = utils.generator.ImageVelDataGenerator(*self.train_data_fnames,
+                                                               data_names=self.data_names,
+                                                               transformers=net.transformers,
+                                                               batch_size=self.loss_batch_size,
+                                                               shuffle=True,
+                                                               dtype=theano.config.floatX)
+        train_data_gen = utils.generator.ParallelGenerator(train_data_gen,
+                                                           max_q_size=self.average_loss,
+                                                           nb_worker=4)
+        validate = self.val_data_fname is not None
+        if validate:
+            # validation data
+            val_data_gen = utils.generator.ImageVelDataGenerator(self.val_data_fname,
+                                                                 data_names=self.data_names,
+                                                                 transformers=net.transformers,
+                                                                 batch_size=self.loss_batch_size,
+                                                                 shuffle=True,
+                                                                 dtype=theano.config.floatX)
+            val_data_gen = utils.generator.ParallelGenerator(val_data_gen,
+                                                             max_q_size=self.test_iter,
+                                                             nb_worker=1)
+
+        print("Size of training data is %d" % train_data_gen.size())
+        if validate:
+            print("Size of validation data is %d" % val_data_gen.size())
+        val_fn = self.compile_val_fn(net)  # need val_fn to 'validate' on training data
+
+        print("Starting training...")
+        stop_iter = self.iter_ + iters
+        while self.iter_ < stop_iter:
+            # print losses
+            train_loss = float(sum([val_fn(*next(train_data_gen)) for _ in range(self.average_loss)]) / self.average_loss)
+            print("Iteration {} of {}".format(self.iter_, self.max_iter))
+            print("    training loss = {:.6f}".format(train_loss))
+            if validate:
+                val_loss = float(sum([val_fn(*next(val_data_gen)) for _ in range(self.test_iter)]) / self.test_iter)
+                print("    validation loss = {:.6f}".format(val_loss))
+
+            # training data (one pass)
+            train_data_once_gen = utils.generator.ImageVelDataGenerator(*self.train_data_fnames,
+                                                                        data_names=self.data_names,
+                                                                        transformers=net.transformers,
+                                                                        once=True,
+                                                                        batch_size=self.aggregating_batch_size,
+                                                                        shuffle=False,
+                                                                        dtype=theano.config.floatX)
+            train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=4)
+
+            # ensure outputs_names follow the expected format
+            curr_names = []
+            bilinear_layers = []
+            for output_pair in self.output_names:
+                try:
+                    try:
+                        next_pred_name, (curr_name, offset) = output_pair
+                    except ValueError:
+                        (curr_name, offset), next_pred_name = output_pair
+                        output_pair[:] = output_pair[::-1]
+                    if offset != 1:
+                        raise Exception
+                    next_pred_layer = net.pred_layers[next_pred_name]
+                    curr_layer, bilinear_layer = next_pred_layer.input_layers
+                    if curr_layer != net.pred_layers[curr_name] or not isinstance(bilinear_layer,
+                                                                                  layers_theano.BilinearLayer):
+                        raise Exception
+                    curr_names.append(curr_name)
+                    bilinear_layers.append(bilinear_layer)
+                except Exception:
+                    raise NotImplementedError('bilinear solver for output pair %r' % output_pair)
+
+            start_time = time.time()
+            print("Aggregating matrices...")
+            Ns = {i: 0 for i in range(len(bilinear_layers))}
+            As = {}
+            Bs = {}
+            post_fit_all = {}
+            diff_outputs = {}
+            batch_iter = 0
+            for X, U, X_next in train_data_once_gen:
+                print("batch %d" % batch_iter)
+                curr_outputs = net.predict(curr_names, X, preprocessed=True)
+                next_outputs = net.predict(curr_names, X_next, preprocessed=True)
+                for i, (bilinear_layer, curr_output, next_output) in \
+                        enumerate(zip(bilinear_layers, curr_outputs, next_outputs)):
+                    c_dim = curr_output.shape[1]
+                    if net.bilinear_type == 'share':
+                        batch_size = np.prod(curr_output.shape[:2])
+                        vel = np.repeat(U[:, None, :], c_dim, axis=1).reshape((batch_size, -1))
+                    else:
+                        batch_size = curr_output.shape[0]
+                        vel = U
+                    Ns[i] += batch_size
+                    if net.bilinear_type == 'share' or net.bilinear_type == 'full':
+                        if i not in As:
+                            As[i] = 0
+                            Bs[i] = 0
+                            diff_outputs[i] = 0
+                        curr_output = curr_output.reshape((batch_size, -1))
+                        next_output = next_output.reshape((batch_size, -1))
+                        diff_output = next_output - curr_output
+                        diff_outputs[i] += diff_output.sum(axis=0)
+                        A, B, post_fit = bilinear.BilinearFunction.compute_solver_terms(curr_output, vel,
+                                                                                        diff_output)
+                        As[i] += A
+                        Bs[i] += B
+                    elif net.bilinear_type == 'channelwise':
+                        if i not in As:
+                            As[i] = [0] * c_dim
+                            Bs[i] = [0] * c_dim
+                            diff_outputs[i] = 0
+                        curr_output = curr_output.reshape((batch_size, c_dim, -1))
+                        next_output = next_output.reshape((batch_size, c_dim, -1))
+                        diff_output = next_output - curr_output
+                        diff_outputs[i] += diff_output.sum(axis=0)
+                        for channel in range(c_dim):
+                            A, B, post_fit = bilinear.BilinearFunction.compute_solver_terms(curr_output[:, channel, :], vel,
+                                                                                            diff_output[:, channel, :])
+                            As[i][channel] += A
+                            Bs[i][channel] += B
+                    else:
+                        raise NotImplementedError("aggregating matrices for bilinear_type %s" % net.bilinear_type)
+                    if i not in post_fit_all:
+                        post_fit_all[i] = post_fit
+                batch_iter += 1
+                # if batch_iter == 2:  # TODO: remove me
+                #     break
+            print("... finished in %2.f s" % (time.time() - start_time))
+
+            # mean_diff_output = {}
+            # scale_offset_transformer = net.transformers[0].transformers[-1]
+            # for i in range(len(diff_outputs)):
+            #     mean_diff_output[i] = ((diff_outputs[i] / Ns[i] - scale_offset_transformer.offset) \
+            #                            * (1.0 / scale_offset_transformer.scale)).astype(scale_offset_transformer._data_dtype)
+            # mean_diff_output_flat = np.concatenate([mean.flatten() for mean in mean_diff_output.values()])
+            # for i in range(256):
+            #     num = (mean_diff_output_flat == i).sum()
+            #     if num > 0:
+            #         print('%d: %d' % (i, num))
+
+            start_time = time.time()
+            print("Solving linear systems...")
+            for i, bilinear_layer in enumerate(bilinear_layers):
+                start_time_single = time.time()
+                post_fit = post_fit_all[i]
+                if net.bilinear_type == 'share' or net.bilinear_type == 'full':
+                    A = As[i] / (2. * Ns[i])
+                    A += self.weight_decay * np.diag([1.] * (len(A) - 1) + [0.])  # don't regularize bias, which is the last one
+                    B = Bs[i] / (2. * Ns[i])
+                    Q, R, S, b = post_fit(np.linalg.solve(A, B))
+                    Q = np.asarray(Q, dtype=theano.config.floatX)
+                    R = np.asarray(R, dtype=theano.config.floatX)
+                    S = np.asarray(S, dtype=theano.config.floatX)
+                    b = np.asarray(b, dtype=theano.config.floatX)
+                elif net.bilinear_type == 'channelwise':
+                    Qchannels = []
+                    Rchannels = []
+                    Schannels = []
+                    bchannels = []
+                    for A, B in zip(As[i], Bs[i]):
+                        A = A / (2. * Ns[i])
+                        A += self.weight_decay * np.diag([1.] * (len(A) - 1) + [0.])  # don't regularize bias, which is the last one
+                        B = B / (2. * Ns[i])
+                        Q, R, S, b = post_fit(np.linalg.solve(A, B))
+                        Qchannels.append(Q)
+                        Rchannels.append(R)
+                        Schannels.append(S)
+                        bchannels.append(b)
+                    Q = np.asarray(Qchannels, dtype=theano.config.floatX)
+                    R = np.asarray(Rchannels, dtype=theano.config.floatX)
+                    S = np.asarray(Schannels, dtype=theano.config.floatX)
+                    b = np.asarray(bchannels, dtype=theano.config.floatX)
+                else:
+                    raise NotImplementedError("exact solve for bilinear_type %s" % net.bilinear_type)
+                Q_param, R_param, S_param, b_param = bilinear_layer.get_params()
+                Q_param.set_value(Q)
+                R_param.set_value(R)
+                S_param.set_value(S)
+                b_param.set_value(b)
+                print("%2.f s" % (time.time() - start_time_single))
+            print("... finished in %2.f s" % (time.time() - start_time))
+
+            self.iter_ += 1
+
+        train_loss = float(sum([val_fn(*next(train_data_gen)) for _ in range(self.average_loss)]) / self.average_loss)
+        if validate:
+            val_loss = float(sum([val_fn(*next(val_data_gen)) for _ in range(self.test_iter)]) / self.test_iter)
+        else:
+            val_loss = None
+        return train_loss, val_loss
+
+    def get_config(self):
+        config = {'class': self.__class__,
+                  'train_data_fnames': self.train_data_fnames,
+                  'val_data_fname': self.val_data_fname,
+                  'data_names': self.data_names,
+                  'input_names': self.input_names,
+                  'output_names': self.output_names,
+                  'loss_batch_size': self.loss_batch_size,
+                  'aggregating_batch_size': self.aggregating_batch_size,
+                  'test_iter': self.test_iter,
+                  'max_iter': self.max_iter,
+                  'weight_decay': self.weight_decay,
+                  'snapshot_prefix': self.snapshot_prefix,
+                  'average_loss': self.average_loss,
+                  'iter_': self.iter_}
+        return config
