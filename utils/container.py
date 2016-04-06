@@ -31,7 +31,7 @@ class DataContainer:
             try:
                 self.add_info(data_shapes=self.data_shapes_dict)
                 self.add_info(datum_shapes=self.datum_shapes_dict)
-                yaml.dump(self.info_dict, self.info_file)
+                yaml.dump(self.info_dict, self.info_file, width=float('inf'))
             except io.UnsupportedOperation:  # container is probably in read mode
                 pass
             self.info_file.close()
@@ -117,6 +117,14 @@ class DataContainer:
     def get_data_size(self, name):
         return np.prod(self.get_data_shape(name))
 
+    def _get_canonical_inds(self, *inds, name):
+        inds = list(inds)
+        shape = self.get_data_shape(name)
+        for i, ind in enumerate(inds):
+            if ind < 0:
+                inds[i] += shape[i]
+        return inds
+
     def _check_ind_range(self, *inds, name):
         shape = self.get_data_shape(name)
         if len(inds) != len(shape):
@@ -126,6 +134,7 @@ class DataContainer:
                 raise IndexError('index at position %d is out of range for entry with name %s' % (i, name))
 
     def _get_datum_ind(self, *inds, name):
+        inds = self._get_canonical_inds(*inds, name=name)
         self._check_ind_range(*inds, name=name)
         shape = self.get_data_shape(name)
         datum_ind = 0
@@ -183,6 +192,7 @@ class ImageDataContainer(DataContainer):
             cv2.imwrite(image_fname, image)
 
     def _get_image_fname(self, *inds, name):
+        inds = self._get_canonical_inds(*inds, name=name)
         self._check_ind_range(*inds, name=name)
         shape = self.get_data_shape(name)
         image_fmt = '%s'
