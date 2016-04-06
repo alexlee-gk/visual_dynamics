@@ -7,14 +7,15 @@ import theano
 import lasagne
 import matplotlib.pyplot as plt
 from . import predictor
-from .solver import TheanoNetSolver
+from . import layers_theano
 import bilinear
 import utils
 from .layers_theano import set_layer_param_tags
 
 
 class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
-    def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None, **kwargs):
+    def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None,
+                 solvers=None, simulator_config=None, **kwargs):
         """
         Args:
             build_net: Function that builds the net and returns a dict the network layers, which should contain at least
@@ -54,47 +55,26 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         # draw net and save to file
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
         utils.visualization_theano.draw_to_file(self.get_all_layers(), net_graph_fname, output_shape=True, verbose=True)
+        self._draw_fig_num = None
         self.draw()
+        self.solvers = solvers or []
+        self.simulator_config = simulator_config
 
-    def train(self, *train_data_fnames, val_data_fname=None, data_names=None, solver_fname=None,
-              train_nb_worker=4, val_nb_worker=1):
-        """
-        Args:
-            data_names: Iterable of names for the image and velocity inputs in the data files.
-            input_names: Iterable of names of the input variables for the image, velocity and next image
-        """
-        if solver_fname is not None:
-            with open(solver_fname) as yaml_string:
-                solver = utils.config.from_yaml(yaml_string)
-        else:
-            solver = TheanoNetSolver()
+    def train(self, solver_fname):
+        with open(solver_fname) as solver_file:
+            solver = utils.config.from_yaml(solver_file)
         solver.snapshot_prefix = self.get_snapshot_prefix(solver.snapshot_prefix)
-
-        # training data
-        data_names = data_names or ['image', 'vel']
-        train_data_gen = utils.generator.ImageVelDataGenerator(*train_data_fnames,
-                                                               data_names=data_names,
-                                                               transformers=self.transformers,
-                                                               batch_size=solver.batch_size,
-                                                               shuffle=True,
-                                                               dtype=theano.config.floatX)
-        train_data_gen = utils.generator.ParallelGenerator(train_data_gen,
-                                                           nb_worker=train_nb_worker)
-        if solver.test_interval and val_data_fname is not None:
-            # validation data
-            val_data_gen = utils.generator.ImageVelDataGenerator(val_data_fname,
-                                                                 data_names=data_names,
-                                                                 transformers=self.transformers,
-                                                                 batch_size=solver.batch_size,
-                                                                 shuffle=True,
-                                                                 dtype=theano.config.floatX)
-            val_data_gen = utils.generator.ParallelGenerator(val_data_gen,
-                                                             max_q_size=solver.test_iter,
-                                                             nb_worker=val_nb_worker)
+        self.solvers.append(solver)
+        data_fnames = solver.train_data_fnames + ([solver.val_data_fname] or [])
+        with utils.container.MultiDataContainer(data_fnames) as data_container:
+            simulator_config = data_container.get_info('simulator_config')
+        if self.simulator_config:
+            if self.simulator_config != simulator_config:
+                raise ValueError('simulator config mismatch across trainings:\n%r\n%r'
+                                 % (self.simulator_config, simulator_config))
         else:
-            val_data_gen = None
-
-        solver.solve(self, train_data_gen, val_data_gen=val_data_gen)
+            self.simulator_config = simulator_config
+        solver.solve(self)
 
     def _compile_pred_fn(self, name_or_names):
         if isinstance(name_or_names, str):
@@ -180,7 +160,8 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             try:
                 param = params_dict[name]
             except KeyError:
-                raise ValueError('there is no parameter with name %s')
+                print('there is no parameter with name %s, skipping this value' % name)
+                continue
             if param.get_value().shape != value.shape:
                 raise ValueError('mismatch: parameter has shape %r but value to set has shape %r' %
                                  (param.get_value().shape, value.shape))
@@ -202,13 +183,14 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             self.set_all_param_values(param_values)
 
     def draw(self):
-        plt.ion()
-        fig = plt.figure(3)
-        plt.axis('off')
-        fig.canvas.set_window_title('Net graph for %s' % self.name)
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
         with open(net_graph_fname, 'rb') as net_graph_file:
             image = plt.imread(net_graph_file)
+        plt.ion()
+        fig = plt.figure(num=self._draw_fig_num, figsize=(10.*image.shape[1]/image.shape[0], 10.), tight_layout=True)
+        self._draw_fig_num = fig.number
+        plt.axis('off')
+        fig.canvas.set_window_title('Net graph for %s' % self.name)
         plt.imshow(image)
         plt.draw()
 
@@ -221,13 +203,16 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                   'input_names': self.input_names,
                   'transformers': [transformer.get_config() for transformer in self.transformers],
                   'name': self.name,
-                  'pretrained_fname': model_fname}
+                  'pretrained_fname': model_fname,
+                  'solvers': [solver.get_config() for solver in self.solvers],
+                  'simulator_config': self.simulator_config}
         config.update(self._kwargs)
         return config
 
     @classmethod
     def from_config(cls, config):
         config['transformers'] = [utils.config.from_config(transformer_config) for transformer_config in config.get('transformers', [])]
+        config['solvers'] = [utils.config.from_config(solver_config) for solver_config in config.get('solvers', [])]
         return cls(**config)
 
 

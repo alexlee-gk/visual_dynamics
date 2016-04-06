@@ -7,10 +7,8 @@ import utils
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('train_data_fnames', nargs='+', type=str)
-    parser.add_argument('--val_data_fname', type=str)
-    parser.add_argument('--predictor_fname', '-p', type=str, default='config/predictor/predictor.yaml')
-    parser.add_argument('--solver_fname', '--sf', type=str, default='config/solver/adam.yaml')
+    parser.add_argument('predictor_fname', type=str)
+    parser.add_argument('solver_fname', nargs='?', type=str)
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--visualize', '-v', type=int, default=1)
     parser.add_argument('--vis_scale', '-s', type=int, default=10, metavar='S', help='rescale image by S for visualization')
@@ -19,11 +17,20 @@ def main():
 
     with open(args.predictor_fname) as predictor_file:
         predictor_config = yaml.load(predictor_file)
+    if args.solver_fname:
+        with open(args.solver_fname) as solver_file:
+            solver_config = yaml.load(solver_file)
+    else:
+        try:
+            solver_config = predictor_config['solvers'][-1]
+            args.no_train = True
+        except IndexError:
+            raise ValueError('solver_fname was not specified but predictor does not have a solver')
 
     # input_shapes
-    data_fnames = list(args.train_data_fnames)
-    if args.val_data_fname is not None:
-        data_fnames.append(args.val_data_fname)
+    data_fnames = list(solver_config['train_data_fnames'])
+    if solver_config['val_data_fname'] is not None:
+        data_fnames.append(solver_config['val_data_fname'])
     with utils.container.MultiDataContainer(data_fnames) as data_container:
         input_shapes = [data_container.get_datum_shape(name) for name in ('image', 'vel')]
     if 'input_shapes' in predictor_config:
@@ -64,12 +71,11 @@ def main():
     feature_predictor = utils.config.from_config(predictor_config)
 
     if not args.no_train:
-        feature_predictor.train(*args.train_data_fnames, val_data_fname=args.val_data_fname,
-                                solver_fname=args.solver_fname)
+        feature_predictor.train(args.solver_fname)
 
     if args.visualize:
         data_names = ['image', 'vel']
-        val_data_gen = utils.generator.ImageVelDataGenerator(args.val_data_fname,
+        val_data_gen = utils.generator.ImageVelDataGenerator(solver_config['val_data_fname'],
                                                              data_names=data_names,
                                                              transformers=transformers if args.visualize == 1 else None,
                                                              once=True,
@@ -87,7 +93,7 @@ def main():
                 if done:
                     break
             cv2.destroyAllWindows()
-        else:
+        elif args.visualize > 1:
             for image_curr, vel, image_next in val_data_gen:
                 feature_predictor.plot(image_curr, vel, image_next, preprocessed=False)
 
