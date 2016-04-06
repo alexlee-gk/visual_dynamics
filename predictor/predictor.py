@@ -72,18 +72,29 @@ class FeaturePredictor(Predictor):
         self.feature_name = feature_name or 'y'
         self.next_feature_name = next_feature_name or 'y_next_pred'
         self.feature_jacobian_name = feature_jacobian_name or 'y_diff_pred'
-        self.control_name = control_name or 'vel'
+        self.control_name = control_name or 'u'
+
+    def _reshape_feature(self, Y, X, preprocessed=False):
+        batch_size = self.batch_size(X, preprocessed=preprocessed)
+        shape = (batch_size, -1) if batch_size else (-1,)
+        if isinstance(self.feature_name, str):
+            Y = Y.reshape(shape)
+        else:
+            Y = np.concatenate([Y_partial.reshape(shape) for Y_partial in Y], axis=-1)
+        return Y
 
     def feature(self, X, preprocessed=False):
-        return self.predict(self.feature_name, X, preprocessed=preprocessed)
+        Y = self.predict(self.feature_name, X, preprocessed=preprocessed)
+        return self._reshape_feature(Y, X, preprocessed=preprocessed)
 
     def next_feature(self, X, U, preprocessed=False):
-        return self.predict(self.next_feature_name, X, U, preprocessed=preprocessed)
+        Y_next_pred = self._reshape_feature(self.predict(self.next_feature_name, X, U, preprocessed=preprocessed))
+        return self._reshape_feature(Y_next_pred, X, preprocessed=preprocessed)
 
     def feature_jacobian(self, X, U, preprocessed=False):
         jac = self.jacobian(self.feature_jacobian_name, self.control_name, X, U, preprocessed=preprocessed)
-        y = self.feature(X, preprocessed=preprocessed)
-        return jac, y
+        Y = self.feature(X, preprocessed=preprocessed)
+        return jac, Y
 
     def plot(self, X, U, preprocessed=False):
         # TODO
@@ -108,6 +119,7 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
         self.levels = levels or [0]
         self.map_names = map_names or ['x%d' % level for level in range(max(self.levels)+1)]
         self.next_map_names = next_map_names or ['x%d_next_pred' % level for level in range(max(self.levels)+1)]
+        self._plot_fig_num = None
 
     def maps(self, X, preprocessed=False):
         return self.predict(self.map_names, X, preprocessed=preprocessed)
@@ -132,8 +144,10 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
         plt.ion()
         num_rows = len(xlevels_all) * (1 if is_w_ones else 2)
         num_cols = max(len(xlevels) for xlevels in xlevels_all)
-        fig, axarr = plt.subplots(num_rows, num_cols,
-                                  num=1, figsize=(num_cols*6, num_rows*6))
+        fig, axarr = plt.subplots(num_rows, num_cols, num=self._plot_fig_num,
+                                  figsize=(num_cols*6, num_rows*6))
+        self._plot_fig_num = fig.number
+        fig.canvas.set_window_title(self.name)
         if axarr.ndim == 1:
             axarr = axarr.reshape((1, -1))
         # calculate min and max of responses at each level in order to consistently normalize the data
@@ -148,6 +162,7 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
         # plot images and response maps
         row = 0
         for xlevels in xlevels_all:
+            w_start = 0
             for i, (name, xlevel) in enumerate(xlevels):
                 if xlevel is None:
                     fig.delaxes(axarr[row, i])
@@ -158,17 +173,28 @@ class HierarchicalFeaturePredictor(FeaturePredictor):
                     else:
                         image_transformer = self.transformers[0]
                         image = image_transformer.transformers[-1].deprocess(xlevel)
-                    axarr[row, i].imshow(cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2RGB))
+                    axarr[row, i].imshow(cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2RGB), interpolation='none')
                 else:
                     axarr[row, i].imshow(utils.vis_square(xlevel,
-                                                         data_min=xlevels_min[i],
-                                                         data_max=xlevels_max[i]))
+                                                          data_min=xlevels_min[i],
+                                                          data_max=xlevels_max[i]),
+                                         interpolation='none')
                 axarr[row, i].set_title(name)
                 if i != 0 and not is_w_ones:
-                    axarr[row+1, i].imshow(utils.vis_square(xlevel * w[:xlevel.size].reshape(xlevel.shape),
-                                                           data_min=xlevels_min[i],
-                                                           data_max=xlevels_max[i]))
-                    w = w[xlevel.size:]
+                    wlevel = w[w_start:w_start+xlevel.size].reshape(xlevel.shape)
+                    w_start += xlevel.size
+                    if i in (0, 1):
+                        if i == 0 and not preprocessed:
+                            image = wlevel * xlevel
+                        else:
+                            image_transformer = self.transformers[0]
+                            image = image_transformer.transformers[-1].deprocess(wlevel * xlevel)
+                        axarr[row+1, i].imshow(cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2RGB), interpolation='none')
+                    else:
+                        axarr[row+1, i].imshow(utils.vis_square(wlevel * xlevel,
+                                                                data_min=xlevels_min[i],
+                                                                data_max=xlevels_max[i]),
+                                               interpolation='none')
             row += (1 if is_w_ones else 2)
         plt.draw()
 
