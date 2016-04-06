@@ -22,8 +22,8 @@ class ScaleOffsetTransposeTransformer(Transformer):
         """
         Scales and offset the numerical values of the input data.
         """
-        self.scale = scale
-        self.offset = offset
+        self.scale = np.asarray(scale) if scale is not None else None
+        self.offset = np.asarray(offset) if offset is not None else None
         self.transpose = transpose
         self._data_dtype = None
 
@@ -35,10 +35,12 @@ class ScaleOffsetTransposeTransformer(Transformer):
         return data
 
     def deprocess(self, data):
-        data = ((data - self.offset) * (1.0 / self.scale)).astype(self._data_dtype)
         if self.transpose:
             data = np.transpose(data, self.transpose_inv)
-        return data
+        data = (data - self.offset) * (1.0 / self.scale)
+        if self._data_dtype == np.uint8:
+            np.clip(data, 0, 255, out=data)
+        return data.astype(self._data_dtype)
 
     def preprocess_shape(self, shape):
         if self.transpose:
