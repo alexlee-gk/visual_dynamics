@@ -1,4 +1,5 @@
 import numpy as np
+import utils
 
 class Controller(object):
     def step(self, obs):
@@ -23,19 +24,20 @@ class RandomController(Controller):
 class ServoingController(Controller):
     def __init__(self, feature_predictor, alpha=1.0, vel_max=None, lambda_=0.0, w=None):
         self.predictor = feature_predictor
+        self.vel_transformer = self.predictor.transformers[1] if (len(feature_predictor.transformers) > 1) else utils.transformer.Transformer()
         self.alpha = alpha
-        self.vel_max = vel_max
+        self.vel_max = vel_max  # vel_max is in non-preprocessed units
         self.lambda_ = lambda_
         self.w = w
         self._image_target = None
         self._y_target = None
-        self.u_prev = np.zeros(self.predictor.u_shape)
+        self.u_prev = np.zeros(self.predictor.input_shapes[1])  # u_prev is in non-preprocessed units
 
     def step(self, image):
         if self.image_target is not None:
             x = image
             # use model to optimize for action
-            J, y = self.predictor.jacobian_control(x, self.u_prev)
+            J, y = self.predictor.feature_jacobian(x, self.u_prev)
             if self.w is not None:
                 JW = J * self.w[:, None]
             else:
@@ -43,13 +45,17 @@ class ServoingController(Controller):
             try:
                 u = self.alpha * np.linalg.solve(JW.T.dot(J) + self.lambda_*np.eye(J.shape[1]), JW.T.dot(self.y_target - y))
             except np.linalg.LinAlgError:
-                u = np.zeros(self.predictor.u_shape)
+                u = None
         else:
-            u = np.zeros(self.predictor.u_shape)
+            u = None
 
+        if u is None:
+            u = np.zeros(self.predictor.input_shapes[1])
+        else:
+            u = self.vel_transformer.deprocess(u)
         if self.vel_max is not None:
             u = np.clip(u, -self.vel_max, self.vel_max)
-        self.u_prev = u
+        self.u_prev = u.copy()
         return u
 
     @property
@@ -59,7 +65,7 @@ class ServoingController(Controller):
     @image_target.setter
     def image_target(self, image):
         self._image_target = image.copy()
-        self._y_target = self.predictor.feature_from_input(self._image_target )
+        self._y_target = self.predictor.feature(self._image_target )
 
     @property
     def y_target(self):
@@ -106,8 +112,8 @@ class SpecializedServoingController(ServoingController):
                     w = w[xlevel.shape[0]:]
             w = np.concatenate(w_new)
         else:
-            Y_train = np.r_[feature_predictor.feature_from_input(pos_image_targets),
-                            feature_predictor.feature_from_input(neg_image_targets)]
+            Y_train = np.r_[feature_predictor.feature(pos_image_targets),
+                            feature_predictor.feature(neg_image_targets)]
             xlevels = feature_predictor.features_from_input(pos_image_targets[0])
             if 'x0' in xlevels and len(xlevels) > 1:
                 image_dim = np.prod(pos_image_targets.shape[1:])
