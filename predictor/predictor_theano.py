@@ -227,13 +227,42 @@ class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
             feature_name=feature_name, next_feature_name=next_feature_name,
             feature_jacobian_name=feature_jacobian_name, control_name=control_name)
 
+    def feature_jacobian(self, X, U, preprocessed=False):
+        batch_size = self.batch_size(X, U, preprocessed=preprocessed)
+        if not preprocessed:
+            X, U = self.preprocess(X, U)
+        if batch_size == 0:
+            X, U = [input_[None, :] for input_ in (X, U)]
+        feature_names = [self.feature_name] if isinstance(self.feature_name, str) else self.feature_name
+        next_feature_names = [self.next_feature_name] if isinstance(self.next_feature_name, str) else self.next_feature_name
+        features = self.predict(feature_names, X, preprocessed=True)
+        jaclevels = []
+        for feature, feature_name, next_feature_name in zip(features, feature_names, next_feature_names):
+            feature_layer = self.pred_layers[feature_name]
+            next_feature_layer = self.pred_layers[next_feature_name]
+            if isinstance(next_feature_layer, lasagne.layers.ElemwiseMergeLayer) and \
+                            len(next_feature_layer.input_layers) == 2 and \
+                            next_feature_layer.input_layers[0] == feature_layer and \
+                            isinstance(next_feature_layer.input_layers[1], layers_theano.BilinearLayer):
+                bilinear_layer = next_feature_layer.input_layers[1]
+                jaclevel = next_feature_layer.coeffs[1] * bilinear_layer.get_output_jacobian_for([feature, U])
+            else:
+                jaclevel = self.jacobian(next_feature_name, self.control_name, X, U, preprocessed=True)
+            jaclevels.append(jaclevel)
+        jac = np.concatenate(jaclevels, axis=1)
+        y = np.concatenate([feature.reshape((feature.shape[0], -1)) for feature in features], axis=1)
+        if batch_size == 0:
+            jac = np.squeeze(jac, axis=0)
+            y = np.squeeze(y, axis=0)
+        return jac, y
+
     def get_config(self, model_fname=None):
         config = {**TheanoNetPredictor.get_config(self, model_fname=model_fname),
                   **predictor.FeaturePredictor.get_config(self)}
         return config
 
 
-class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.HierarchicalFeaturePredictor):
+class TheanoNetHierarchicalFeaturePredictor(TheanoNetFeaturePredictor, predictor.HierarchicalFeaturePredictor):
     def __init__(self, build_net, input_shapes, input_names=None, transformers=None, name=None, pretrained_fname=None,
                  feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None,
                  levels=None, map_names=None, next_map_names=None, **kwargs):
@@ -250,6 +279,114 @@ class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.Hierar
         config = {**TheanoNetPredictor.get_config(self, model_fname=model_fname),
                   **predictor.HierarchicalFeaturePredictor.get_config(self)}
         return config
+
+
+# class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
+#     pass
+#
+# class TheanoNetHierarchicalFeaturePredictor(TheanoNetPredictor, predictor.HierarchicalFeaturePredictor):
+#     pass
+#
+#     def _jacobian_control(self, *inputs, use_theano=False):
+#         """
+#         Inputs must be batched
+#         """
+#         X = inputs[0]
+#         assert X.shape[1:] == self.x_shape
+#         if use_theano:
+#             xlevels = self.response_maps_from_input(X)
+#             jac = self._theano_jacobian(self.pred_vars['y_diff_pred'], self.U_var, *inputs)
+#         else:
+#             jaclevels, xlevels = self.response_map_jacobians_from_input(*inputs)
+#             jac = np.concatenate(list(jaclevels.values()), axis=1)
+#         y = np.concatenate([xlevel.reshape(xlevel.shape[0], -1) for xlevel in xlevels.values()], axis=1)
+#         return jac, y
+#
+#     def jacobian_control(self, *inputs):
+#         inputs = [transformer.preprocess(input_) for input_, transformer in zip(inputs, self.transformers)]
+#         X = inputs[0]
+#         assert X.shape == self.x_shape or X.shape[1:] == self.x_shape
+#         is_batched = X.shape == self.x_shape
+#         inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
+#         if is_batched:
+#             inputs = [input_[None, ...] for input_ in inputs]
+#         jac, y = self._jacobian_control(*inputs)
+#         if is_batched:
+#             jac = np.squeeze(jac, 0)
+#             y = np.squeeze(y, 0)
+#         return jac, y
+#
+#     def get_levels(self):
+#         levels = []
+#         for key in self.pred_layers.keys():
+#             match = re.match('x(\d+)$', key)
+#             if match:
+#                 assert len(match.groups()) == 1
+#                 levels.append(int(match.group(1)))
+#         levels = sorted(levels)
+#         return levels
+#
+#     def get_bilinear_levels(self):
+#         levels = []
+#         for key in self.pred_layers.keys():
+#             match = re.match('x(\d+)_next_trans$', key)
+#             if match:
+#                 assert len(match.groups()) == 1
+#                 levels.append(int(match.group(1)))
+#         levels = sorted(levels)
+#         return levels
+#
+#     def response_maps_from_input(self, X):
+#         levels = self.get_levels()
+#         xlevels = OrderedDict()
+#         for level in levels:
+#             output_name = 'x%d'%level
+#             xlevels[output_name] = self.predict(X, prediction_name=output_name)
+#         return xlevels
+#
+#     def predict_response_maps_from_input(self, X, U):
+#         levels = self.get_levels()
+#         xlevels_next_pred = OrderedDict()
+#         for level in levels:
+#             output_name = 'x%d_next_pred'%level
+#             xlevels_next_pred[output_name] = self.predict(X, U, prediction_name=output_name)
+#         return xlevels_next_pred
+#
+#     def response_map_jacobians_from_input(self, X, U):
+#         xlevels_all = self.response_maps_from_input(X)
+#         jaclevels_next_pred = dict()
+#
+#         def response_map_jacobian(level):
+#             if 'x%d_next_pred'%level in jaclevels_next_pred:
+#                 jaclevel_next_pred = jaclevels_next_pred['x%d_next_pred'%level]
+#             else:
+#                 xlevel_next_pred_var = self.pred_vars['x%d_next_pred'%level]
+#                 xlevel_diff_trans_var = self.pred_vars.get('x%d_diff_trans'%level, None)
+#                 xlevelp1_next_pred_var = self.pred_vars.get('x%d_next_pred'%(level+1), None)
+#                 jaclevel_next_pred = 0
+#                 if xlevel_diff_trans_var:
+#                     xlevel_diff_trans_layer = self.pred_layers['x%d_diff_trans'%level]
+#                     jaclevel_diff_trans = xlevel_diff_trans_layer.get_output_jacobian_for([xlevels_all['x%d'%level], U])
+#                     if self.pred_vars['x%d_next_pred'%level] == self.pred_vars['x%d_next_trans'%level]:
+#                         jaclevel_next_pred += jaclevel_diff_trans
+#                     else:
+#                         jaclevel_next_pred += np.einsum('nik,nkj->nij',
+#                                                         self._theano_jacobian(xlevel_next_pred_var, xlevel_diff_trans_var, X, U),
+#                                                         jaclevel_diff_trans)
+#                 if xlevelp1_next_pred_var:
+#                     jaclevelp1_next_pred = response_map_jacobian(level+1)
+#                     jaclevel_next_pred += np.einsum('nik,nkj->nij',
+#                                                     self._theano_jacobian(xlevel_next_pred_var, xlevelp1_next_pred_var, X, U),
+#                                                     jaclevelp1_next_pred)
+#                 jaclevels_next_pred['x%d_next_pred'%level] = jaclevel_next_pred
+#             return jaclevel_next_pred
+#
+#         jaclevels = OrderedDict()
+#         xlevels = OrderedDict()
+#         for level in self.get_bilinear_levels():
+#             xlevels[level] = xlevels_all['x%d'%level]
+#             jaclevels['x%d_next_pred'%level] = response_map_jacobian(level)
+#         return jaclevels, xlevels
 
 
 class FcnActionCondEncoderOnlyTheanoNetFeaturePredictor(TheanoNetFeaturePredictor):
