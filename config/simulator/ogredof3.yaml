@@ -1,0 +1,7 @@
+class: !!python/name:simulator.OgreSimulator ''
+dof_limits: [[18.0, 2.0, -14.0], [24.0, 6.0, -2.0]]
+dof_vel_limits: [[-0.4, -0.4, -0.4], [0.4, 0.4, 0.4]]
+background_color: [0.0, 0.0, 0.0]
+ogrehead: false
+random_background_color: false
+random_ogrehead: 0

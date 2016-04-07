@@ -1,0 +1,22 @@
+class: !!python/name:predictor.solver.TheanoNetSolver ''
+batch_size: 32
+test_iter: 10
+solver_type: ADAM
+test_interval: 1000
+base_lr: 0.001
+gamma: 1.0
+stepsize: 1000
+display: 20
+max_iter: 10000
+momentum: 0.9
+momentum2: 0.999
+weight_decay: 0.0005
+snapshot_interval: 1000
+snapshot_prefix: 'gamma1.0_losslevels012'
+average_loss: 10
+loss_interval: 100
+plot_interval: 0
+
+train_data_fnames: ['data/ogredof3_train_data']
+val_data_fname: 'data/ogredof3_val_data'
+output_names: [[x0_next_pred, [x0, 1]], [x1_next_pred, [x1, 1]], [x2_next_pred, [x2, 1]]]

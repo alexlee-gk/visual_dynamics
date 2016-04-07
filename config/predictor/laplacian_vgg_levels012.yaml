@@ -1,10 +1,15 @@
 class: !!python/name:predictor.predictor_theano.TheanoNetHierarchicalFeaturePredictor ''
-build_net: !!python/name:predictor.net_theano.build_laplacian_fcn_action_cond_encoder_net ''
-levels: [1]
-loss_levels: [0]
-x1_c_dim: 32
+build_net: !!python/name:predictor.net_theano.build_laplacian_vgg_action_cond_encoder_net ''
+levels: [0, 1, 2]
+x1_c_dim: 64
 bilinear_type: share
-batch_norm: true
+feature_name: [x0_res, x1_res, x2_res]
+next_feature_name: [x0_next_pred_res, x1_next_pred_res, x2_next_pred_res]
+feature_jacobian_name: [x0_diff_pred, x1_diff_pred, x2_diff_pred]
+next_map_names: [x0_next_pred, x1_next_pred, x2_next_pred]
+map_names: [x0, x1, x2]
+pretrained_fname: models/theano/vgg/vgg_model.pkl
+name: laplacian_vgg_levels012
 
 transformers:
 - class: !!python/name:utils.transformer.CompositionTransformer ''
@@ -14,8 +19,8 @@ transformers:
     crop_size: [32, 32]
     crop_offset: [0, 0]
   - class: !!python/name:utils.transformer.ScaleOffsetTransposeTransformer ''
-    offset: null
-    scale: null
+    offset: [-0.81520784, -0.91591373, -0.97003922]
+    scale: 0.00784313725490196
     transpose: null
 - class: !!python/name:utils.transformer.ScaleOffsetTransposeTransformer ''
   scale: null
