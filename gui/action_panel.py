@@ -10,7 +10,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
 
-from gps.gui.config import config
+from gui.config import config
 
 import logging
 LOGGER = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class ActionPanel:
         
         # Read keyboard_bindings and ps3_bindings from config
         self._actions = {action.key: action for action in actions_arr}
-        for key, action in self._actions.iteritems():
+        for key, action in self._actions.items():
             if key in config['keyboard_bindings']:
                 action.kb = config['keyboard_bindings'][key]
             if key in config['ps3_bindings']:
@@ -75,7 +75,7 @@ class ActionPanel:
 
     def _initialize_buttons(self):
         self._buttons = {}
-        for key, action in self._actions.iteritems():
+        for key, action in self._actions.items():
             if action.axis_pos is None:
                 continue
             
@@ -90,10 +90,19 @@ class ActionPanel:
     def on_key_press(self, event):
         if event.key in config['inverted_keyboard_bindings']:
             key = config['inverted_keyboard_bindings'][event.key]
-            if key in self._actions:
-                self._actions[key].func()
+        else:
+            key = event.key
+        print(event.key, key)
+        if key in self._actions:
+            self._actions[key].func()
         else:
             LOGGER.debug('Unrecognized keyboard input: %s', str(event.key))
+        # if event.key in config['inverted_keyboard_bindings']:
+        #     key = config['inverted_keyboard_bindings'][event.key]
+        #     if key in self._actions:
+        #         self._actions[key].func()
+        # else:
+        #     LOGGER.debug('Unrecognized keyboard input: %s', str(event.key))
 
     def ps3_callback(self, joy_msg):
         self._ps3_count += 1

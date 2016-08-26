@@ -72,5 +72,5 @@ class Textbox:
 
         self._ax.draw_artist(self._ax.patch)
         self._ax.draw_artist(self._text_box)
-        self._fig.canvas.update()
+        self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend

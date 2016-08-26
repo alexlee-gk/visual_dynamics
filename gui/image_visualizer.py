@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-from gps.gui.action_panel import Action, ActionPanel
+from gui.action_panel import Action, ActionPanel
 
 import logging
 LOGGER = logging.getLogger(__name__)
@@ -72,9 +72,9 @@ class ImageVisualizer(object):
 
         self._ax_image = plt.subplot(self._gs_image_axis)
         self._ax_image.set_axis_off()
-        self._plot = self._ax_image.imshow(self._default_image)
-        self._overlay_plot_initial = self._ax_image.imshow(self._default_image, alpha=self._default_alpha)
-        self._overlay_plot_target  = self._ax_image.imshow(self._default_image, alpha=self._default_alpha)
+        self._plot = self._ax_image.imshow(self._default_image, interpolation='none', aspect='equal')
+        self._overlay_plot_initial = None
+        self._overlay_plot_target = None
 
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend
@@ -95,7 +95,12 @@ class ImageVisualizer(object):
             image = image[(h/2-ch/2):(h/2-ch/2+ch), (w/2-cw/2):(w/2-cw/2+cw), :]
 
         self._current_image = image
-        self._plot.set_array(image)
+        self._plot.set_data(image)
+        # update extent if the shape of the image has been changed
+        extent = self._plot.get_extent()
+        if (abs(extent[3] - extent[2]), abs(extent[1] - extent[0])) != self._plot.get_size():
+            self._plot._extent = None
+            self._plot.set_extent(self._plot.get_extent())
         self.draw()
 
     def update_ros(self, image_msg):
@@ -132,8 +137,11 @@ class ImageVisualizer(object):
             alpha = self._initial_alpha
         else:
             alpha = self._default_alpha
-        self._overlay_plot_initial.set_array(image)
-        self._overlay_plot_initial.set_alpha(alpha)
+        if self._overlay_plot_initial is None:
+            self._overlay_plot_initial = self._ax_image.imshow(image, alpha=alpha)
+        else:
+            self._overlay_plot_initial.set_array(image)
+            self._overlay_plot_initial.set_alpha(alpha)
         self.draw()
 
     def toggle_target_image_overlay(self, event=None):
@@ -146,14 +154,19 @@ class ImageVisualizer(object):
             alpha = self._target_alpha
         else:
             alpha = self._default_alpha
-        self._overlay_plot_target.set_array(image)
-        self._overlay_plot_target.set_alpha(alpha)
+        if self._overlay_plot_target is None:
+            self._overlay_plot_target = self._ax_image.imshow(image, alpha=alpha)
+        else:
+            self._overlay_plot_target.set_array(image)
+            self._overlay_plot_target.set_alpha(alpha)
         self.draw()
 
     def draw(self):
         self._ax_image.draw_artist(self._ax_image.patch)
         self._ax_image.draw_artist(self._plot)
-        self._ax_image.draw_artist(self._overlay_plot_initial)
-        self._ax_image.draw_artist(self._overlay_plot_target)
-        self._fig.canvas.update()
+        if self._overlay_plot_initial is not None:
+            self._ax_image.draw_artist(self._overlay_plot_initial)
+        if self._overlay_plot_target is not None:
+            self._ax_image.draw_artist(self._overlay_plot_target)
+        self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend

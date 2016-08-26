@@ -11,7 +11,7 @@ import numpy as np
 import matplotlib.pylab as plt
 import matplotlib.gridspec as gridspec
 
-from gps.gui.util import buffered_axis_limits
+from gui.util import buffered_axis_limits
 
 
 class MeanPlotter:
@@ -90,7 +90,7 @@ class MeanPlotter:
         for plot in self._plots:
             self._ax.draw_artist(plot)
         self._ax.draw_artist(self._plots_mean)
-        self._fig.canvas.update()
+        self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend
 
     def draw_ticklabels(self):
@@ -100,5 +100,5 @@ class MeanPlotter:
         """
         for item in self._ax.get_xticklabels() + self._ax.get_yticklabels():
             self._ax.draw_artist(item)
-        self._fig.canvas.update()
+        self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend

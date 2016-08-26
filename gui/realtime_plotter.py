@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pylab as plt
 import matplotlib.gridspec as gridspec
 
-from gps.gui.util import buffered_axis_limits
+from gui.util import buffered_axis_limits
 
 
 class RealtimePlotter(object):
@@ -85,5 +85,5 @@ class RealtimePlotter(object):
         self._ax.draw_artist(self._ax.patch)
         for plot in self._plots:
             self._ax.draw_artist(plot)
-        self._fig.canvas.update()
+        self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend
