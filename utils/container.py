@@ -5,7 +5,7 @@ import os
 import cv2
 import h5py
 import numpy as np
-import yaml
+import utils
 
 
 class DataContainer:
@@ -17,7 +17,7 @@ class DataContainer:
         info_fname = os.path.join(self.data_dir, 'info.yaml')
         self.info_file = open(info_fname, mode)
         try:
-            self.info_dict = yaml.load(self.info_file) or dict()  # store info entries here and dump it only when the container is closed
+            self.info_dict = utils.from_yaml(self.info_file) or dict()  # store info entries here and dump it only when the container is closed
         except io.UnsupportedOperation:  # file is probably empty
             self.info_dict = dict()
 
@@ -31,7 +31,7 @@ class DataContainer:
             try:
                 self.add_info(data_shapes=self.data_shapes_dict)
                 self.add_info(datum_shapes=self.datum_shapes_dict)
-                yaml.dump(self.info_dict, self.info_file, width=float('inf'))
+                utils.to_yaml(self.info_dict, self.info_file)
             except io.UnsupportedOperation:  # container is probably in read mode
                 pass
             self.info_file.close()
@@ -180,25 +180,30 @@ class DataContainer:
 
 class ImageDataContainer(DataContainer):
     def add_datum(self, *inds, **datum_dict):
-        other_dict = dict([item for item in datum_dict.items() if not item[0].startswith('image')])
+        other_dict = dict([item for item in datum_dict.items() if not item[0].endswith('image')])
         super(ImageDataContainer, self).add_datum(*inds, **other_dict)
-        image_dict = dict([item for item in datum_dict.items() if item[0].startswith('image')])
+        image_dict = dict([item for item in datum_dict.items() if item[0].endswith('image')])
         for image_name, image in image_dict.items():
             if image_name in self.datum_shapes_dict and self.datum_shapes_dict[image_name] != image.shape:
                 raise ValueError('unable to add datum %s with shape %s since the shape %s was expected' %
                                  (image_name, image.shape, self.datum_shapes_dict[image_name]))
             self.datum_shapes_dict[image_name] = image.shape
             image_fname = self._get_image_fname(*inds, name=image_name)
-            cv2.imwrite(image_fname, image)
+            if image.dtype == np.uint8:
+                if image.ndim == 3 and image.shape[2] == 3:
+                    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            else:
+                image = utils.pack_image(image)
+            cv2.imwrite(image_fname, image, [cv2.IMWRITE_JPEG_QUALITY, 100])
 
-    def _get_image_fname(self, *inds, name):
+    def _get_image_fname(self, *inds, name, ext='.jpg'):
         inds = self._get_canonical_inds(*inds, name=name)
         self._check_ind_range(*inds, name=name)
         shape = self.get_data_shape(name)
         image_fmt = '%s'
         for dim in shape:
             image_fmt += '_%0{:d}d'.format(len(str(dim-1)))
-        image_fmt += '.png'
+        image_fmt += ext
         image_fname = image_fmt % (name, *inds)
         image_fname = os.path.join(self.data_dir, image_fname)
         return image_fname
@@ -209,20 +214,25 @@ class ImageDataContainer(DataContainer):
             names = list([datum_names])
         else:
             names = list(datum_names)
-        other_names = [name for name in names if not name.startswith('image')]
+        other_names = [name for name in names if not name.endswith('image')]
         other_datum = super(ImageDataContainer, self).get_datum(*inds, other_names)
-        image_names = [name for name in names if name.startswith('image')]
+        image_names = [name for name in names if name.endswith('image')]
         image_datum = []
         for image_name in image_names:
             image_fname = self._get_image_fname(*inds, name=image_name)
             if not os.path.isfile(image_fname):
                 raise FileNotFoundError('image file %s does not exist' % image_fname)
             image = cv2.imread(image_fname)
+            if not image_name.endswith('depth_image'):
+                if image.ndim == 3 and image.shape[2] == 3:
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            else:
+                image = utils.unpack_image(image)
             image_datum.append(image)
         # reorder items to follow the order of datum_names
         datum = []
         for datum_name in names:
-            if datum_name.startswith('image'):
+            if 'image' in datum_name:
                 datum.append(image_datum.pop(0))
             else:
                 datum.append(other_datum.pop(0))

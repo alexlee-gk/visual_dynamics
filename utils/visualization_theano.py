@@ -17,7 +17,7 @@ Examples:
         return Image(dot.create_png())
 """
 
-import pydot
+import pydotplus as pydot
 
 
 def get_hex_color(layer_type):

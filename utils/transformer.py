@@ -17,19 +17,26 @@ class Transformer(utils.config.ConfigObject):
         return shape
 
 
-class ScaleOffsetTransposeTransformer(Transformer):
-    def __init__(self, scale=1.0, offset=0.0, transpose=None):
+class OpsTransformer(Transformer):
+    def __init__(self, scale=1.0, offset=0.0, exponent=1.0, transpose=None):
         """
         Scales and offset the numerical values of the input data.
         """
         self.scale = np.asarray(scale) if scale is not None else None
         self.offset = np.asarray(offset) if offset is not None else None
+        self.exponent = np.asarray(exponent) if exponent is not None else None
         self.transpose = transpose
         self._data_dtype = None
 
     def preprocess(self, data):
         self._data_dtype = data.dtype
-        data = self.scale * data + self.offset
+        # TODO
+        if data.shape == (6,) and (self.scale.shape == (4,) or self.offset.shape == (4,)):
+            data = np.append(self.scale[:3] * data[:3] + self.offset[:3], self.scale[3] * data[3:] + self.offset[3])
+        else:
+            data = self.scale * data + self.offset
+        if self.exponent != 1.0:
+            data = np.power(data, self.exponent)
         if self.transpose:
             data = np.transpose(data, self.transpose)
         return data
@@ -37,7 +44,14 @@ class ScaleOffsetTransposeTransformer(Transformer):
     def deprocess(self, data):
         if self.transpose:
             data = np.transpose(data, self.transpose_inv)
-        data = (data - self.offset) * (1.0 / self.scale)
+        # TODO
+        if self.exponent != 1.0:
+            data = np.power(data, 1.0 / self.exponent)
+        if data.shape == (6,) and (self.scale.shape == (4,) or self.offset.shape == (4,)):
+            data = np.append((data[:3] - self.offset[:3]) * (1.0 / self.scale[:3]),
+                             (data[3:] - self.offset[3]) * (1.0 / self.scale[3]))
+        else:
+            data = (data - self.offset) * (1.0 / self.scale)
         if self._data_dtype == np.uint8:
             np.clip(data, 0, 255, out=data)
         return data.astype(self._data_dtype)
@@ -59,14 +73,13 @@ class ScaleOffsetTransposeTransformer(Transformer):
         axis, transpose_inv = zip(*axis_transpose_inv)
         return transpose_inv
 
-    def get_config(self):
-        config = {'class': self.__class__,
-                  'scale': self.scale,
-                  'offset': self.offset,
-                  'transpose': self.transpose}
-        for k, v in config.items():
-            if isinstance(v, np.ndarray):
-                config[k] = v.tolist()
+    def _get_config(self):
+        config = super(OpsTransformer, self)._get_config()
+        config.update({'scale': self.scale,
+                       'exponent': self.exponent,
+                       'offset': self.offset,
+                       'transpose': self.transpose})
+        self.convert_array_tolist(config)
         return config
 
 
@@ -89,10 +102,10 @@ class ImageTransformer(Transformer):
                 raise ValueError('crop height %d is larger than image height %d (after scaling)' % (crop_h, h))
             if crop_w > w:
                 raise ValueError('crop width %d is larger than image width %d (after scaling)' % (crop_w, w))
-            crop_origin = image_shape/2
+            crop_origin = image_shape // 2
             if self.crop_offset is not None:
                 crop_origin += self.crop_offset
-            crop_corner = crop_origin - self.crop_size/2
+            crop_corner = crop_origin - self.crop_size // 2
             if not (np.all(np.zeros(2) <= crop_corner) and np.all(crop_corner + self.crop_size <= image_shape)):
                 raise IndexError('crop indices out of range')
             image = image[crop_corner[0]:crop_corner[0] + crop_h,
@@ -111,14 +124,72 @@ class ImageTransformer(Transformer):
                 shape = tuple([*self.crop_size, shape[-1]])
         return shape
 
-    def get_config(self):
-        config = {'class': self.__class__,
-                  'scale_size': self.scale_size,
-                  'crop_size': self.crop_size,
-                  'crop_offset': self.crop_offset}
-        for k, v in config.items():
-            if isinstance(v, np.ndarray):
-                config[k] = v.tolist()
+    def _get_config(self):
+        config = super(ImageTransformer, self)._get_config()
+        config.update({'scale_size': self.scale_size,
+                       'crop_size': self.crop_size,
+                       'crop_offset': self.crop_offset})
+        self.convert_array_tolist(config)
+        return config
+
+
+class NormalizerTransformer(OpsTransformer):
+    """
+    Normalizes the data to be between -1 and 1.
+    """
+    def __init__(self, space=None, transpose=None):
+        self._space = None
+        self.space = space
+        self.transpose = transpose
+
+    @property
+    def space(self):
+        return self._space
+
+    @space.setter
+    def space(self, space):
+        self._space = space
+        if space is not None:
+            self.scale = 2.0 / (space.high - space.low)
+            self.offset = -self.scale * (space.low + space.high) / 2.0
+            self.exponent = 1.0
+        else:
+            self.scale = 1.0
+            self.offset = 0.0
+            self.exponent = 1.0
+
+    def _get_config(self):
+        config = Transformer._get_config(self)  # do not get scale, offset and exponent
+        config.update({'space': self.space,
+                       'transpose': self.transpose})
+        return config
+
+
+class DepthImageTransformer(OpsTransformer):
+    def __init__(self, space=None, transpose=None):
+        self._space = None
+        self.space = space
+        self.transpose = transpose
+
+    @property
+    def space(self):
+        return self._space
+
+    @space.setter
+    def space(self, space):
+        self._space = space
+        if space is not None:
+            self.scale = 1.0 / space.high
+            self.offset = 0.0
+            self.exponent = -1.0
+        else:
+            self.scale = 1.0
+            self.offset = 0.0
+            self.exponent = 1.0
+
+    def _get_config(self):
+        config = Transformer._get_config(self)  # do not get scale, offset and exponent
+        config.update({'space': self.space})
         return config
 
 
@@ -146,20 +217,26 @@ class CompositionTransformer(Transformer):
             shape = transformer.deprocess_shape(shape)
         return shape
 
-    def get_config(self):
-        config = {'class': self.__class__,
-                  'transformers': [transformer.get_config() for transformer in self.transformers]}
+    def _get_config(self):
+        config = super(CompositionTransformer, self)._get_config()
+        config.update({'transformers': self.transformers})
         return config
 
-    @classmethod
-    def from_config(cls, config):
-        transformers = [utils.config.from_config(transformer_config) for transformer_config in config.get('transformers', [])]
-        return cls(transformers)
+
+def get_all_transformers(transformer):
+    """
+    Return all transformers contained in this transformer (including this one).
+    """
+    transformers = [transformer]
+    if isinstance(transformer, utils.transformer.CompositionTransformer):
+        for nested_transformer in transformer.transformers:
+            transformers.extend(get_all_transformers(nested_transformer))
+    return transformers
 
 
 def main():
     transformers = []
-    transformers.append(ScaleOffsetTransposeTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1)))
+    transformers.append(OpsTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1)))
     transformers.append(ImageTransformer(scale_size=0.125, crop_size=[32, 32], crop_offset=[0, 0]))
     transformers.append(CompositionTransformer(transformers.copy()))
 

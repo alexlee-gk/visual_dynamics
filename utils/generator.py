@@ -7,7 +7,7 @@ import numpy as np
 import utils
 
 
-# copied from Keras library: https://github.com/fchollet/keras/blob/master/keras/models.py
+# generator_queue copied from Keras library: https://github.com/fchollet/keras/blob/master/keras/models.py
 def generator_queue(generator, max_q_size=10, wait_time=0.05, nb_worker=1):
     q = queue.Queue()
     _stop = threading.Event()
@@ -44,7 +44,7 @@ class ParallelGenerator:
         self.wait_time = wait_time
         self.data_gen_queue, self._data_stop, self.generator_threads = \
             generator_queue(generator, max_q_size=max_q_size, wait_time=wait_time, nb_worker=nb_worker)
-        self._size = generator.size()
+        self._size = generator.size
 
     def __iter__(self):
         return self
@@ -62,55 +62,107 @@ class ParallelGenerator:
         for thread in self.generator_threads:
             thread.join()
 
+    @property
     def size(self):
         return self._size
 
 
-class ImageVelDataGenerator:
-    def __init__(self, *container_fnames, data_names, transformers=None, once=False, batch_size=0, shuffle=False, dtype=None):
+class DataGenerator:
+    def __init__(self, *container_fnames, data_name_offset_pairs, transformers=None, once=False, batch_size=0, shuffle=False, dtype=None):
         """
-        Iterate through all the data once or indefinitely. The data from contiguous files
-        are treated as if they are contiguous. All of the returned minibatches
-        contain batch_size data points. If shuffle=True, the data is iterated in a
-        random order, and this order differs for each pass of the data.
-        Note: this is not as efficient as it could be when shuffle=False since each
-        data point is retrieved one by one regardless of the value of shuffle.
-        A batch_size of 0 denotes to return data of batch size 1 but with the leading singleton dimensioned squeezed.
+        Iterate through all the data once or indefinitely. The data from
+        contiguous files are treated as if they are contiguous. All of the
+        returned minibatches contain batch_size data points. If shuffle=True,
+        the data is iterated in a random order, and this order differs for each
+        pass of the data.
+
+        Note: this is not as efficient as it could be when shuffle=False since
+        each data point is retrieved one by one regardless of the value of
+        shuffle.
+
+        A batch_size of 0 denotes to return data of batch size 1 but with the
+        leading singleton dimensioned squeezed.
         """
         self._container_fnames = [os.path.abspath(fname) for fname in container_fnames]
-        self._image_name, self._vel_name = data_names
-        self.transformers_dict = dict(zip(data_names, transformers or []))
+        self._data_name_offset_pairs = data_name_offset_pairs
+        self.transformers_dict = transformers or dict()
         self.once = once
-        if batch_size == 0:
-            self.batch_size = 1
-            self.squeeze = True
-        else:
-            self.batch_size = batch_size
-            self.squeeze = False
+        self.batch_size = batch_size
         self.shuffle = shuffle
         self.dtype = dtype
         self._lock = threading.Lock()
+
+        offset_limits = dict()
+        for data_name, offset in data_name_offset_pairs:
+            offset_min, offset_max = offset_limits.get(data_name, (np.inf, -np.inf))
+            if isinstance(offset, int):
+                offset_min = min(offset, offset_min)
+                offset_max = max(offset, offset_max)
+            elif isinstance(offset, slice):
+                assert offset.start < offset.stop
+                offset_min = min(offset.start, offset_min)
+                offset_max = max(offset.stop, offset_max)
+            elif isinstance(offset, (tuple, list)):
+                offset_min = min(*offset, offset_min)
+                offset_max = max(*offset, offset_max)
+            else:
+                raise ValueError("offset should be int, slice, tuple or list, but %s was given" % offset)
+            offset_limits[data_name] = (offset_min, offset_max)
+        # shift the offsets so that the minimum of all is zero
+        offset_all_min = min([offset_min for (offset_min, offset_max) in offset_limits.values()])
+        for data_name, (offset_min, offset_max) in offset_limits.items():
+            offset_limits[data_name] = (offset_min - offset_all_min,
+                                        offset_max - offset_all_min)
         with contextlib.ExitStack() as stack:
             containers = [stack.enter_context(utils.container.ImageDataContainer(fname)) for fname in self._container_fnames]
+            num_steps_per_traj = []
+            num_steps_per_container = []
+            num_trajs_per_container = []
             for container in containers:
-                image_shape = container.get_data_shape(self._image_name)
-                vel_shape = container.get_data_shape(self._vel_name)
-                assert image_shape[:-1] == vel_shape[:-1]
-                assert image_shape[-1] == (vel_shape[-1] + 1)
-            data_sizes = [container.get_data_size(self._vel_name) for container in containers]  # use sizes of vel
-            self._all_data_size = sum(data_sizes)
-            self._data_sizes_cs = np.r_[0, np.cumsum(data_sizes)]
+                data_name_to_data_sizes = {}
+                for data_name, (offset_min, offset_max) in offset_limits.items():
+                    num_trajs, num_steps = container.get_data_shape(data_name)
+                    data_name_to_data_sizes[data_name] = np.array([num_steps - offset_max] * num_trajs)
+                data_sizes = np.array(list(data_name_to_data_sizes.values())).min(axis=0)
+                num_steps_per_traj.extend(data_sizes)
+                num_steps_per_container.append(data_sizes.sum())
+                num_trajs_per_container.append(len(data_sizes))
+        self._num_steps_per_traj = num_steps_per_traj
+        self._num_steps_per_container = num_steps_per_container
+        self._num_trajs_per_container = num_trajs_per_container
+        self._num_steps_per_traj_cs = np.r_[0, np.cumsum(num_steps_per_traj)]
+        self._num_steps_per_container_cs = np.r_[0, np.cumsum(num_steps_per_container)]
+        self._num_trajs_per_container_cs = np.r_[0, np.cumsum(num_trajs_per_container)]
+        assert self._num_steps_per_traj_cs[-1] == self._num_steps_per_container_cs[-1]
         self._excerpt_generator = self._get_excerpt_generator()
 
-    def _get_datum(self, containers, all_ind, data_name, offset=0):  # pass in containers to prevent from opening every time this function is called
-        local_ind = all_ind - self._data_sizes_cs
-        container_ind = np.asscalar(np.where(local_ind >= 0)[0][-1])  # get index of last non-negative entry
-        local_ind = local_ind[container_ind]
-        local_inds = containers[container_ind]._get_datum_inds(local_ind, self._vel_name)  # use local_inds wrt vel indices
-        if offset != 0:
-            local_inds = list(local_inds)
-            local_inds[-1] += offset
-        return containers[container_ind].get_datum(*local_inds, data_name)
+    @property
+    def batch_size(self):
+        if self._batch_size == 1 and self._squeeze:
+            batch_size = 0
+        else:
+            batch_size = self._batch_size
+        return batch_size
+
+    @batch_size.setter
+    def batch_size(self, batch_size):
+        if batch_size == 0:
+            self._batch_size = 1
+            self._squeeze = True
+        else:
+            self._batch_size = batch_size
+            self._squeeze = False
+
+    @property
+    def squeeze(self):
+        return self._squeeze
+
+    def _get_local_inds(self, all_ind):
+        container_ind = np.searchsorted(self._num_steps_per_container_cs[1:], all_ind, side='right')
+        all_traj_iter = np.searchsorted(self._num_steps_per_traj_cs[1:], all_ind, side='right')
+        step_iter = all_ind - self._num_steps_per_traj_cs[all_traj_iter]
+        traj_iter = all_traj_iter - self._num_trajs_per_container_cs[container_ind]
+        return container_ind, traj_iter, step_iter
 
     def _get_excerpt_generator(self):
         indices = []
@@ -118,9 +170,9 @@ class ImageVelDataGenerator:
         while True:
             if len(indices) < self.batch_size and continue_extending:
                 if self.shuffle:
-                    new_indices = np.random.permutation(self._all_data_size)
+                    new_indices = np.random.permutation(self.size)
                 else:
-                    new_indices = np.arange(self._all_data_size)
+                    new_indices = np.arange(self.size)
                 indices.extend(new_indices)
                 if self.once:
                     continue_extending = False
@@ -139,12 +191,23 @@ class ImageVelDataGenerator:
             if len(excerpt) == 0:
                 raise StopIteration
             batch_data = []
-            for data_name, offset in [(self._image_name, 0), (self._vel_name, 0), (self._image_name, 1)]:
-                transformer = self.transformers_dict.get(data_name, None) or utils.transformer.Transformer()
+            for data_name, offset in self._data_name_offset_pairs:
+                transformer = self.transformers_dict.get(data_name, utils.transformer.Transformer())
                 datum = None  # initialize later to use dtype of first single_datum
                 for i, all_ind in enumerate(excerpt):
-                    single_datum = self._get_datum(containers, all_ind, data_name, offset=offset)
-                    single_datum = np.asarray(transformer.preprocess(single_datum), dtype=self.dtype)
+                    container_ind, traj_iter, step_iter = self._get_local_inds(all_ind)
+                    if isinstance(offset, int):
+                        offsets = [offset]
+                    elif isinstance(offset, slice):
+                        offsets = np.arange(offset.start, offset.stop, offset.step)
+                    single_datum_list = []
+                    for int_offset in offsets:
+                        single_datum = containers[container_ind].get_datum(traj_iter, step_iter + int_offset, data_name)
+                        single_datum = np.asarray(transformer.preprocess(single_datum), dtype=self.dtype)
+                        single_datum_list.append(single_datum)
+                    single_datum = np.asarray(single_datum_list)
+                    if isinstance(offset, int):
+                        single_datum = np.squeeze(single_datum, axis=0)
                     if datum is None:
                         datum = np.empty((len(excerpt), *single_datum.shape), dtype=single_datum.dtype)
                     datum[i, ...] = single_datum
@@ -153,8 +216,12 @@ class ImageVelDataGenerator:
                 batch_data = [np.squeeze(datum, axis=0) for datum in batch_data]
             return tuple(batch_data)
 
+    @property
     def size(self):
-        return self._all_data_size
+        """
+        Possible number of data points that can be returned (accounting for offsets).
+        """
+        return self._num_steps_per_traj_cs[-1]
 
 
 def main():
@@ -165,10 +232,15 @@ def main():
 
     image_transformer = utils.transformer.CompositionTransformer(
         [utils.transformer.ImageTransformer(scale_size=0.125, crop_size=(32, 32)),
-         utils.transformer.ScaleOffsetTransposeTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1))])
-    vel_transformer = utils.transformer.ScaleOffsetTransposeTransformer(scale=0.1)
-    transformers = [image_transformer, vel_transformer]
-    generator = ImageVelDataGenerator(*args.container_fname, data_names=['image', 'vel'], transformers=transformers, batch_size=32, shuffle=True, once=True)
+         utils.transformer.OpsTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1))])
+    action_transformer = utils.transformer.OpsTransformer(scale=0.1)
+    transformers = {'image': image_transformer, 'action': action_transformer}
+
+    data_name_offset_pairs = [('image', 0), ('action', 0), ('image', 1)]
+    generator = DataGenerator(*args.container_fname,
+                              data_name_offset_pairs=data_name_offset_pairs,
+                              transformers=transformers,
+                              batch_size=32, shuffle=True, once=True)
     generator = ParallelGenerator(generator, nb_worker=4)
     time.sleep(1.0)
     start_time = time.time()
