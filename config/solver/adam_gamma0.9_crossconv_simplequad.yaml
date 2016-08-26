@@ -1,4 +1,4 @@
-class: !!python/name:predictor.solver.TheanoNetSolver ''
+__class__: !!python/name:predictor.solver.TheanoNetSolver ''
 batch_size: 32
 test_iter: 10
 solver_type: ADAM
@@ -12,15 +12,13 @@ momentum: 0.9
 momentum2: 0.999
 weight_decay: 0.0005
 snapshot_interval: 1000
-snapshot_prefix: 'gamma0.9'
+snapshot_prefix: 'gamma0.9_crossconv_simplequad'
 average_loss: 10
-loss_interval: 100
-plot_interval: 1000
+loss_interval: 200
+plot_interval: 200
 
-data_names: ['car_image', 'action']
+data_names: ['image', 'action']
 
-#train_data_fnames: ['data/ogredof3_train_data']
-#val_data_fname: 'data/ogredof3_val_data'
 train_data_fnames: ['data/simplequad_train_data']
 val_data_fname: 'data/simplequad_val_data'
-output_names: [[x0_next_pred, [x0, 1]]]
+output_names: [[x_next_pred, [x2, 1]]]

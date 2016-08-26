@@ -1,0 +1,27 @@
+class: !!python/name:envs.object_ogre_env.ObjectOgreEnv ''
+action_space:
+  class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+  low: [-0, -0, -0, -0.7853981633974483]
+  high: [0, 0, 0, 0.7853981633974483]
+  dtype: float64
+observation_space:
+  class: !!python/name:spaces.tuple_space.Tuple ''
+  spaces:
+  - class: !!python/name:spaces.box_space.BoxSpace ''
+    low: 0
+    high: 255
+    shape: !!python/tuple [480, 640]
+    dtype: uint8
+  - class: !!python/name:spaces.box_space.BoxSpace ''
+    low: 0
+    high: 255
+    shape: !!python/tuple [480, 640]
+    dtype: uint8
+state_space:
+  class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+  low: [0., 0., 0., -.inf]
+  high: [0., 0., 0., .inf]
+  dtype: float64
+sensor_names: ['image']
+object_fname: 'camaro2_3ds.mesh'
+dt: 0.1

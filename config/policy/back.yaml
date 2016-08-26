@@ -1,0 +1,15 @@
+class: !!python/name:policy.mixed_policy.MixedPolicy ''
+policies:
+- class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
+  env: null
+  target_env: null
+  camera_node_name: quad_camera
+  agent_node_name: quad
+  target_node_name: car
+  offset: [0.0, -16.0, 12.0]
+  tightness: 1.0
+- class: !!python/name:policy.random_policy.RandomPolicy ''
+  action_space: null
+  state_space: null
+act_probs: [0.25, 0.75]
+reset_probs: [1, 0]

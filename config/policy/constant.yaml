@@ -1,0 +1,3 @@
+class: !!python/name:policy.constant_policy.ConstantPolicy ''
+action_space: null
+state_space: null

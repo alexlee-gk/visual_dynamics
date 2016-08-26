@@ -1,0 +1,31 @@
+image:
+  &id001
+  class: !!python/name:utils.transformer.CompositionTransformer ''
+  transformers:
+  - &id002
+    class: !!python/name:utils.transformer.ImageTransformer ''
+    scale_size: 0.125
+    crop_size: [32, 32]
+    crop_offset: [0, 0]
+  - class: !!python/name:utils.transformer.OpsTransformer ''
+    offset: [-0.81520784, -0.91591373, -0.97003922]
+    scale: 0.00784313725490196
+    transpose: !!python/tuple [2, 0, 1]
+
+car_image:
+  *id001
+
+depth_image:
+  &id003
+  class: !!python/name:utils.transformer.CompositionTransformer ''
+  transformers:
+  - *id002
+  - class: !!python/name:utils.transformer.DepthImageTransformer ''
+    space: null
+
+car_depth_image:
+  *id003
+
+action:
+  class: !!python/name:utils.transformer.NormalizerTransformer ''
+  space: null

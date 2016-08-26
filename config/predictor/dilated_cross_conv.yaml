@@ -1,0 +1,5 @@
+class: &id001 !!python/name:predictor.predictor_theano.TheanoNetFeaturePredictor ''
+build_net: !!python/name:predictor.net_theano.build_dilated_cross_conv_net ''
+feature_name: [x]
+next_feature_name: [x_next_pred]
+feature_jacobian_name: [x_diff_pred]

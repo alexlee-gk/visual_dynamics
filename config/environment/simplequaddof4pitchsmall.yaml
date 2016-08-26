@@ -1,0 +1,29 @@
+class: !!python/name:envs.quad_ogre_env.SimpleQuadOgreEnv ''
+action_space:
+  class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+  low: [-1, -1, -1, -0.017453292519943295]
+  high: [1, 1, 1, 0.017453292519943295]
+  axis: [1, 0, 0]
+  dtype: float64
+observation_space:
+  class: !!python/name:spaces.tuple_space.Tuple ''
+  spaces:
+  - class: !!python/name:spaces.box_space.BoxSpace ''
+    low: 0
+    high: 255
+    shape: !!python/tuple [480, 640]
+    dtype: uint8
+  - class: !!python/name:spaces.box_space.BoxSpace ''
+    low: 0
+    high: 255
+    shape: !!python/tuple [480, 640]
+    dtype: uint8
+sensor_names: ['image', 'car_image']
+state_space:
+  class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+  low: [-.inf, -.inf, -.inf, -.inf]
+  high: [.inf, .inf, .inf, .inf]
+#  low: [-76, -275, 15.7, -1.5707963267948966]
+#  high: [-26, 275, 65.7, 1.5707963267948966]
+  dtype: float64
+dt: 0.1
