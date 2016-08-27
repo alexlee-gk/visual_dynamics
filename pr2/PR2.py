@@ -1,4 +1,5 @@
 import numpy as np
+import openravepy as rave
 from numpy import inf, zeros, dot, r_, pi
 from numpy.linalg import norm, inv
 from threading import Thread
@@ -25,7 +26,7 @@ class IKFail(Exception):
     pass
 
 
-class TopicListener:
+class TopicListener(object):
     "stores last message"
     last_msg = None
 
@@ -63,22 +64,38 @@ class GripperTrajectoryThread(Thread):
     def run(self):
         t_start = rospy.Time.now()
         self.gripper.set_angle_target(self.angles[0])
-        for i in range(1, len(self.times)):
+        for i in xrange(1, len(self.times)):
             if rospy.is_shutdown() or self.wants_exit: break
             duration_elapsed = rospy.Time.now() - t_start
             self.gripper.set_angle_target(self.angles[i])
             rospy.sleep(rospy.Duration(self.times[i]) - duration_elapsed)
 
 
-class PR2:
+class PR2(object):
     pending_threads = []
+    wait = True  # deprecated way of blocking / not blocking
 
     @func_utils.once
     def create(rave_only=False):
         return PR2(rave_only)
 
     def __init__(self):
+
+        # set up openrave
+        self.env = rave.Environment()
+        self.env.StopSimulation()
+        self.env.Load("robots/pr2-beta-static.zae")  # todo: use up-to-date urdf
+        self.robot = self.env.GetRobots()[0]
+
         self.joint_listener = TopicListener("/joint_states", sm.JointState)
+
+        # rave to ros conversions
+        joint_msg = self.get_last_joint_message()
+        ros_names = joint_msg.name
+        inds_ros2rave = np.array([self.robot.GetJointIndex(name) for name in ros_names])
+        self.good_ros_inds = np.flatnonzero(inds_ros2rave != -1)  # ros joints inds with matching rave joint
+        self.rave_inds = inds_ros2rave[self.good_ros_inds]  # openrave indices corresponding to those joints
+        self.update_rave()
 
         self.larm = Arm(self, "l")
         self.rarm = Arm(self, "r")
@@ -90,12 +107,44 @@ class PR2:
 
         rospy.on_shutdown(self.stop_all)
 
+    def _set_rave_limits_to_soft_joint_limits(self):
+        # make the joint limits match the PR2 soft limits
+        low_limits, high_limits = self.robot.GetDOFLimits()
+        rarm_low_limits = [-2.1353981634, -0.3536, -3.75, -2.1213, None, -2.0, None]
+        rarm_high_limits = [0.564601836603, 1.2963, 0.65, -0.15, None, -0.1, None]
+        for rarm_index, low, high in zip(self.robot.GetManipulator("rightarm").GetArmIndices(), rarm_low_limits,
+                                         rarm_high_limits):
+            if low is not None and high is not None:
+                low_limits[rarm_index] = low
+                high_limits[rarm_index] = high
+        larm_low_limits = [-0.564601836603, -0.3536, -0.65, -2.1213, None, -2.0, None]
+        larm_high_limits = [2.1353981634, 1.2963, 3.75, -0.15, None, -0.1, None]
+        for larm_index, low, high in zip(self.robot.GetManipulator("leftarm").GetArmIndices(), larm_low_limits,
+                                         larm_high_limits):
+            if low is not None and high is not None:
+                low_limits[larm_index] = low
+                high_limits[larm_index] = high
+        self.robot.SetDOFLimits(low_limits, high_limits)
+
     def start_thread(self, thread):
         self.pending_threads.append(thread)
         thread.start()
 
     def get_last_joint_message(self):
         return self.joint_listener.last_msg
+
+    def update_rave(self):
+        ros_values = self.get_last_joint_message().position
+        rave_values = [ros_values[i_ros] for i_ros in self.good_ros_inds]
+        self.robot.SetJointValues(rave_values[:20], self.rave_inds[:20])
+        self.robot.SetJointValues(rave_values[20:], self.rave_inds[20:])
+
+        # if use_map:
+        #     (trans,rot) = self.tf_listener.lookupTransform('/map', '/base_link', rospy.Time(0))            
+        #     self.robot.SetTransform(conv.trans_rot_to_hmat(trans, rot))
+
+    def update_rave_without_ros(self, joint_vals):
+        self.robot.SetJointValues(joint_vals)
 
     def join_all(self):
         for thread in self.pending_threads:
