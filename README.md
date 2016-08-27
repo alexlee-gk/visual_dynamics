@@ -40,6 +40,7 @@ cmake \
 -DPYTHON3_INCLUDE_DIR2=~/.pyenv/versions/3.5.2/include/python3.5m \
 -DPYTHON_INCLUDE_DIRS=~/.pyenv/versions/3.5.2/include/ \
 -DPYTHON3_LIBRARY=~/.pyenv/versions/3.5.2/lib/libpython3.so \
+-DPYTHON3_NUMPY_INCLUDE_DIRS=/home/alex/.pyenv/versions/3.5.2/lib/python3.5/site-packages/numpy/core/include \ -DPYTHON3_PACKAGES_PATH=lib/python3.5/site-packages \
 -DINSTALL_PYTHON_EXAMPLES=ON \
 -DINSTALL_C_EXAMPLES=OFF \
 -DBUILD_EXAMPLES=ON \
