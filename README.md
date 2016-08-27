@@ -27,6 +27,10 @@ pip install --editable .
 ```
 
 ### Install OpenCV
+Make sure python-dev is installed for the python version being used, e.g.
+```
+sudo apt-get install python3.5-dev
+```
 ```
 git clone git@github.com:opencv/opencv.git
 mkdir opencv_build
@@ -40,6 +44,8 @@ cmake \
 -DPYTHON3_INCLUDE_DIR2=~/.pyenv/versions/3.5.2/include/python3.5m \
 -DPYTHON_INCLUDE_DIRS=~/.pyenv/versions/3.5.2/include/ \
 -DPYTHON3_LIBRARY=~/.pyenv/versions/3.5.2/lib/libpython3.so \
+-DPYTHON3_NUMPY_INCLUDE_DIRS=~/.pyenv/versions/3.5.2/lib/python3.5/site-packages/numpy/core/include \
+-DPYTHON3_PACKAGES_PATH=lib/python3.5/site-packages \
 -DINSTALL_PYTHON_EXAMPLES=ON \
 -DINSTALL_C_EXAMPLES=OFF \
 -DBUILD_EXAMPLES=ON \
