@@ -27,6 +27,10 @@ pip install --editable .
 ```
 
 ### Install OpenCV
+Make sure python-dev is installed for the python version being used, e.g.
+```
+sudo apt-get install python3.5-dev
+```
 ```
 git clone git@github.com:opencv/opencv.git
 mkdir opencv_build
