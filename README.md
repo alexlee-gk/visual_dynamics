@@ -45,7 +45,7 @@ cmake \
 -DPYTHON_INCLUDE_DIRS=~/.pyenv/versions/3.5.2/include/ \
 -DPYTHON3_LIBRARY=~/.pyenv/versions/3.5.2/lib/libpython3.so \
 -DPYTHON3_NUMPY_INCLUDE_DIRS=~/.pyenv/versions/3.5.2/lib/python3.5/site-packages/numpy/core/include \
--DPYTHON3_PACKAGES_PATH=lib/python3.5/site-packages \
+-DPYTHON3_PACKAGES_PATH=~/.pyenv/versions/3.5.2/lib/python3.5/site-packages \
 -DINSTALL_PYTHON_EXAMPLES=ON \
 -DINSTALL_C_EXAMPLES=OFF \
 -DBUILD_EXAMPLES=ON \
@@ -55,6 +55,12 @@ make -j4
 sudo make install
 ln -s /usr/local/lib/python3.5/site-packages/cv2.cpython-35m-x86_64-linux-gnu.so ~/.pyenv/versions/3.5.2/lib/python3.5/site-packages/cv2.so
 ```
+The library can be installed only for the local user by specifying a local install prefix, e.g. `-DCMAKE_INSTALL_PREFIX=~/.local`, in which case `make install` should be run without root priviledges and the last symbolic linking step might not needed.
+
+#### Common installation problems
+- The file `Python.h` is not found even though it is in the specified `PYTHON3_INCLUDE_DIR`, `fatal error: Python.h: No such file or directory`. Explicitly expanding the home  directory `~` to `${HOME}` might solve this.
+- Installation for python 2 causes the compilation error `error: invalid conversion from ‘const char*’ to ‘Py_ssize_t {aka long int}’`. In this case, disable python 2 support with the option `-DBUILD_opencv_python2=OFF`.
+- Importing `cv2` gives the error `ImportError: dynamic module does not define module export function (PyInit_cv2)` because it is using the wrong `cv2` library. Make sure the path for the newly built `cv2` package appears first in the `PYTHONPATH`, `export PYTHONPATH=~/.pyenv/versions/3.5.2/lib/python3.5/site-packages:$PYTHONPATH`.
 
 In Mac OS X, replace the cmake command with this one:
 ```
