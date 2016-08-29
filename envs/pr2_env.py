@@ -26,7 +26,6 @@ class Pr2Env(RosEnv):
         time.sleep(.1)
 
         action[:] = self.pr2.head.get_joint_positions() - pan_tilt_angles
-        import IPython; IPython.embed()
 
     def get_state(self):
         return self.pr2.head.get_joint_positions()
