@@ -49,7 +49,7 @@ def from_yaml(yaml_string):
     return from_config(config)
 
 
-class ConfigObject:
+class ConfigObject(object):
     """
     All config dictionaries should have an entry for 'class' and optionally an
     entry for '__class__'. The value of either entries are used to instantiate

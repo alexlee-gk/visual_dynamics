@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as manimation
 from gui.grid_image_visualizer import GridImageVisualizer
+import envs
 import utils
 
 
@@ -19,7 +20,11 @@ def main():
     args = parser.parse_args()
 
     with open(args.env_fname) as yaml_string:
-        env = utils.config.from_yaml(yaml_string)
+        env_config = yaml.load(yaml_string)
+        if issubclass(env_config['class'], envs.RosEnv):
+            import rospy
+            rospy.init_node("generate_data")
+        env = utils.from_config(env_config)
 
     with open(args.pol_fname) as yaml_string:
         policy_config = yaml.load(yaml_string)

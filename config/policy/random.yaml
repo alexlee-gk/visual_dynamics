@@ -1,0 +1,3 @@
+class: !!python/name:policy.random_policy.RandomPolicy ''
+action_space: null
+state_space: null
