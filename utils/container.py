@@ -1,10 +1,25 @@
 from __future__ import division, print_function
+import sys
 import io
 import os
 import cv2
 import h5py
 import numpy as np
 import utils
+
+
+def open_23(name, mode='r'):
+    if sys.version_info.major == 3:
+        return open(name, mode=mode)
+    elif sys.version_info.major == 2:
+        if mode == 'x':
+            if os.path.exists(name):
+                raise OSError("file %s exists" % name)
+            else:
+                mode = 'w+'
+        return io.open(name, mode=mode)
+    else:
+        raise ValueError("unknown major version %d" % sys.version_info.major)
 
 
 class DataContainer:
@@ -14,12 +29,11 @@ class DataContainer:
         self.hdf5_file = None
 
         info_fname = os.path.join(self.data_dir, 'info.yaml')
-        self.info_file = open(info_fname, mode)
+        self.info_file = open_23(info_fname, mode)
         try:
             self.info_dict = utils.from_yaml(self.info_file) or dict()  # store info entries here and dump it only when the container is closed
         except io.UnsupportedOperation:  # file is probably empty
             self.info_dict = dict()
-
         self.data_shapes_dict = self.info_dict.get('data_shapes', None) or dict()
         self.datum_shapes_dict = self.info_dict.get('datum_shapes', None) or dict()
         data_fname = os.path.join(self.data_dir, 'data.h5')
@@ -172,7 +186,7 @@ class DataContainer:
                 os.makedirs(data_dir)
         elif 'x' in mode:
             if os.path.exists(data_dir):
-                raise FileExistsError('data directory %s exists' % data_dir)
+                raise OSError('data directory %s exists' % data_dir)
             else:
                 os.makedirs(data_dir)
         else:
