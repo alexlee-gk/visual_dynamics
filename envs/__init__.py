@@ -8,6 +8,7 @@ try:
 except ImportError:
     pass
 try:
+    from .ros_env import *
     from .pr2_env import *
 except ImportError:
     pass

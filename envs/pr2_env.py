@@ -1,11 +1,11 @@
 import numpy as np
 import time
-from envs import Env
+from envs import RosEnv
 from pr2 import PR2, camera_sensor
 import spaces
 
 
-class PR2Env(Env):
+class PR2Env(RosEnv):
     def __init__(self, action_space, observation_space, state_space, sensor_names):
         super(PR2Env, self).__init__(action_space, observation_space, state_space, sensor_names)
         self.pr2 = PR2.PR2()
