@@ -1,4 +1,4 @@
-class: !!python/name:envs.pr2_env.PR2Env ''
+class: !!python/name:envs.pr2_env.Pr2Env ''
 action_space:
   class: !!python/name:spaces.box_space.BoxSpace ''
   high: [0.08726646259971647, 0.08726646259971647]

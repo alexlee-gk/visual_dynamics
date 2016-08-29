@@ -5,9 +5,9 @@ from pr2 import PR2, camera_sensor
 import spaces
 
 
-class PR2Env(RosEnv):
+class Pr2Env(RosEnv):
     def __init__(self, action_space, observation_space, state_space, sensor_names):
-        super(PR2Env, self).__init__(action_space, observation_space, state_space, sensor_names)
+        super(Pr2Env, self).__init__(action_space, observation_space, state_space, sensor_names)
         self.pr2 = PR2.PR2()
         self.pr2.larm.goto_posture('side')
         self.pr2.rarm.goto_posture('side')
@@ -51,7 +51,7 @@ class PR2Env(RosEnv):
         pass
 
     def _get_config(self):
-        config = super(PR2Env, self)._get_config()
+        config = super(Pr2Env, self)._get_config()
         return config
 
 
@@ -63,7 +63,7 @@ def main():
     observation_space = spaces.Tuple([spaces.BoxSpace(0, 255, shape=(240, 320, 3), dtype=np.uint8)])
     state_space = spaces.BoxSpace(np.deg2rad([-30., 45.]), np.deg2rad([30., 75.]))
     sensor_names = ['image']
-    pr2_env = PR2Env(action_space, observation_space, state_space, sensor_names)
+    pr2_env = Pr2Env(action_space, observation_space, state_space, sensor_names)
 
     import IPython as ipy; ipy.embed()
 
