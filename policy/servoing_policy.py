@@ -26,9 +26,9 @@ class ServoingPolicy(Policy):
             elif self.w.ndim == 1 and self.w.shape == (J.shape[0],):
                 WJ = J * self.w[:, None]
             elif self.w.ndim == 2 and self.w.shape == (J.shape[0], J.shape[0]):
-                WJ = self.w @ J
+                WJ = self.w.dot(J)
             elif self.w.ndim == 2 and self.w.shape[0] == J.shape[0]:
-                WJ = self.w @ (self.w.T @ J)
+                WJ = self.w.dot(self.w.T.dot(J))
             else:
                 raise ValueError('invalid weights w, %r' % self.w)
             try:

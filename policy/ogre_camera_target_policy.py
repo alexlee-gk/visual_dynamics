@@ -45,13 +45,13 @@ class OgreCameraTargetPolicy(Policy):
         target_T = self.target_node.getTransform()
         # target offset relative to target
         target_to_offset_T = tf.translation_matrix(self.offset)
-        offset_T = target_T @ target_to_offset_T
+        offset_T = target_T.dot(target_to_offset_T)
         # agent transform in world coordinates
         agent_T = self.agent_node.getTransform()
         # camera transform relative to the agent
         agent_to_camera_T = self.camera_node.getTransform()
         # camera transform in world coordinates
-        camera_T = agent_T @ agent_to_camera_T
+        camera_T = agent_T.dot(agent_to_camera_T)
         # set camera position to the offset target while limiting how fast to move there (controlled by tightness)
         des_camera_pos = (1 - tightness) * camera_T[:3, 3] + tightness * offset_T[:3, 3]
         # point camera in the direction of the target while fixing the yaw axis to be vertical
@@ -70,7 +70,7 @@ class OgreCameraTargetPolicy(Policy):
         # agent transform relative to the camera
         camera_to_agent_T = tf.inverse_matrix(agent_to_camera_T)
         # desired agent transform in world coordinates
-        des_agent_T = des_camera_T @ camera_to_agent_T
+        des_agent_T = des_camera_T.dot(camera_to_agent_T)
         return des_agent_T
 
     def act(self, obs):
@@ -79,7 +79,7 @@ class OgreCameraTargetPolicy(Policy):
         # desired agent transform in world coordinates
         des_agent_T = self.compute_desired_agent_transform()
         # desired agent transform relative to the agent
-        agent_to_des_agent_T = tf.inverse_matrix(agent_T) @ des_agent_T
+        agent_to_des_agent_T = tf.inverse_matrix(agent_T).dot(des_agent_T)
         action, action_rem = np.split(tf.position_axis_angle_from_matrix(agent_to_des_agent_T) / self.env.dt,
                                       self.env.action_space.shape)
         assert all(action_rem == 0)  # action_rem may be empty, in which case this is also True
