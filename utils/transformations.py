@@ -387,7 +387,7 @@ def pose_matrix(*pose):
     try:
         quaternion, position = pose
     except ValueError:
-        quaternion, position = numpy.split(*pose, [4])
+        quaternion, position = numpy.split(*pose, indices_or_sections=[4])
     matrix = quaternion_matrix(quaternion)
     matrix[:3, 3] = position
     return matrix
@@ -1410,7 +1410,7 @@ def matrix_from_axis_angle(axis_angle):
 
 
 def position_axis_angle_from_matrix(matrix):
-    quaternion, position = numpy.split(pose_from_matrix(matrix), [4])
+    quaternion, position = numpy.split(pose_from_matrix(matrix), indices_or_sections=[4])
     return numpy.append(position, axis_angle_from_quaternion(quaternion))
 
 
@@ -1418,7 +1418,7 @@ def position_axis_angle_matrix(*position_axis_angle):
     try:
         position, axis_angle = position_axis_angle
     except ValueError:
-        position, axis_angle = numpy.split(*position_axis_angle, [3])
+        position, axis_angle = numpy.split(*position_axis_angle, indices_or_sections=[3])
     return pose_matrix(quaternion_from_axis_angle(axis_angle), position)
 
 

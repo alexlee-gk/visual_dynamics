@@ -1,5 +1,4 @@
-from __future__ import division
-
+from __future__ import division, print_function
 import io
 import os
 import cv2
@@ -89,7 +88,7 @@ class DataContainer:
             dset[datum_ind] = value
 
     def get_datum(self, *inds_and_datum_names):
-        *inds, datum_names = inds_and_datum_names
+        inds, datum_names = inds_and_datum_names[:-1], inds_and_datum_names[-1]
         if isinstance(datum_names, str):
             names = list([datum_names])
         else:
@@ -117,7 +116,8 @@ class DataContainer:
     def get_data_size(self, name):
         return np.prod(self.get_data_shape(name))
 
-    def _get_canonical_inds(self, *inds, name):
+    def _get_canonical_inds(self, *inds_and_name):
+        inds, name = inds_and_name[:-1], inds_and_name[-1]
         inds = list(inds)
         shape = self.get_data_shape(name)
         for i, ind in enumerate(inds):
@@ -125,7 +125,8 @@ class DataContainer:
                 inds[i] += shape[i]
         return inds
 
-    def _check_ind_range(self, *inds, name):
+    def _check_ind_range(self, *inds_and_name):
+        inds, name = inds_and_name[:-1], inds_and_name[-1]
         shape = self.get_data_shape(name)
         if len(inds) != len(shape):
             raise IndexError('the number of indices does not match the number of dimensions of the data')
@@ -133,7 +134,8 @@ class DataContainer:
             if not (0 <= ind < shape[i]):
                 raise IndexError('index at position %d is out of range for entry with name %s' % (i, name))
 
-    def _get_datum_ind(self, *inds, name):
+    def _get_datum_ind(self, *inds_and_name):
+        inds, name = inds_and_name[:-1], inds_and_name[-1]
         inds = self._get_canonical_inds(*inds, name=name)
         self._check_ind_range(*inds, name=name)
         shape = self.get_data_shape(name)
@@ -196,7 +198,9 @@ class ImageDataContainer(DataContainer):
                 image = utils.pack_image(image)
             cv2.imwrite(image_fname, image, [cv2.IMWRITE_JPEG_QUALITY, 100])
 
-    def _get_image_fname(self, *inds, name, ext='.jpg'):
+    def _get_image_fname(self, *inds_and_name, **kwargs):
+        inds, name = inds_and_name[:-1], inds_and_name[-1]
+        ext = kwargs.get('ext', '.jpg')
         inds = self._get_canonical_inds(*inds, name=name)
         self._check_ind_range(*inds, name=name)
         shape = self.get_data_shape(name)
@@ -204,18 +208,18 @@ class ImageDataContainer(DataContainer):
         for dim in shape:
             image_fmt += '_%0{:d}d'.format(len(str(dim-1)))
         image_fmt += ext
-        image_fname = image_fmt % (name, *inds)
+        image_fname = image_fmt % ((name,) + inds)
         image_fname = os.path.join(self.data_dir, image_fname)
         return image_fname
 
     def get_datum(self, *inds_and_datum_names):
-        *inds, datum_names = inds_and_datum_names
+        inds, datum_names = inds_and_datum_names[:-1], inds_and_datum_names[-1]
         if isinstance(datum_names, str):
             names = list([datum_names])
         else:
             names = list(datum_names)
         other_names = [name for name in names if not name.endswith('image')]
-        other_datum = super(ImageDataContainer, self).get_datum(*inds, other_names)
+        other_datum = super(ImageDataContainer, self).get_datum(*(inds + (other_names,)))
         image_names = [name for name in names if name.endswith('image')]
         image_datum = []
         for image_name in image_names:

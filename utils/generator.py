@@ -1,3 +1,4 @@
+from __future__ import division, print_function
 import os
 import contextlib
 import threading
@@ -68,7 +69,7 @@ class ParallelGenerator:
 
 
 class DataGenerator:
-    def __init__(self, *container_fnames, data_name_offset_pairs, transformers=None, once=False, batch_size=0, shuffle=False, dtype=None):
+    def __init__(self, container_fnames, data_name_offset_pairs, transformers=None, once=False, batch_size=0, shuffle=False, dtype=None):
         """
         Iterate through all the data once or indefinitely. The data from
         contiguous files are treated as if they are contiguous. All of the
@@ -83,6 +84,8 @@ class DataGenerator:
         A batch_size of 0 denotes to return data of batch size 1 but with the
         leading singleton dimensioned squeezed.
         """
+        if isinstance(container_fnames, str):
+            container_fnames = [container_fnames]
         self._container_fnames = [os.path.abspath(fname) for fname in container_fnames]
         self._data_name_offset_pairs = data_name_offset_pairs
         self.transformers_dict = transformers or dict()
@@ -103,8 +106,8 @@ class DataGenerator:
                 offset_min = min(offset.start, offset_min)
                 offset_max = max(offset.stop, offset_max)
             elif isinstance(offset, (tuple, list)):
-                offset_min = min(*offset, offset_min)
-                offset_max = max(*offset, offset_max)
+                offset_min = min(offset_min, *offset)
+                offset_max = max(offset_max, *offset)
             else:
                 raise ValueError("offset should be int, slice, tuple or list, but %s was given" % offset)
             offset_limits[data_name] = (offset_min, offset_max)
@@ -209,7 +212,7 @@ class DataGenerator:
                     if isinstance(offset, int):
                         single_datum = np.squeeze(single_datum, axis=0)
                     if datum is None:
-                        datum = np.empty((len(excerpt), *single_datum.shape), dtype=single_datum.dtype)
+                        datum = np.empty(((len(excerpt),) + single_datum.shape), dtype=single_datum.dtype)
                     datum[i, ...] = single_datum
                 batch_data.append(datum)
             if self.squeeze:

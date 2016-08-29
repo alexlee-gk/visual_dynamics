@@ -1,3 +1,4 @@
+from __future__ import division, print_function
 import numpy as np
 import cv2
 import utils
@@ -119,9 +120,9 @@ class ImageTransformer(Transformer):
         if self.crop_size is not None:
             need_swap_channels = (len(shape) == 3 and shape[0] == 3)
             if need_swap_channels:
-                shape = tuple([shape[0], *self.crop_size])
+                shape = (shape[0],) + tuple(self.crop_size)
             else:
-                shape = tuple([*self.crop_size, shape[-1]])
+                shape = tuple(self.crop_size) + (shape[-1],)
         return shape
 
     def _get_config(self):

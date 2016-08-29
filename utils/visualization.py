@@ -1,9 +1,10 @@
+from __future__ import division, print_function
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
 
-def visualize_images_callback(*images, image_transformer=None, depth_scale=None, vis_scale=10,
+def visualize_images_callback(images, image_transformer=None, depth_scale=None, vis_scale=10,
                               window_name='Image window', delay=1):
     if image_transformer:
         images = [image_transformer.deprocess(image) for image in images]
