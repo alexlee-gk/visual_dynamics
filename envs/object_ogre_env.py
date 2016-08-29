@@ -37,7 +37,7 @@ class ObjectOgreEnv(OgreEnv):
         # compute next state
         object_T = self.object_node.getTransform()
         object_to_next_object_T = tf.position_axis_angle_matrix(action * self.dt)
-        next_object_T = object_T @ object_to_next_object_T
+        next_object_T = object_T.dot(object_to_next_object_T)
 
         # set new state
         self.object_node.setTransform(next_object_T)

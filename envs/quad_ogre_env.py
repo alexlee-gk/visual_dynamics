@@ -79,7 +79,7 @@ class SimpleQuadOgreEnv(OgreEnv):
         # if action.shape == (3,):
         #     assert np.allclose(quad_to_next_quad_T[:3, :3], np.eye(3))
         #     quad_to_next_quad_T[:3, :3] = np.eye(3)
-        next_quad_T = quad_T @ quad_to_next_quad_T
+        next_quad_T = quad_T.dot(quad_to_next_quad_T)
 
         # update the state to be within the state space
         next_quad_pos_aa = tf.position_axis_angle_from_matrix(next_quad_T)
@@ -172,7 +172,7 @@ class SimpleQuadOgreEnv(OgreEnv):
         else:
             tightness = 0.1
         target_T = tf.pose_matrix(target_node._getDerivedOrientation(), target_node._getDerivedPosition())
-        target_camera_pos = target_T[:3, 3] + target_T[:3, :3] @ (np.array([0., -4., 3.]) * 2)
+        target_camera_pos = target_T[:3, 3] + target_T[:3, :3].dot(np.array([0., -4., 3.]) * 2)
         self.app.camera.setPosition((1 - tightness) * self.app.camera.getPosition() + tightness * target_camera_pos)
         self.app.root.renderOneFrame()
         self.app.window.update()

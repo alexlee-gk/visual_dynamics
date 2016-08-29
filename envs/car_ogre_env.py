@@ -96,7 +96,7 @@ class CarOgreEnv(OgreEnv):
         else:
             tightness = 0.1
         target_T = tf.pose_matrix(target_node._getDerivedOrientation(), target_node._getDerivedPosition())
-        target_camera_pos = target_T[:3, 3] + target_T[:3, :3] @ (np.array([0., -4., 3.]) * 4)
+        target_camera_pos = target_T[:3, 3] + target_T[:3, :3].dot(np.array([0., -4., 3.]) * 4)
         self.app.camera.setPosition((1 - tightness) * self.app.camera.getPosition() + tightness * target_camera_pos)
         self.app.root.renderOneFrame()
         self.app.window.update()
@@ -259,7 +259,7 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
         start_T[:3, :3] = self._compute_rotation(self.end_pos - self.start_pos, self.edge_normal)
         start_T[:3, 3] = self.start_pos
         translate_to_lane_T = tf.translation_matrix(np.array([self._lane_offset, self._straight_dist, 0.]))
-        T = start_T @ translate_to_lane_T
+        T = start_T.dot(translate_to_lane_T)
         return T
 
     def step(self, action):
@@ -323,7 +323,7 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
         else:
             tightness = 0.1
         target_T = tf.pose_matrix(target_node._getDerivedOrientation(), target_node._getDerivedPosition())
-        target_camera_pos = target_T[:3, 3] + target_T[:3, :3] @ (np.array([0., -4., 3.]) * 4)
+        target_camera_pos = target_T[:3, 3] + target_T[:3, :3].dot(np.array([0., -4., 3.]) * 4)
         self.app.camera.setPosition((1 - tightness) * self.app.camera.getPosition() + tightness * target_camera_pos)
         self.app.root.renderOneFrame()
         self.app.window.update()
@@ -459,7 +459,7 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
         assert (self._straight_dist is None) != (self._turn_angle is None)
         if self._straight_dist is not None:
             translate_to_lane_T = tf.translation_matrix(np.array([self._lane_offset, self._straight_dist, 0.]))
-            T = self.start_T @ translate_to_lane_T
+            T = self.start_T.dot(translate_to_lane_T)
         else:  # self._turn_angle is not None
             middle_T = self.middle_T
             left_turn = self.left_turn
@@ -471,7 +471,7 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
                 left_turn * (self._turn_angle - self.max_turn_angle), middle_T[:3, 2])
             translate_to_lane_T = tf.translation_matrix(
                 np.array([left_turn * self._num_lanes * self._lane_width + self._lane_offset, 0., 0.]))
-            T = middle_T @ translate_to_center_T @ rotate_about_center_T @ translate_to_lane_T
+            T = middle_T.dot(translate_to_center_T.dot(rotate_about_center_T.dot(translate_to_lane_T)))
         return T
 
     def step(self, action):
