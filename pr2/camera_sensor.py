@@ -30,7 +30,7 @@ class CameraSensor:
         time_now = time_now or rospy.Time.now()
         while self._latest_time < time_now:
             rospy.sleep(0.01)
-        return self._latest_image.copy()
+        return cv2.cvtColor(self._latest_image, cv2.COLOR_BGR2RGB)
 
 
 def main():

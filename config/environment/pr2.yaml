@@ -1,0 +1,20 @@
+class: !!python/name:envs.pr2_env.PR2Env ''
+action_space:
+  class: !!python/name:spaces.box_space.BoxSpace ''
+  high: [0.08726646259971647, 0.08726646259971647]
+  low: [-0.08726646259971647, -0.08726646259971647]
+  dtype: float64
+observation_space:
+  class: !!python/name:spaces.tuple_space.Tuple ''
+  spaces:
+  - class: !!python/name:spaces.box_space.BoxSpace ''
+    low: 0
+    high: 255
+    shape: !!python/tuple [240, 320, 3]
+    dtype: uint8
+state_space:
+  class: !!python/name:spaces.box_space.BoxSpace ''
+  high: [0.5235987755982988, 1.3089969389957472]
+  low: [-0.5235987755982988, 0.5235987755982988]
+  dtype: float64
+sensor_names: ['image']

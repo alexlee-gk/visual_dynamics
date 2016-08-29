@@ -12,7 +12,7 @@ class PR2Env(Env):
         self.pr2.larm.goto_posture('side')
         self.pr2.rarm.goto_posture('side')
 
-        # self.rgb_camera_sensor = camera_sensor.CameraSensor()
+        self.rgb_camera_sensor = camera_sensor.CameraSensor()
 
     def step(self, action):
         # update action to be within the action space
@@ -23,9 +23,10 @@ class PR2Env(Env):
         next_pan_tilt_angles = pan_tilt_angles + action
 
         self.pr2.head.goto_joint_positions(next_pan_tilt_angles)
-        time.sleep(1)
+        time.sleep(.1)
 
         action[:] = self.pr2.head.get_joint_positions() - pan_tilt_angles
+        import IPython; IPython.embed()
 
     def get_state(self):
         return self.pr2.head.get_joint_positions()
@@ -34,6 +35,7 @@ class PR2Env(Env):
         if state is None:
             state = self.state_space.sample()
         self.pr2.head.goto_joint_positions(state)
+        time.sleep(0.5)
 
     def observe(self):
         obs = []

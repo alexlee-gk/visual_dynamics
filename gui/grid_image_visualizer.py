@@ -83,7 +83,7 @@ class GridImageVisualizer:
                 elif image.shape[-1] == 1:
                     image = np.squeeze(image, axis=-1)
             if plot is None or image.shape != plot.get_array().shape:
-                ax_image.images.clear()
+                ax_image.images[:] = []
                 self._plots[i] = ax_image.imshow(image, interpolation='none', aspect='equal', picker=True)
             else:
                 plot.set_data(image)
