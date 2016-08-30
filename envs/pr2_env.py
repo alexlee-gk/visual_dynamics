@@ -1,5 +1,5 @@
 import numpy as np
-import time
+import rospy
 from envs import RosEnv
 from pr2 import PR2, camera_sensor
 import spaces
@@ -11,6 +11,8 @@ class Pr2Env(RosEnv):
         self.pr2 = PR2.PR2()
         self.pr2.larm.goto_posture('side')
         self.pr2.rarm.goto_posture('side')
+        self.pr2.torso.go_down()
+        self.pr2.head.set_pan_tilt(*((self.state_space.low + self.state_space.high) / 2.0))
 
         self.rgb_camera_sensor = camera_sensor.CameraSensor()
 
@@ -20,12 +22,11 @@ class Pr2Env(RosEnv):
             action = self.action_space.clip(action, out=action)
 
         pan_tilt_angles = self.pr2.head.get_joint_positions()
-        next_pan_tilt_angles = pan_tilt_angles + action
 
-        self.pr2.head.goto_joint_positions(next_pan_tilt_angles)
-        time.sleep(.1)
+        action[:] = self.state_space.clip(pan_tilt_angles + action) - pan_tilt_angles
 
-        action[:] = self.pr2.head.get_joint_positions() - pan_tilt_angles
+        self.pr2.head.command_pan_tilt_vel(*action)
+        rospy.sleep(.1)
 
     def get_state(self):
         return self.pr2.head.get_joint_positions()
@@ -34,7 +35,7 @@ class Pr2Env(RosEnv):
         if state is None:
             state = self.state_space.sample()
         self.pr2.head.goto_joint_positions(state)
-        time.sleep(0.5)
+        rospy.sleep(1.0)
 
     def observe(self):
         obs = []
@@ -55,7 +56,6 @@ class Pr2Env(RosEnv):
 
 
 def main():
-    import rospy
     rospy.init_node('camera_sensor', anonymous=True)
 
     action_space = spaces.BoxSpace(np.deg2rad([-5., -5.]), np.deg2rad([5., 5.]))
