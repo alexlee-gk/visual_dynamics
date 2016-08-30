@@ -1,7 +1,10 @@
 import numpy as np
 import rospy
 from envs import RosEnv
-from pr2 import PR2, camera_sensor
+try:
+    from pr2 import PR2, camera_sensor
+except:
+    pass
 import spaces
 
 

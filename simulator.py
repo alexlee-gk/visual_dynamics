@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 import utils
 from utils import util
-from utils.math_utils import axis2quat, quaternion_multiply
+from utils.math_utils import axis2quat, quaternion_multiply, clip_pos_aa
+import utils.transformations as tf
 
 
 class Simulator(utils.config.ConfigObject):
@@ -112,7 +113,9 @@ class DiscreteVelocitySimulator(Simulator):
         assert len(vel_min) == len(vel_max)
         self.dof_limits = [np.asarray(dof_limit, dtype=dtype) for dof_limit in dof_limits]
         self.dof_vel_limits = [np.asarray(dof_vel_limit, dtype=dtype) for dof_vel_limit in dof_vel_limits]
-        self._dof_values = np.mean(self.dof_limits, axis=0)
+        # TODO: how to initialize
+        self._dof_values = np.zeros(6)
+        # self._dof_values = np.mean(self.dof_limits, axis=0)
 
     @property
     def dof_values(self):
@@ -155,8 +158,8 @@ class DiscreteVelocitySimulator(Simulator):
         dim, = self._dof_values.shape
         return dim
 
-    def get_config(self):
-        config = super(DiscreteVelocitySimulator, self).get_config()
+    def _get_config(self):
+        config = super(DiscreteVelocitySimulator, self)._get_config()
         config.update({'dof_limits': [dof_limit.tolist() for dof_limit in self.dof_limits],
                        'dof_vel_limits': [dof_vel_limit.tolist() for dof_vel_limit in self.dof_vel_limits]})
         return config
@@ -196,7 +199,10 @@ class OgreSimulator(DiscreteVelocitySimulator):
         self.ogrehead = ogrehead
         self.random_background_color = random_background_color
         self.random_ogrehead = random_ogrehead
-        self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
+        # self._q0 = axis2quat(np.array([0, 1, 0]), np.pi/2)
+        self._pos = np.zeros(3)
+        self._quat = tf.quaternion_about_axis(np.pi/2, np.array([0, 1, 0]))
+        self.dof_values = np.concatenate(self._pos, tf.aa_from_quaternion(self._quat))
 
         import pygre
         self.ogre = pygre.Pygre()
@@ -215,23 +221,50 @@ class OgreSimulator(DiscreteVelocitySimulator):
         for ogrehead_iter in range(self.random_ogrehead):
             self.ogre.addNode(b'ogrehead%d'%ogrehead_iter, b'ogrehead.mesh', 0, 0, 0)
             self.ogre.setNodeScale(b'ogrehead%d'%ogrehead_iter, np.array([.03]*3))
-        self.ogre.setCameraOrientation(self._q0)
+        # self.ogre.setCameraOrientation(self._q0)
+
 
     @DiscreteVelocitySimulator.dof_values.setter
     def dof_values(self, next_dof_values):
+        # TODO: no dof_limits for rotation. or only magnitude limit for rotation.
         assert self._dof_values is None or self._dof_values.shape == next_dof_values.shape
-        self._dof_values = np.clip(next_dof_values, self.dof_limits[0], self.dof_limits[1])
-        pos_angle = np.zeros(6)
-        pos_angle[:min(6, self.state_dim)] += self._dof_values[:min(6, self.state_dim)]
-        pos = pos_angle[:3]
-        self.ogre.setCameraPosition(pos)
-        if self.state_dim > 3:
-            angle = pos_angle[3:]
-            quat = quaternion_multiply(*[axis2quat(axis, theta) for axis, theta in zip(np.eye(3), angle)] + [self._q0])
-            self.ogre.setCameraOrientation(quat)
+        self._dof_values = clip_pos_aa(next_dof_values, *self.dof_limits)
+        self._pos, aa = np.split(self._dof_values, [3])
+        self._quat = tf.quaternion_from_aa(aa)
+        self.ogre.setCameraPosition(self._pos)
+        self.ogre.setCameraOrientation(self._quat)
+        # pos_angle = np.zeros(6)
+        # pos_angle[:min(6, self.state_dim)] += self._dof_values[:min(6, self.state_dim)]
+        # pos = pos_angle[:3]
+        # self.ogre.setCameraPosition(pos)
+        # if self.state_dim > 3:
+        #     angle = pos_angle[3:]
+        #     quat = quaternion_multiply(*[axis2quat(axis, theta) for axis, theta in zip(np.eye(3), angle)] + [self._q0])
+        #     self.ogre.setCameraOrientation(quat)
 
     def apply_action(self, vel):
-        vel = super(OgreSimulator, self).apply_action(vel)
+        # TODO: assume vel is 6D
+        # TODO: assume dof_vel_limits is 4D
+        vel = clip_pos_aa(vel, *self.dof_vel_limits)
+        v, omega = np.split(vel, [3])
+
+        prev_pos = self._pos.copy()
+        prev_quat = self._quat.copy()
+        prev_rot = tf.quaternion_matrix(prev_quat)
+
+        pos = prev_pos + prev_rot.dot(v)
+        quat_diff = tf.quaternion_from_aa(omega)
+        quat = tf.quaternion_multiply(prev_quat, quat_diff)
+
+        aa = tf.aa_from_quaternion(quat)
+        dof_values_prev = self.dof_values.copy()
+        self.dof_values = np.concatenate([pos, aa])
+
+        # recompute vel because of clipping
+        v = prev_rot.T.dot(self._pos - prev_pos)
+        quat_diff = tf.quaternion_multiply(tf.quaternion_inverse(prev_quat), self._quat)
+        omega = tf.aa_from_quaternion(quat_diff)
+
         if self.traj_managers:
             for manager in self.traj_managers:
                 manager.step()
@@ -249,10 +282,18 @@ class OgreSimulator(DiscreteVelocitySimulator):
 
     def observe(self):
         image = self.ogre.getScreenshot()
+        # self.ogre.update()
+        # depth = self.ogre.getDepthScreenshot()
+        # depth = np.frombuffer(depth.tobytes(), dtype=np.float16).reshape(depth.shape)
+        # self.ogre.update()
+        # cv2.imshow("win", (depth/depth.max()).astype(float))
+        # # import IPython as ipy; ipy.embed()
+        # cv2.waitKey(1)
+        # # import IPython as ipy; ipy.embed()
         return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-    def get_config(self):
-        config = super(OgreSimulator, self).get_config()
+    def _get_config(self):
+        config = super(OgreSimulator, self)._get_config()
         config.update({'background_color': self.background_color,
                        'ogrehead': self.ogrehead,
                        'random_background_color': self.random_background_color,
@@ -344,21 +385,24 @@ class CityOgreSimulator(OgreSimulator):
         self.ogre.setNodeOrientation(node_name, axis2quat(np.array((0,1,0)), np.deg2rad(180)))
         car_dof_values_init = [-51, 10.7, 225]
         car_dof_limits = [[-51-6, 10.7, -275], [-51+6, 10.7, 225]]
+        # self.static_car = True
         if self.static_car:
             car_dof_vel_init = np.zeros(3)
             car_dof_vel_limits = [np.zeros(3), np.zeros(3)]
             car_dof_acc_limits = [np.zeros(3), np.zeros(3)]
         else:
-            car_dof_vel_init = [0, 0, -1]
-            car_dof_vel_limits = [[-1, 0, -10], [1, 0, -1]]
-            car_dof_acc_limits = [[-.1, 0, 0], [.1, 0, 0]]
+            car_dof_vel_init = [0, 0, -0.1]
+            car_dof_vel_limits = [[-0.01, 0, -0.1], [0.01, 0, -0.1]]
+            car_dof_acc_limits = [[-.01, 0, 0], [.01, 0, 0]]
         self.car_traj_manager = CarNodeTrajectoryManager(self.ogre, node_name, car_dof_values_init, car_dof_vel_init, car_dof_limits, car_dof_vel_limits, car_dof_acc_limits)
         self.traj_managers.append(self.car_traj_manager)
         self.ogre.setCameraOrientation(quaternion_multiply(axis2quat(np.array((1,0,0)), -np.pi/4), self._q0)) # look diagonally downwards at a 45 deg angle
+        # self.ogre.setCameraOrientation(quaternion_multiply(axis2quat(np.array((0,1,0)), np.pi/2), self._q0)) # TODO
 
     def reset(self, dof_values):
         DiscreteVelocitySimulator.reset(self, dof_values)
 
+    # TODO
     def sample_state(self):
         car_dof_values = utils.math_utils.sample_interval(*self.car_traj_manager.dof_limits)
         self.car_traj_manager.reset(car_dof_values)
@@ -375,8 +419,8 @@ class CityOgreSimulator(OgreSimulator):
         dof_values = np.concatenate([camera_pos, np.array([tilt, pan])])
         return dof_values
 
-    def get_config(self):
-        config = super(OgreSimulator, self).get_config()
+    def _get_config(self):
+        config = super(OgreSimulator, self)._get_config()
         config.update({'static_car': self.static_car})
         return config
 
@@ -431,7 +475,7 @@ class ServoPlatform(DiscreteVelocitySimulator):
         self.cap.release()
         if self.background_window:
             cv2.destroyWindow("Background window")
-
+`
     @DiscreteVelocitySimulator.dof_values.setter
     def dof_values(self, next_dof_values):
         assert self._dof_values is None or self._dof_values.shape == next_dof_values.shape
@@ -475,8 +519,8 @@ class ServoPlatform(DiscreteVelocitySimulator):
         duration = 0.23 * deg_vel / 60.0
         return abs(duration)
 
-    def get_config(self):
-        config = super(ServoPlatform, self).get_config()
+    def _get_config(self):
+        config = super(ServoPlatform, self)._get_config()
         config.update({'pwm_address': self.pwm_address,
                        'pwm_freq': self.pwm_freq,
                        'pwm_channels': self.pwm_channels,
@@ -531,7 +575,7 @@ class PR2HeadSimulator(Simulator):
         dim, = self.angle.shape
         return dim
 
-    def get_config(self):
+    def _get_config(self):
         raise NotImplementedError
 
 
@@ -557,5 +601,5 @@ class PR2Head(PR2HeadSimulator):
         rgb, _ = self.grabber.getRGBD()
         return rgb
 
-    def get_config(self):
+    def _get_config(self):
         raise NotImplementedError

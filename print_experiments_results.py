@@ -1,6 +1,6 @@
 import argparse
 import numpy as np
-import data_container
+import utils
 
 
 def rms_errors(current, target):
@@ -15,9 +15,21 @@ def mean_rms_error(current, target):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('traj_container_fnames', type=str, nargs='+')
-    parser.add_argument('--traj_container', type=str, default='ImageTrajectoryDataContainer')
+    parser.add_argument('result_dirs', type=str, nargs='+')
+    # parser.add_argument('traj_container_fnames', type=str, nargs='+')
+    # parser.add_argument('--traj_container', type=str, default='ImageTrajectoryDataContainer')
     args = parser.parse_args()
+
+    result_dir = args.result_dirs[0]
+    container = utils.container.ImageDataContainer(result_dir)
+
+    num_trajs, num_steps = container.get_data_shape('vel')
+    for traj_iter in range(num_trajs):
+        image_target, dof_val_target = container.get_datum(traj_iter, ['image_target', 'dof_val_target'])
+        image, dof_val = container.get_datum(traj_iter, -1, ['image', 'dof_val'])
+        print((image_target - image).mean(), (dof_val_target - dof_val).mean())
+
+# TODO: -1
 
     TrajectoryDataContainer = getattr(data_container, args.traj_container)
     if not issubclass(TrajectoryDataContainer, data_container.TrajectoryDataContainer):

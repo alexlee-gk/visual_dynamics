@@ -1,4 +1,3 @@
-import data_container
 import numpy as np
 from utils import util
 
@@ -16,6 +15,56 @@ class TargetGenerator(object):
         Returns ground truth dof values for the current target (i.e. the one that get_target() returned last time it was called)
         """
         return self._dof_values_currrent_target
+
+
+
+# class OgreNodeTargetGenerator(SimulatorTargetGenerator):
+#     def __init__(self, sim, num_images, image_transformer=None, node_name=None, relative_pos=None):
+#         super(OgreNodeTargetGenerator, self).__init__(sim, num_images, image_transformer=image_transformer)
+#         self.node_name = node_name or 'ogrehead'
+#         self.relative_pos = relative_pos or np.array([6., 0, 0])
+#
+#     def get_dof_values_current_target(self):
+#         node_pos = self.sim.ogre.getNodePosition(self.node_name)
+#         camera_pos = node_pos + self.relative_pos
+#         pos_angle = np.zeros(min(6, self.sim.state_dim))
+#         pos_angle[:min(3, self.sim.state_dim)] = camera_pos[:min(3, self.sim.state_dim)]
+#         return pos_angle
+#
+#     def _get_dof_values_target(self):
+#         dof_values_current_target = self.get_dof_values_current_target()
+#         dof_values_current_target[:3] += np.random.random(3) - 0.5 # relatively the same plus some noise
+#         return dof_values_current_target
+#
+#
+# class CityNodeTargetGenerator(SimulatorTargetGenerator):
+#     def __init__(self, sim, num_images, image_transformer=None, node_name=None, relative_pos=None):
+#         super(CityNodeTargetGenerator, self).__init__(sim, num_images, image_transformer=image_transformer)
+#         self.node_name = node_name or 'car'
+#         self.relative_pos = relative_pos or np.array([6., 0, 0])
+#
+#     def get_dof_values_current_target(self):
+#         car_dof_min, car_dof_max = [np.array([-51-6, 10.7, -275]), np.array([-51+6, 10.7, 225])]
+#         car_dof_values = car_dof_min + np.random.random_sample(car_dof_min.shape) * (car_dof_max - car_dof_min)
+#         car_dof_vel = [0, 0, -1]
+#         self.sim.traj_managers[0].reset(car_dof_values, car_dof_vel)
+#         car_pos = car_dof_values
+#         # cam_radius = 10 + np.random.random_sample(1)[0] * 25
+#         cam_radius = 10 + 0.5 * 25
+#         cam_pan_min = max(self.sim.dof_limits[0][4], -np.pi/4)
+#         cam_pan_max = min(self.sim.dof_limits[1][4], np.pi/4)
+#         # cam_angle = cam_pan_min + np.random.random_sample(1)[0] * (cam_pan_max - cam_pan_min)
+#         # cam_height = np.random.random_sample(1)[0] * 25
+#         cam_angle = cam_pan_min + 0.5 * (cam_pan_max - cam_pan_min)
+#         cam_height = 0.5 * 25
+#         camera_pos = car_pos + np.array([cam_radius * np.sin(cam_angle), cam_height, cam_radius * np.cos(cam_angle)])
+#         dof_values = self.sim.look_at(car_pos, camera_pos)
+#         return dof_values
+#
+#     def _get_dof_values_target(self):
+#         return self.get_dof_values_current_target()
+
+
 
 
 class SimulatorTargetGenerator(TargetGenerator):
@@ -96,14 +145,22 @@ class CityNodeTargetGenerator(SimulatorTargetGenerator):
         car_dof_vel = [0, 0, -1]
         self.sim.traj_managers[0].reset(car_dof_values, car_dof_vel)
         car_pos = car_dof_values
-        cam_radius = 10 + np.random.random_sample(1)[0] * 25
-        cam_pan_min = max(self.sim.dof_limits[0][4], -np.pi/4)
-        cam_pan_max = min(self.sim.dof_limits[1][4], np.pi/4)
-        cam_angle = cam_pan_min + np.random.random_sample(1)[0] * (cam_pan_max - cam_pan_min)
-        cam_height = np.random.random_sample(1)[0] * 25
+        # cam_radius = 10 + np.random.random_sample(1)[0] * 25
+        cam_radius = 10 + 0.5 * 25
+        if len(self.sim.dof_values) > 3:
+            cam_pan_min = max(self.sim.dof_limits[0][4], -np.pi/4)
+            cam_pan_max = min(self.sim.dof_limits[1][4], np.pi/4)
+            # cam_angle = cam_pan_min + np.random.random_sample(1)[0] * (cam_pan_max - cam_pan_min)
+            # cam_height = np.random.random_sample(1)[0] * 25
+            cam_angle = cam_pan_min + 0.5 * (cam_pan_max - cam_pan_min)
+            cam_height = 0.5 * 25
+        else:
+            cam_angle = 0.0
+            cam_height = cam_radius
         camera_pos = car_pos + np.array([cam_radius * np.sin(cam_angle), cam_height, cam_radius * np.cos(cam_angle)])
+
         dof_values = self.sim.look_at(car_pos, camera_pos)
-        return dof_values
+        return dof_values[:len(self.sim.dof_values)]
 
     def _get_dof_values_target(self):
         return self.get_dof_values_current_target()

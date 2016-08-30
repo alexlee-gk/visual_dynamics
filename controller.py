@@ -21,6 +21,27 @@ class RandomController(Controller):
         return action
 
 
+class OgreNodeFollowerController(Controller):
+    def __init__(self, sim, node_name=None, radius=10+0.5*25, height=0.5*25, pan_angle=0):
+        self.sim = sim
+        self.node_name = node_name or b'car'
+        self.radius = radius
+        self.height = height
+        self.pan_angle = pan_angle
+
+    def get_dof_value(self):
+        node_pos = self.sim.ogre.getNodePosition(self.node_name)
+        camera_pos = node_pos + np.array([self.radius * np.sin(self.pan_angle), self.height, self.radius * np.cos(self.pan_angle)])
+        dof_values = self.sim.look_at(node_pos, camera_pos)
+        return dof_values
+
+    def step(self, obs=None):
+        node_pos = self.sim.ogre.getNodePosition(self.node_name)
+        camera_pos = node_pos + np.array([self.radius * np.sin(self.pan_angle), self.height, self.radius * np.cos(self.pan_angle)])
+        dof_values = self.sim.look_at(node_pos, camera_pos)
+        return dof_values - self.sim.dof_values
+
+
 class ServoingController(Controller):
     def __init__(self, feature_predictor, alpha=1.0, vel_max=None, lambda_=0.0, w=None):
         self.predictor = feature_predictor

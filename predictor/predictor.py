@@ -8,14 +8,16 @@ import utils
 from utils import util
 
 
-class Predictor:
-    def __init__(self, input_shapes, transformers=None, name=None):
+class Predictor(utils.ConfigObject):
+    def __init__(self, input_names, input_shapes, transformers=None, name=None):
+        self.input_names = input_names
         self.input_shapes = input_shapes
-        self.transformers = transformers or []
-        while len(self.transformers) < len(self.input_shapes):
-            self.transformers.append(utils.Transformer())  # identity transformation by default
-        self.preprocessed_input_shapes = [transformer.preprocess_shape(shape)
-                                          for (transformer, shape) in zip(self.transformers, self.input_shapes)]
+        self.transformers = transformers or dict()
+        for input_name in self.input_names:
+            if input_name not in self.transformers:
+                self.transformers[input_name] = utils.Transformer()  # identity transformation by default
+        self.preprocessed_input_shapes = [self.transformers[name].preprocess_shape(shape)
+                                          for (name, shape) in zip(self.input_names, self.input_shapes)]
         self.name = name or self.__class__.__name__
 
     def train(self, *train_data_fnames, val_data_fname=None, data_names=None, output_names=None):
@@ -28,8 +30,18 @@ class Predictor:
         raise NotImplementedError
 
     def preprocess(self, *inputs):
-        transformers = [*self.transformers, self.transformers[0]]
-        return tuple([transformer.preprocess(input_) for input_, transformer in zip(inputs, transformers)])
+        batch_size = self.batch_size(*inputs)
+        if batch_size == 0:
+            preprocessed_inputs = tuple([self.transformers[name].preprocess(input_)
+                                         for (name, input_) in zip(self.input_names, inputs)])
+        else:
+            batched_inputs = inputs
+            preprocessed_inputs = zip(*[self.preprocess(*inputs) for inputs in zip(*batched_inputs)])
+            preprocessed_inputs = tuple(np.asarray(preprocessed_input) for preprocessed_input in preprocessed_inputs)
+        # TODO
+        # if len(inputs) == 1:
+        #     preprocessed_inputs, = preprocessed_inputs
+        return preprocessed_inputs
 
     def batch_size(self, *inputs, preprocessed=False):
         if preprocessed:
@@ -57,158 +69,54 @@ class Predictor:
     def plot(self, *inputs, preprocessed=False):
         raise NotImplementedError
 
-    def get_config(self):
-        config = {'class': self.__class__,
-                  'input_shapes': self.input_shapes,
-                  'transformers': [transformer.get_config() for transformer in self.transformers],
-                  'name': self.name}
+    def _get_config(self):
+        config = super(Predictor, self)._get_config()
+        config.update({'input_names': self.input_names,
+                       'input_shapes': self.input_shapes,
+                       'transformers': self.transformers,
+                       'name': self.name})
         return config
 
 
 class FeaturePredictor(Predictor):
-    def __init__(self, input_shapes, transformers=None, name=None,
+    def __init__(self, input_names, input_shapes, transformers=None, name=None,
                  feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None):
-        Predictor.__init__(self, input_shapes, transformers=transformers, name=name)
+        """
+        feature_name and next_feature_name may each be a tensor name or a list
+        of names, in which case the corresponding prediction functions return a
+        list of tensors.
+        """
+        Predictor.__init__(self, input_names, input_shapes, transformers=transformers, name=name)
         self.feature_name = feature_name or 'y'
         self.next_feature_name = next_feature_name or 'y_next_pred'
-        self.feature_jacobian_name = feature_jacobian_name or 'y_diff_pred'
         self.control_name = control_name or 'u'
 
-    def _reshape_feature(self, Y, X, preprocessed=False):
-        batch_size = self.batch_size(X, preprocessed=preprocessed)
-        shape = (batch_size, -1) if batch_size else (-1,)
-        if isinstance(self.feature_name, str):
-            Y = Y.reshape(shape)
-        else:
-            Y = np.concatenate([Y_partial.reshape(shape) for Y_partial in Y], axis=-1)
-        return Y
-
     def feature(self, X, preprocessed=False):
-        Y = self.predict(self.feature_name, X, preprocessed=preprocessed)
-        return self._reshape_feature(Y, X, preprocessed=preprocessed)
+        return self.predict(self.feature_name, X, preprocessed=preprocessed)
 
     def next_feature(self, X, U, preprocessed=False):
-        Y_next_pred = self._reshape_feature(self.predict(self.next_feature_name, X, U, preprocessed=preprocessed))
-        return self._reshape_feature(Y_next_pred, X, preprocessed=preprocessed)
+        return self.predict(self.next_feature_name, X, U, preprocessed=preprocessed)
 
     def feature_jacobian(self, X, U, preprocessed=False):
-        jac = self.jacobian(self.feature_jacobian_name, self.control_name, X, U, preprocessed=preprocessed)
-        Y = self.feature(X, preprocessed=preprocessed)
-        return jac, Y
+        jac = self.jacobian(self.next_feature_name, self.control_name, X, U, preprocessed=preprocessed)
+        next_feature = self.next_feature(X, U, preprocessed=preprocessed)
+        return jac, next_feature
 
     def plot(self, X, U, preprocessed=False):
         # TODO
         raise NotImplementedError
 
-    def get_config(self):
-        config = Predictor.get_config(self)
+    def _get_config(self):
+        config = super(FeaturePredictor, self)._get_config()
         config.update({'feature_name': self.feature_name,
                        'next_feature_name': self.next_feature_name,
-                       'feature_jacobian_name': self.feature_jacobian_name,
                        'control_name': self.control_name})
         return config
 
 
-class HierarchicalFeaturePredictor(FeaturePredictor):
-    def __init__(self, input_shapes, transformers=None, name=None,
-                 feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None,
-                 levels=None, map_names=None, next_map_names=None):
-        FeaturePredictor.__init__(self, input_shapes, transformers=transformers, name=name,
-                                  feature_name=feature_name, next_feature_name=next_feature_name,
-                                  feature_jacobian_name=feature_jacobian_name, control_name=control_name)
-        self.levels = levels or [0]
-        self.map_names = map_names or ['x%d' % level for level in range(max(self.levels)+1)]
-        self.next_map_names = next_map_names or ['x%d_next_pred' % level for level in range(max(self.levels)+1)]
-        self._plot_fig_num = None
-
-    def maps(self, X, preprocessed=False):
-        return self.predict(self.map_names, X, preprocessed=preprocessed)
-
-    def next_maps(self, X, U, preprocessed=False):
-        return self.predict(self.next_map_names, X, U, preprocessed=preprocessed)
-
-    def plot(self, x, u, x_next=None, w=None, preprocessed=False):
-        xlevels = self.maps(x, preprocessed=preprocessed)
-        xlevels_next_pred = self.next_maps(x, u, preprocessed=preprocessed)
-        xlevels_all = [[('x', x), *zip(self.map_names, xlevels)],
-                       [(None, None), *zip(self.next_map_names, xlevels_next_pred)]]
-        if x_next is not None:
-            xlevels_next = self.maps(x_next, preprocessed=preprocessed)
-            xlevels_all.append([('x_next', x_next), *[(name+'_next', xlevel) for (name, xlevel) in zip(self.map_names, xlevels_next)]])
-
-        if w is None:
-            is_w_ones = True
-        else:
-            is_w_ones = np.all(w == 1)
-            w = w.copy()
-        plt.ion()
-        num_rows = len(xlevels_all) * (1 if is_w_ones else 2)
-        num_cols = max(len(xlevels) for xlevels in xlevels_all)
-        fig, axarr = plt.subplots(num_rows, num_cols, num=self._plot_fig_num,
-                                  figsize=(num_cols*6, num_rows*6))
-        self._plot_fig_num = fig.number
-        fig.canvas.set_window_title(self.name)
-        if axarr.ndim == 1:
-            axarr = axarr.reshape((1, -1))
-        # calculate min and max of responses at each level in order to consistently normalize the data
-        xlevels_min = np.inf * np.ones(num_cols)
-        xlevels_max = -np.inf * np.ones(num_cols)
-        for xlevels in xlevels_all:
-            for i, (name, xlevel) in enumerate(xlevels):
-                if xlevel is None:
-                    continue
-                xlevels_min[i] = min(xlevels_min[i], xlevel.min())
-                xlevels_max[i] = max(xlevels_max[i], xlevel.max())
-        # plot images and response maps
-        row = 0
-        for xlevels in xlevels_all:
-            w_start = 0
-            for i, (name, xlevel) in enumerate(xlevels):
-                if xlevel is None:
-                    fig.delaxes(axarr[row, i])
-                    continue
-                if i in (0, 1):
-                    if i == 0 and not preprocessed:
-                        image = xlevel
-                    else:
-                        image_transformer = self.transformers[0]
-                        image = image_transformer.transformers[-1].deprocess(xlevel)
-                    axarr[row, i].imshow(cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2RGB), interpolation='none')
-                else:
-                    axarr[row, i].imshow(utils.vis_square(xlevel,
-                                                          data_min=xlevels_min[i],
-                                                          data_max=xlevels_max[i]),
-                                         interpolation='none')
-                axarr[row, i].set_title(name)
-                if i != 0 and not is_w_ones:
-                    wlevel = w[w_start:w_start+xlevel.size].reshape(xlevel.shape)
-                    w_start += xlevel.size
-                    if i in (0, 1):
-                        if i == 0 and not preprocessed:
-                            image = wlevel * xlevel
-                        else:
-                            image_transformer = self.transformers[0]
-                            image = image_transformer.transformers[-1].deprocess(wlevel * xlevel)
-                        axarr[row+1, i].imshow(cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2RGB), interpolation='none')
-                    else:
-                        axarr[row+1, i].imshow(utils.vis_square(wlevel * xlevel,
-                                                                data_min=xlevels_min[i],
-                                                                data_max=xlevels_max[i]),
-                                               interpolation='none')
-            row += (1 if is_w_ones else 2)
-        plt.draw()
-
-    def get_config(self):
-        config = FeaturePredictor.get_config(self)
-        config.update({'levels': self.levels,
-                       'map_names': self.map_names,
-                       'next_map_names': self.next_map_names})
-        return config
-
-
 class NetPredictor(Predictor):
-    def __init__(self, input_shapes, transformers=None, name=None, backend=None):
-        Predictor.__init__(self, input_shapes, transformers=transformers, name=name)
+    def __init__(self, input_names, input_shapes, transformers=None, name=None, backend=None):
+        Predictor.__init__(self, input_names, input_shapes, transformers=transformers, name=name)
         self.backend = backend
 
     def get_model_dir(self):
