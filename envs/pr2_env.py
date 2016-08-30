@@ -12,6 +12,9 @@ class Pr2Env(RosEnv):
         self.pr2.larm.goto_posture('side')
         self.pr2.rarm.goto_posture('side')
         self.pr2.torso.go_down()
+        gains = {'head_pan_joint': {'d': 2.0, 'i': 12.0, 'i_clamp': 0.5, 'p': 50.0},
+                 'head_tilt_joint': {'d': 3.0, 'i': 4.0, 'i_clamp': 0.2, 'p': 1000.0}}
+        rospy.set_param('/head_traj_controller/gains', gains)
         self.pr2.head.set_pan_tilt(*((self.state_space.low + self.state_space.high) / 2.0))
 
         self.msg_and_camera_sensor = camera_sensor.MessageAndCameraSensor()
@@ -26,7 +29,7 @@ class Pr2Env(RosEnv):
         action[:] = self.state_space.clip(pan_tilt_angles + action) - pan_tilt_angles
 
         self.pr2.head.command_pan_tilt_vel(*action)
-        rospy.sleep(.1)
+        rospy.sleep(.3)
 
     def get_state(self):
         return self.pr2.head.get_joint_positions()
@@ -47,7 +50,7 @@ class Pr2Env(RosEnv):
         obs = []
         for sensor_name in self.sensor_names:
             if sensor_name == 'image':
-                observation = self.rgb_camera_sensor.observe()
+                observation = image
             else:
                 raise ValueError('Unknown sensor name %s' % sensor_name)
             obs.append(observation.copy())

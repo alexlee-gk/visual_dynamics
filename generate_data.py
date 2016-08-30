@@ -41,7 +41,7 @@ def main():
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
-        container.reserve('action', (args.num_trajs, args.num_steps))
+        container.reserve(['action', 'state_diff'], (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
         container.add_info(policy_config=pol.get_config())
     else:
@@ -77,7 +77,7 @@ def main():
                                         **dict(zip(env.sensor_names, obs)))
                     prev_state = state
                     if step_iter == (args.num_steps-1):
-                        next_state, next_obs = env.get_stat_and_observe()
+                        next_state, next_obs = env.get_state_and_observe()
                         container.add_datum(traj_iter, step_iter, state_diff=next_state - state)
                         container.add_datum(traj_iter, step_iter + 1, state=next_state,
                                             **dict(zip(env.sensor_names, next_obs)))

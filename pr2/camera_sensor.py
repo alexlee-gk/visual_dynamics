@@ -5,7 +5,7 @@ import rospy
 import roslib
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import JointState
-from message_filters import TimeSynchronizer
+import message_filters
 roslib.load_manifest("cv_bridge")
 from cv_bridge import CvBridge, CvBridgeError
 
@@ -28,7 +28,7 @@ class CameraSensor(object):
         image = None
         while True:
             image_msg = self._latest_image_msg
-            if image_msg.header.stamp >= time_now:
+            if image_msg is not None and image_msg.header.stamp >= time_now:
                 image = self.image_from_msg(image_msg)
             if image is not None:
                 break
@@ -44,7 +44,7 @@ class CameraSensor(object):
             return None
 
 
-class ApproximateTimeSynchronizer(TimeSynchronizer):
+class ApproximateTimeSynchronizer(message_filters.TimeSynchronizer):
 
     """
     Approximately synchronizes messages by their timestamps.
@@ -55,7 +55,7 @@ class ApproximateTimeSynchronizer(TimeSynchronizer):
     """
 
     def __init__(self, fs, queue_size, slop):
-        TimeSynchronizer.__init__(self, fs, queue_size)
+        message_filters.TimeSynchronizer.__init__(self, fs, queue_size)
         self.slop = rospy.Duration.from_sec(slop)
 
     def add(self, msg, my_queue):
@@ -83,14 +83,14 @@ class MessageAndCameraSensor(CameraSensor):
         self.msg_type = msg_type or JointState
         self.image_topic_name = image_topic_name or "/camera/rgb/image_color"
         self.encoding = encoding or "bgr8"
-        self.msg_subcriber = rospy.Subscriber(self.msg_topic_name, self.msg_type)
-        self.image_subcriber = rospy.Subscriber(self.image_topic_name, Image)
-        self.approx_time_sync = ApproximateTimeSynchronizer([self.msg_subscriber, self.image_subscriber], 10)
+        self.msg_subscriber = message_filters.Subscriber(self.msg_topic_name, self.msg_type)
+        self.image_subscriber = message_filters.Subscriber(self.image_topic_name, Image)
+        self.approx_time_sync = ApproximateTimeSynchronizer([self.msg_subscriber, self.image_subscriber], 10, 0.01)
         self.approx_time_sync.registerCallback(self._update_msgs)
 
         self.bridge = CvBridge()
 
-        self._latest_msgs = None
+        self._latest_msgs = (None, None)
 
     def _update_msgs(self, *msgs):
         self._latest_msgs = msgs
@@ -100,7 +100,7 @@ class MessageAndCameraSensor(CameraSensor):
         image = None
         while True:
             msg, image_msg = self._latest_msgs
-            if image_msg.header.stamp >= time_now:
+            if image_msg is not None and image_msg.header.stamp >= time_now:
                 image = self.image_from_msg(image_msg)
             if image is not None:
                 break

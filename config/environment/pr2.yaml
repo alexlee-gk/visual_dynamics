@@ -1,7 +1,7 @@
 class: !!python/name:envs.pr2_env.Pr2Env ''
 action_space:
   class: !!python/name:spaces.box_space.BoxSpace ''
-  high: [0.17453292519943295, 0.17453292519943295]
+  high: [0.17453292519943295, 0.3490658503988659]
   low: [-0.17453292519943295, -0.3490658503988659]
   dtype: float64
 observation_space:
