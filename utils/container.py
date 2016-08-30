@@ -22,7 +22,7 @@ def open_23(name, mode='r'):
         raise ValueError("unknown major version %d" % sys.version_info.major)
 
 
-class DataContainer:
+class DataContainer(object):
     def __init__(self, data_dir, mode='r'):
         self.data_dir = self._require_data_dir(data_dir, mode)
         self.info_file = None
@@ -98,7 +98,7 @@ class DataContainer:
             datum_size = self.get_data_size(name)
             shape = (datum_size, ) + value.shape
             dset = self.hdf5_file.require_dataset(name, shape, value.dtype, exact=True)
-            datum_ind = self._get_datum_ind(*inds, name=name)
+            datum_ind = self._get_datum_ind(*(inds + (name,)))
             dset[datum_ind] = value
 
     def get_datum(self, *inds_and_datum_names):
@@ -109,7 +109,7 @@ class DataContainer:
             names = list(datum_names)
         datum = []
         for name in names:
-            datum_ind = self._get_datum_ind(*inds, name=name)
+            datum_ind = self._get_datum_ind(*(inds + (name,)))
             datum.append(self.hdf5_file[name][datum_ind][()])
         if isinstance(datum_names, str):
             datum, = datum
@@ -150,8 +150,8 @@ class DataContainer:
 
     def _get_datum_ind(self, *inds_and_name):
         inds, name = inds_and_name[:-1], inds_and_name[-1]
-        inds = self._get_canonical_inds(*inds, name=name)
-        self._check_ind_range(*inds, name=name)
+        inds = self._get_canonical_inds(*(inds + (name,)))
+        self._check_ind_range(*(inds + (name,)))
         shape = self.get_data_shape(name)
         datum_ind = 0
         for ind, dim in zip(inds, shape):
@@ -164,11 +164,11 @@ class DataContainer:
         assert 0 <= datum_ind < self.get_data_size(name)
         shape = self.get_data_shape(name)
         ind = datum_ind
-        inds = [-1]*len(shape)
+        inds = (-1,) * len(shape)
         for i, dim in reversed(list(enumerate(shape))):
             inds[i] = ind % dim
             ind //= dim
-        assert datum_ind == self._get_datum_ind(*inds, name=name)
+        assert datum_ind == self._get_datum_ind(*(inds + (name,)))
         return tuple(inds)
 
     def _require_data_dir(self, data_dir, mode):
@@ -215,8 +215,8 @@ class ImageDataContainer(DataContainer):
     def _get_image_fname(self, *inds_and_name, **kwargs):
         inds, name = inds_and_name[:-1], inds_and_name[-1]
         ext = kwargs.get('ext', '.jpg')
-        inds = self._get_canonical_inds(*inds, name=name)
-        self._check_ind_range(*inds, name=name)
+        inds = self._get_canonical_inds(*(inds + (name,)))
+        self._check_ind_range(*(inds + (name,)))
         shape = self.get_data_shape(name)
         image_fmt = '%s'
         for dim in shape:
