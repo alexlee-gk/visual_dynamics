@@ -66,16 +66,15 @@ def main():
             state = pol.reset()
             env.reset(state)
             for step_iter in range(args.num_steps):
-                state = env.get_state()
-                obs = env.observe()
+                state, obs = env.get_state_and_observe()
                 action = pol.act(obs)
                 env.step(action)  # action is updated in-place if needed
                 if container:
                     container.add_datum(traj_iter, step_iter, state=state, action=action,
                                         **dict(zip(env.sensor_names, obs)))
                     if step_iter == (args.num_steps-1):
-                        obs_next = env.observe()
-                        container.add_datum(traj_iter, step_iter + 1, state=env.get_state(),
+                        state_next, obs_next = env.get_stat_and_observe()
+                        container.add_datum(traj_iter, step_iter + 1, state=state_next,
                                             **dict(zip(env.sensor_names, obs_next)))
                 if args.visualize:
                     env.render()

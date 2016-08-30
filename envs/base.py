@@ -38,6 +38,18 @@ class Env(utils.config.ConfigObject):
         """
         raise NotImplementedError
 
+    def get_state_and_observe(self):
+        """
+        Returns the state of get_state() and the observations of observe(),
+        ensuring that they correspond to each other. This is particularly
+        useful in real-world systems.
+
+        Returns:
+            a tuple of the state and the observations
+
+        """
+        return self.get_state(), self.observe()
+
     def render(self):
         pass
 

@@ -14,7 +14,7 @@ class Pr2Env(RosEnv):
         self.pr2.torso.go_down()
         self.pr2.head.set_pan_tilt(*((self.state_space.low + self.state_space.high) / 2.0))
 
-        self.rgb_camera_sensor = camera_sensor.CameraSensor()
+        self.msg_and_camera_sensor = camera_sensor.MessageAndCameraSensor()
 
     def step(self, action):
         # update action to be within the action space
@@ -38,6 +38,12 @@ class Pr2Env(RosEnv):
         rospy.sleep(1.0)
 
     def observe(self):
+        _, obs = self.get_state_and_observe()
+        return obs
+
+    def get_state_and_observe(self):
+        joint_state_msg, image = self.msg_and_camera_sensor.get_msg_and_observe()
+        state = self.pr2.head.get_joint_positions(msg=joint_state_msg)
         obs = []
         for sensor_name in self.sensor_names:
             if sensor_name == 'image':
@@ -45,7 +51,7 @@ class Pr2Env(RosEnv):
             else:
                 raise ValueError('Unknown sensor name %s' % sensor_name)
             obs.append(observation.copy())
-        return obs
+        return state, obs
 
     def render(self):
         pass

@@ -183,8 +183,8 @@ class TrajectoryControllerWrapper(object):
         all_acc_limits = self.pr2.robot.GetDOFVelocityLimits()
         self.acc_limits = np.array([all_acc_limits[i_rave] * ACC_RATIO for i_rave in self.rave_joint_inds])
 
-    def get_joint_positions(self):
-        msg = self.pr2.get_last_joint_message()
+    def get_joint_positions(self, msg=None):
+        msg = msg or self.pr2.get_last_joint_message()
         return np.array([msg.position[i] for i in self.ros_joint_inds])
 
     def goto_joint_positions(self, positions_goal):
