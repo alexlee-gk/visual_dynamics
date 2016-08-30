@@ -16,9 +16,12 @@ class GridImageVisualizer:
             assert not (rows is None and cols is None)
             num_plots = rows * cols
         if cols is None:
-            cols = int(np.floor(np.sqrt(num_plots)))
+            if rows is None:
+                cols = int(np.floor(np.sqrt(num_plots)))
+            else:
+                cols = int(np.ceil(float(num_plots) / rows))
         if rows is None:
-            rows = int(np.ceil(float(num_plots)/cols))
+            rows = int(np.ceil(float(num_plots) / cols))
         assert num_plots <= rows * cols, 'Too many plots to put into gridspec.'
 
         self._fig = fig
