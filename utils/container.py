@@ -137,7 +137,7 @@ class DataContainer(object):
         for i, ind in enumerate(inds):
             if ind < 0:
                 inds[i] += shape[i]
-        return inds
+        return tuple(inds)
 
     def _check_ind_range(self, *inds_and_name):
         inds, name = inds_and_name[:-1], inds_and_name[-1]
@@ -204,13 +204,13 @@ class ImageDataContainer(DataContainer):
                 raise ValueError('unable to add datum %s with shape %s since the shape %s was expected' %
                                  (image_name, image.shape, self.datum_shapes_dict[image_name]))
             self.datum_shapes_dict[image_name] = image.shape
-            image_fname = self._get_image_fname(*inds, name=image_name)
+            image_fname = self._get_image_fname(*(inds + (image_name,)))
             if image.dtype == np.uint8:
                 if image.ndim == 3 and image.shape[2] == 3:
                     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             else:
                 image = utils.pack_image(image)
-            cv2.imwrite(image_fname, image, [cv2.IMWRITE_JPEG_QUALITY, 100])
+            cv2.imwrite(image_fname, image, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
 
     def _get_image_fname(self, *inds_and_name, **kwargs):
         inds, name = inds_and_name[:-1], inds_and_name[-1]
@@ -237,7 +237,7 @@ class ImageDataContainer(DataContainer):
         image_names = [name for name in names if name.endswith('image')]
         image_datum = []
         for image_name in image_names:
-            image_fname = self._get_image_fname(*inds, name=image_name)
+            image_fname = self._get_image_fname(*(inds + (image_name,)))
             if not os.path.isfile(image_fname):
                 raise FileNotFoundError('image file %s does not exist' % image_fname)
             image = cv2.imread(image_fname)
