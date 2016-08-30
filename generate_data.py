@@ -63,6 +63,7 @@ def main():
     for traj_iter in range(args.num_trajs):
         print('traj_iter', traj_iter)
         try:
+            prev_state = None
             state = pol.reset()
             env.reset(state)
             for step_iter in range(args.num_steps):
@@ -70,12 +71,16 @@ def main():
                 action = pol.act(obs)
                 env.step(action)  # action is updated in-place if needed
                 if container:
+                    if step_iter > 0:
+                        container.add_datum(traj_iter, step_iter - 1, state_diff=state - prev_state)
                     container.add_datum(traj_iter, step_iter, state=state, action=action,
                                         **dict(zip(env.sensor_names, obs)))
+                    prev_state = state
                     if step_iter == (args.num_steps-1):
-                        state_next, obs_next = env.get_stat_and_observe()
-                        container.add_datum(traj_iter, step_iter + 1, state=state_next,
-                                            **dict(zip(env.sensor_names, obs_next)))
+                        next_state, next_obs = env.get_stat_and_observe()
+                        container.add_datum(traj_iter, step_iter, state_diff=next_state - state)
+                        container.add_datum(traj_iter, step_iter + 1, state=next_state,
+                                            **dict(zip(env.sensor_names, next_obs)))
                 if args.visualize:
                     env.render()
                     try:
