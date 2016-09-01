@@ -35,7 +35,7 @@ def main():
         data_fnames.append(solver_config['val_data_fname'])
     with utils.container.MultiDataContainer(data_fnames) as data_container:
         sensor_names = data_container.get_info('environment_config')['sensor_names']
-        data_names = solver_config.get('data_names', [*sensor_names, 'action'])
+        data_names = solver_config.get('data_names', sensor_names + ['action'])
         # input_shapes = [data_container.get_datum_shape(name) for name in ('image', 'vel')]
         input_shapes = [data_container.get_datum_shape(name) for name in data_names]
     if 'input_shapes' in predictor_config:
@@ -48,7 +48,7 @@ def main():
         transformers = utils.from_yaml(tranformers_file)
     action_space = utils.from_config(data_container.get_info('environment_config')['action_space'])
     observation_space = utils.from_config(data_container.get_info('environment_config')['observation_space'])
-    data_spaces = dict(zip([*sensor_names, 'action'], [*observation_space.spaces, action_space]))
+    data_spaces = dict(zip(sensor_names + ['action'], observation_space.spaces + [action_space]))
 
     for data_name, transformer in transformers.items():
         for nested_transformer in utils.transformer.get_all_transformers(transformer):

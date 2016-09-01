@@ -20,13 +20,17 @@ class Predictor(utils.ConfigObject):
                                           for (name, shape) in zip(self.input_names, self.input_shapes)]
         self.name = name or self.__class__.__name__
 
-    def train(self, *train_data_fnames, val_data_fname=None, data_names=None, output_names=None):
+    def train(self, *train_data_fnames, **kwargs):
+        kwargs = utils.python3.get_kwargs(dict(val_data_fname=None,
+                                               data_names=None,
+                                               output_names=None),
+                                          kwargs)
         raise NotImplementedError
 
-    def predict(self, name_or_names, *inputs, preprocessed=False):
+    def predict(self, name_or_names, *inputs, **kwargs):
         raise NotImplementedError
 
-    def jacobian(self, name, wrt_name, *inputs, preprocessed=False):
+    def jacobian(self, name, wrt_name, *inputs, **kwargs):
         raise NotImplementedError
 
     def preprocess(self, *inputs):
@@ -43,7 +47,9 @@ class Predictor(utils.ConfigObject):
         #     preprocessed_inputs, = preprocessed_inputs
         return preprocessed_inputs
 
-    def batch_size(self, *inputs, preprocessed=False):
+    def batch_size(self, *inputs, **kwargs):
+        kwargs = utils.python3.get_kwargs(dict(preprocessed=False), kwargs)
+        preprocessed = kwargs['preprocessed']
         if preprocessed:
             input_shapes = self.preprocessed_input_shapes
         else:
@@ -57,16 +63,16 @@ class Predictor(utils.ConfigObject):
                     batch_size = input_.shape[0]
                 else:
                     raise ValueError('expecting input of shape %r or %r but got input of shape %r' %
-                                     (shape, (None, *shape), input_.shape))
+                                     (shape, (None,) + shape, input_.shape))
             else:
-                if input_.shape == shape or input_.shape == (batch_size, *shape):
+                if input_.shape == shape or input_.shape == ((batch_size,) + shape):
                     continue
                 else:
                     raise ValueError('expecting input of shape %r or %r but got input of shape %r' %
-                                     (shape, (batch_size, *shape), input_.shape))
+                                     (shape, (batch_size,) + shape, input_.shape))
         return batch_size
 
-    def plot(self, *inputs, preprocessed=False):
+    def plot(self, inputs, preprocessed=False):
         raise NotImplementedError
 
     def _get_config(self):

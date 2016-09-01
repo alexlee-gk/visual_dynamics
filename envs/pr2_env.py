@@ -1,7 +1,7 @@
 import numpy as np
-import rospy
 from envs import RosEnv
 try:
+    import rospy
     from pr2 import PR2, camera_sensor
 except:
     pass

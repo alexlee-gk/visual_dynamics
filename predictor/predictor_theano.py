@@ -100,7 +100,9 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         print("... finished in %.2f s" % (time.time() - start_time))
         return pred_fn
 
-    def predict(self, name_or_names, *inputs, preprocessed=False):
+    def predict(self, name_or_names, *inputs, **kwargs):
+        kwargs = utils.python3.get_kwargs(dict(preprocessed=False), kwargs)
+        preprocessed = kwargs['preprocessed']
         if not isinstance(name_or_names, str):
             name_or_names = tuple(name_or_names)
         batch_size = self.batch_size(*inputs, preprocessed=preprocessed)
@@ -168,7 +170,12 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         print("... finished in %.2f s" % (time.time() - start_time))
         return jac_fn
 
-    def jacobian(self, name, wrt_name, *inputs, preprocessed=False, other_names=(), mode=None):
+    def jacobian(self, name, wrt_name, *inputs, **kwargs):
+        kwargs = utils.python3.get_kwargs(dict(preprocessed=False,
+                                               other_names=(),
+                                               mode=None),
+                                          kwargs)
+        preprocessed, other_names, mode = [kwargs[key] for key in ['preprocessed', 'other_names', 'mode']]
         batch_size = self.batch_size(*inputs, preprocessed=preprocessed)
         if not preprocessed:
             inputs = self.preprocess(*inputs)
@@ -176,11 +183,12 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         if batch_size in (0, 1):
             if batch_size == 0:
                 inputs = [input_[None, :] for input_ in inputs]
-            jac_fn_key = (name, wrt_name, *other_names, mode)
+            jac_fn_key = (name, wrt_name) + tuple(other_names) + (mode,)
             jac_fn = self.jac_fns.get(jac_fn_key) or \
                      self.jac_fns.setdefault(jac_fn_key,
                                              self._compile_jacobian_fn(name, wrt_name, other_names=other_names, mode=mode))
-            jac, *others = jac_fn(*inputs) if other_names else [jac_fn(*inputs)]
+            jac_and_others = jac_fn(*inputs) if other_names else [jac_fn(*inputs)]
+            jac, others = jac_and_others[0], jac_and_others[1:]
             output_shape, wrt_shape = lasagne.layers.get_output_shape([self.pred_layers[name], self.pred_layers[wrt_name]])
             output_dim = np.prod(output_shape[1:])
             wrt_dim = np.prod(wrt_shape[1:])
@@ -190,7 +198,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             if batch_size == 0:
                 others = [np.squeeze(other, 0) for other in others]
             if other_names:
-                return (jac, *others)
+                return (jac,) + tuple(others)
             else:
                 return jac
         else:
@@ -302,6 +310,6 @@ class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
         return jac, next_feature
 
     def _get_config(self):
-        config = {**TheanoNetPredictor._get_config(self),
-                  **predictor.FeaturePredictor._get_config(self)}
+        config = dict(TheanoNetPredictor._get_config(self))
+        config.update(predictor.FeaturePredictor._get_config(self))
         return config

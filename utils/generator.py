@@ -6,6 +6,8 @@ import queue
 import time
 import numpy as np
 import utils
+if not hasattr(contextlib, 'ExitStack'):
+    import contextlib2 as contextlib
 
 
 # generator_queue copied from Keras library: https://github.com/fchollet/keras/blob/master/keras/models.py
@@ -58,6 +60,10 @@ class ParallelGenerator:
                 time.sleep(self.wait_time)
         raise StopIteration
 
+    def next(self):
+        # python 2 compatible
+        return self.__next__()
+
     def __del__(self):
         self._data_stop.set()
         for thread in self.generator_threads:
@@ -90,6 +96,13 @@ class DataGenerator:
         self._data_name_offset_pairs = data_name_offset_pairs
         self.transformers_dict = transformers or dict()
         self.once = once
+        # for some reason self._squeeze is not defined in batch_size.setter, so do it here
+        if batch_size == 0:
+            self._batch_size = 1
+            self._squeeze = True
+        else:
+            self._batch_size = batch_size
+            self._squeeze = False
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.dtype = dtype
@@ -219,6 +232,10 @@ class DataGenerator:
                 batch_data = [np.squeeze(datum, axis=0) for datum in batch_data]
             return tuple(batch_data)
 
+    def next(self):
+        # python 2 compatible
+        return self.__next__()
+
     @property
     def size(self):
         """
@@ -240,7 +257,7 @@ def main():
     transformers = {'image': image_transformer, 'action': action_transformer}
 
     data_name_offset_pairs = [('image', 0), ('action', 0), ('image', 1)]
-    generator = DataGenerator(*args.container_fname,
+    generator = DataGenerator(args.container_fname,
                               data_name_offset_pairs=data_name_offset_pairs,
                               transformers=transformers,
                               batch_size=32, shuffle=True, once=True)

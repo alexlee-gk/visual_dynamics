@@ -3,3 +3,5 @@ h5py
 matplotlib
 pydotplus
 pycollada
+future ; python_version < '3'
+contextlib2 ; python_version < '3.3'

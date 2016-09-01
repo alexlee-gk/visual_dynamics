@@ -35,10 +35,10 @@ for container_ind, container_fname in enumerate(container_fnames):
               )
 def test_generator_int_offset(offset_limits):
     traj_offset_limit, step_offset_limit = offset_limits
-    data_name_offset_pairs = [('container_ind', 0),
-                              *[('traj_iter', i) for i in range(*traj_offset_limit)],
-                              *[('step_iter', i) for i in range(*step_offset_limit)]]
-    generator = DataGenerator(*container_fnames,
+    data_name_offset_pairs = [('container_ind', 0)] + \
+                              [('traj_iter', i) for i in range(*traj_offset_limit)] + \
+                              [('step_iter', i) for i in range(*step_offset_limit)]
+    generator = DataGenerator(container_fnames,
                               data_name_offset_pairs=data_name_offset_pairs,
                               batch_size=32,
                               shuffle=True,
@@ -70,7 +70,7 @@ def test_generator_slice_offset(offset_limits):
     data_name_offset_pairs = [('container_ind', 0),
                               ('traj_iter', slice(*traj_offset_limit)),
                               ('step_iter', slice(*step_offset_limit))]
-    generator = DataGenerator(*container_fnames,
+    generator = DataGenerator(container_fnames,
                               data_name_offset_pairs=data_name_offset_pairs,
                               batch_size=32,
                               shuffle=True,
@@ -101,7 +101,7 @@ def test_generator_list_offset(offset_limits):
     data_name_offset_pairs = [('container_ind', 0),
                               ('traj_iter', list(range(*traj_offset_limit))),
                               ('step_iter', list(range(*step_offset_limit)))]
-    generator = DataGenerator(*container_fnames,
+    generator = DataGenerator(container_fnames,
                               data_name_offset_pairs=data_name_offset_pairs,
                               batch_size=32,
                               shuffle=True,

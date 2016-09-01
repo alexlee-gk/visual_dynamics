@@ -166,7 +166,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
             raise ValueError('Unknown solver type %s' % self.solver_type)
         start_time = time.time()
         print("Compiling training function...")
-        train_fn = theano.function([*input_vars, learning_rate_var], loss, updates=updates)
+        train_fn = theano.function(input_vars + [learning_rate_var], loss, updates=updates)
         print("... finished in %.2f s" % (time.time() - start_time))
         return train_fn
 
@@ -200,8 +200,8 @@ class TheanoNetSolver(utils.config.ConfigObject):
         transformers = {data_name: net.transformers[data_to_input_name[data_name]] for data_name in self.data_names}
 
         # training data
-        train_data_gen = utils.generator.DataGenerator(*self.train_data_fnames,
-                                                       data_name_offset_pairs =self.data_name_offset_pairs ,
+        train_data_gen = utils.generator.DataGenerator(self.train_data_fnames,
+                                                       data_name_offset_pairs=self.data_name_offset_pairs,
                                                        transformers=transformers,
                                                        batch_size=self.batch_size,
                                                        shuffle=True,
@@ -238,7 +238,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
             current_step = self.iter_ // self.stepsize
             learning_rate = self.base_lr * self.gamma ** current_step
-            loss = float(train_fn(*next(train_data_gen), learning_rate))
+            loss = float(train_fn(*(tuple(next(train_data_gen)) + (learning_rate,))))
             self.losses.append(loss)
 
             if self.display and self.iter_ % self.display == 0:
@@ -417,7 +417,7 @@ class BilinearSolver(TheanoNetSolver):
         transformers = {data_name: net.transformers[data_to_input_name[data_name]] for data_name in self.data_names}
 
         # training data
-        train_data_gen = utils.generator.DataGenerator(*self.train_data_fnames,
+        train_data_gen = utils.generator.DataGenerator(self.train_data_fnames,
                                                        data_name_offset_pairs=self.data_name_offset_pairs,
                                                        transformers=transformers,
                                                        batch_size=self.loss_batch_size,
@@ -456,7 +456,7 @@ class BilinearSolver(TheanoNetSolver):
                 print("    validation loss = {:.6f}".format(val_loss))
 
             # training data (one pass)
-            train_data_once_gen = utils.generator.DataGenerator(*self.train_data_fnames,
+            train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
                                                                 data_name_offset_pairs=self.data_name_offset_pairs ,
                                                                 transformers=transformers,
                                                                 once=True,

@@ -11,3 +11,4 @@ except:
     pass
 from .visualization import *
 from .visualization_theano import *
+from .python3 import *

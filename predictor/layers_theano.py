@@ -388,7 +388,7 @@ class Conv2DLSTMLayer(MergeLayer):
         b_stacked = T.concatenate(
             [self.b_ingate, self.b_forgetgate,
              self.b_cell, self.b_outgate], axis=0)
-        bias_dims = (*range(b_stacked.ndim), *['x'] * (3 - b_stacked.ndim))
+        bias_dims = list(range(b_stacked.ndim)) + ['x'] * (3 - b_stacked.ndim)
         b_stacked = b_stacked.dimshuffle(bias_dims)
 
         def convolve(input, W):
@@ -664,7 +664,7 @@ class PredNetLSTMLayer(MergeLayer):
             self.W_cell_to_outgate = [None] * self.num_levels
             for level in range(self.num_levels):
                 cell_shape = L.helper.get_output_shape(self.hidden_to_hidden[level])  # same shape as hid_shape
-                cell_shape = (cell_shape[0], cell_shape[1] // 4, *cell_shape[2:])
+                cell_shape = (cell_shape[0], cell_shape[1] // 4) + cell_shape[2:]
 
                 self.W_cell_to_ingate[level] = self.add_param(
                     ingate_W_cell[level], cell_shape[1:], name="W_cell_to_ingate_%d" % level)
@@ -681,7 +681,7 @@ class PredNetLSTMLayer(MergeLayer):
         self.error_init = [None] * self.num_levels
         for level in range(self.num_levels):
             hid_shape = L.helper.get_output_shape(self.hidden_to_hidden[level])
-            hid_shape = (hid_shape[0], hid_shape[1] // 4, *hid_shape[2:])
+            hid_shape = (hid_shape[0], hid_shape[1] // 4) + hid_shape[2:]
             error_shape = L.helper.get_output_shape(self.input_and_hidden_to_error[level])
 
             if isinstance(cell_init[level], Layer):
@@ -736,7 +736,7 @@ class PredNetLSTMLayer(MergeLayer):
         # When only_return_final is true, the second (sequence step) dimension
         # will be flattened
         if self.only_return_final:
-            return (input_shape[0], *input_shape[2:])
+            return (input_shape[0],) + input_shape[2:]
         # Otherwise, the shape will be (n_batch, n_steps, num_filters, output_rows, output_columns)
         else:
             return input_shape
@@ -935,7 +935,7 @@ class PredNetLSTMLayer(MergeLayer):
                     input_n = L.helper.get_output(
                         self.error_to_upper_input[level], error[level], **kwargs)
 
-            return [*cell, *hid, *error]
+            return cell + hid + error
 
         def step_masked(input_n, mask_n, cell_previous, hid_previous, *args):
             cell, hid = step(input_n, cell_previous, hid_previous, *args)
@@ -1008,7 +1008,7 @@ class PredNetLSTMLayer(MergeLayer):
             outs = unroll_scan(
                 fn=step_fun,
                 sequences=sequences,
-                outputs_info=[*cell_init, *hid_init, *error_init],
+                outputs_info=cell_init + hid_init + error_init,
                 go_backwards=self.backwards,
                 non_sequences=non_seqs,
                 n_steps=input_shape[1])
@@ -1018,7 +1018,7 @@ class PredNetLSTMLayer(MergeLayer):
             outs = theano.scan(
                 fn=step_fun,
                 sequences=sequences,
-                outputs_info=[*cell_init, *hid_init, *error_init],
+                outputs_info=[cell_init + hid_init + error_init],
                 go_backwards=self.backwards,
                 truncate_gradient=self.gradient_steps,
                 non_sequences=non_seqs,
@@ -1350,7 +1350,7 @@ class CrossConv2DLayer(L.MergeLayer):
         conved, updates = theano.scan(fn=lambda input_, W:
                                              self.convolution(input_[None, :, :, :],
                                                               W,
-                                                              (1, *self.input_shape[1:]), self.get_W_shape(),
+                                                              (1,) + self.input_shape[1:], self.get_W_shape(),
                                                               subsample=self.stride,
                                                               filter_dilation=self.filter_dilation,
                                                               border_mode=border_mode,
@@ -1376,8 +1376,9 @@ class ChannelwiseLayer(L.Layer):
         for channel in range(lasagne.layers.get_output_shape(incoming)[0]):
             channel_incoming = L.SliceLayer(incoming, indices=slice(channel, channel+1), axis=1,
                                             name='%s.%s%d' % (name, 'slice', channel) if name is not None else None)
-            channel_outcoming = channel_layer_class(channel_incoming, **channel_layer_kwargs,
-                                                    name='%s.%s%d' % (name, 'op', channel) if name is not None else None)
+            channel_outcoming = channel_layer_class(channel_incoming,
+                                                    name='%s.%s%d' % (name, 'op', channel) if name is not None else None,
+                                                    **channel_layer_kwargs)
             self.channel_incomings.append(channel_incoming)
             self.channel_outcomings.append(channel_outcoming)
         self.outcoming = L.ConcatLayer(self.channel_outcomings, axis=1,
@@ -1971,15 +1972,15 @@ class OuterProductLayer(L.MergeLayer):
         y_shape = Y_shape[1:]
         u_shape = U_shape[1:]
         u_dim, = u_shape
-        outer_shape = (y_shape[0]*(u_dim + int(self.use_bias)), *y_shape[1:])
-        return (Y_shape[0], *outer_shape)
+        outer_shape = (y_shape[0]*(u_dim + int(self.use_bias)),) + y_shape[1:]
+        return (Y_shape[0],) + outer_shape
 
     def get_output_for(self, inputs, **kwargs):
         Y, U = inputs
         if self.use_bias:
             U = T.concatenate([U, T.ones((U.shape[0], 1))], axis=1)
-        outer_YU = Y.dimshuffle([0, 1, 'x', *range(2, Y.ndim)]) * U.dimshuffle([0, 'x', 1] + ['x']*(Y.ndim-2))
-        return outer_YU.reshape((Y.shape[0], -1, *Y.shape[2:]))
+        outer_YU = Y.dimshuffle([0, 1, 'x'] + list(range(2, Y.ndim))) * U.dimshuffle([0, 'x', 1] + ['x']*(Y.ndim-2))
+        return outer_YU.reshape((Y.shape[0], -1, Y.shape[2], Y.shape[3]))
 
 
 class BilinearLayer(L.MergeLayer):

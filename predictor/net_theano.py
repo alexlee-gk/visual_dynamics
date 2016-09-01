@@ -175,12 +175,12 @@ def build_vgg_action_cond_encoder_net(input_shapes, levels=None, x1_c_dim=16, bi
                                                              name='x%d_next_pred' % level)
 
     pred_layers = OrderedDict([('x', l_xlevels[0]),
-                               *[('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()],
                                ('x_next', l_x_next),
                                ('x0_next', l_x_next),
                                ('x_next_pred', l_xlevels_next_pred[0]),
-                               *[('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()]
                                ])
+    pred_layers.update([('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()])
+    pred_layers.update([('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()])
     return pred_layers
 
 
@@ -231,12 +231,12 @@ def build_vgg_fcn_action_cond_encoder_net(input_shapes, levels=None, bilinear_ty
                                                              name='x%d_next_pred' % level)
 
     pred_layers = OrderedDict([('x', l_xlevels[0]),
-                               *[('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()],
                                ('x_next', l_x_next),
                                ('x0_next', l_x_next),
                                ('x_next_pred', l_xlevels_next_pred[0]),
-                               *[('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()]
                                ])
+    pred_layers.update([('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()])
+    pred_layers.update([('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()])
     return pred_layers
 
 
@@ -278,12 +278,12 @@ def build_multiscale_action_cond_encoder_net(input_shapes, levels=None, bilinear
                                                              name='x%d_next_pred' % level)
 
     pred_layers = OrderedDict([('x', l_xlevels[0]),
-                               *[('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()],
                                ('x_next', l_x_next),
                                ('x0_next', l_x_next),
                                ('x_next_pred', l_xlevels_next_pred[0]),
-                               *[('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()]
                                ])
+    pred_layers.update([('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()])
+    pred_layers.update([('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()])
     return pred_layers
 
 
@@ -341,10 +341,10 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
                                                               name='x%d_%d_next_pred' % (num_encoding_levels, scale))
 
     pred_layers = OrderedDict([('x', l_x),
-                               *[('x%d_%d' % (num_encoding_levels, scale), l_xlevel_scales[scale]) for scale in l_xlevel_scales.keys()],
                                ('x_next', l_x_next),
-                               *[('x%d_%d_next_pred' % (num_encoding_levels, scale), l_xlevel_scales_next_pred[scale]) for scale in l_xlevel_scales_next_pred.keys()]
                                ])
+    pred_layers.update([('x%d_%d' % (num_encoding_levels, scale), l_xlevel_scales[scale]) for scale in l_xlevel_scales.keys()])
+    pred_layers.update([('x%d_%d_next_pred' % (num_encoding_levels, scale), l_xlevel_scales_next_pred[scale]) for scale in l_xlevel_scales_next_pred.keys()])
     return pred_layers
 
 
@@ -502,14 +502,14 @@ def build_dilated_vgg_action_cond_encoder_net(input_shapes,
         l_xlevels_dec[level] = l_xlevel_dec
 
     pred_layers = OrderedDict([('x', l_xlevels[0]),
-                               *[('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()],
                                ('x_next', l_x_next),
                                ('x0_next', l_x_next),
                                ('x_next_pred', l_xlevels_dec[0]),
                                ('x0_next_pred', l_xlevels_dec[0]),
-                               *[('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()],
-                               *[('x%d_dec' % level, l_xlevels_dec[level]) for level in l_xlevels_dec.keys()]
                                ])
+    pred_layers.update([('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()])
+    pred_layers.update([('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()])
+    pred_layers.update([('x%d_dec' % level, l_xlevels_dec[level]) for level in l_xlevels_dec.keys()])
     return pred_layers
 
 
@@ -1087,15 +1087,15 @@ def build_laplacian_action_cond_encoder_net(input_shapes, levels=None, bilinear_
                                                                  name='x%d_next_pred' % level)
 
     pred_layers = OrderedDict([('x', l_xlevels[0]),
-                               *[('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()],
                                ('x_next', l_x_next),
                                ('x0_next', l_x_next),
                                ('x_next_pred', l_xlevels_next_pred[0]),
-                               *[('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()],
                                ('x_next_pred', l_xlevels_next_pred[0]),
-                               *[('x%d_res' % level, l_xlevels_res[level]) for level in l_xlevels_res.keys()],
-                               *[('x%d_next_pred_res' % level, l_xlevels_next_pred_res[level]) for level in l_xlevels_next_pred_res.keys()],
                                ])
+    pred_layers.update([('x%d' % level, l_xlevels[level]) for level in l_xlevels.keys()])
+    pred_layers.update([('x%d_next_pred' % level, l_xlevels_next_pred[level]) for level in l_xlevels_next_pred.keys()])
+    pred_layers.update([('x%d_res' % level, l_xlevels_res[level]) for level in l_xlevels_res.keys()])
+    pred_layers.update([('x%d_next_pred_res' % level, l_xlevels_next_pred_res[level]) for level in l_xlevels_next_pred_res.keys()])
     return pred_layers
 
 
@@ -1229,7 +1229,7 @@ def build_fcn_action_cond_encoder_only_net(input_shapes, levels=None, x1_c_dim=1
     input_vars = OrderedDict([(var.name, var) for var in [X_var, U_var, X_diff_var]])
     pred_layers = OrderedDict([('y_diff_pred', l_y_diff_pred),
                                ('y', l_y)])
-    for level in set([0, *levels]):
+    for level in set([0] + levels):
         pred_layers.update([('x%d_next_pred'%level, l_xlevels_next_pred[level])])
     return net_name, input_vars, pred_layers, loss, loss_deterministic
 

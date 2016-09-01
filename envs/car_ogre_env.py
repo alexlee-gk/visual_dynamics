@@ -292,7 +292,7 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
             speed = 1.0
             lane_offset = 2.0
             straight_dist = 0.0  # distance along current edge
-            state = (speed, lane_offset, straight_dist, *self.sample_vertex_inds())
+            state = (speed, lane_offset, straight_dist) + self.sample_vertex_inds()
         self.speed, self.lane_offset, self.straight_dist, self._start_ind, self._end_ind = state
         self.car_node.setTransform(self.transform)
 
@@ -525,7 +525,8 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
             turn_angle = None  # angle along current curve (defined by two adjacent edges)
             vertex_inds = self.sample_vertex_inds()
         else:
-            speed, lane_offset, straight_dist, turn_angle, *vertex_inds = state
+            speed, lane_offset, straight_dist, turn_angle = state[:4]
+            vertex_inds = state[4:]
         # convert -1 to None
         if straight_dist == -1:
             straight_dist = None

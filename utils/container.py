@@ -25,6 +25,7 @@ def open_23(name, mode='r'):
 class DataContainer(object):
     def __init__(self, data_dir, mode='r'):
         self.data_dir = self._require_data_dir(data_dir, mode)
+        self.mode = mode
         self.info_file = None
         self.hdf5_file = None
 
@@ -41,12 +42,13 @@ class DataContainer(object):
 
     def close(self):
         if self.info_file:
-            try:
-                self.add_info(data_shapes=self.data_shapes_dict)
-                self.add_info(datum_shapes=self.datum_shapes_dict)
-                utils.to_yaml(self.info_dict, self.info_file)
-            except io.UnsupportedOperation:  # container is probably in read mode
-                pass
+            if self.mode != 'r':
+                try:
+                    self.add_info(data_shapes=self.data_shapes_dict)
+                    self.add_info(datum_shapes=self.datum_shapes_dict)
+                    utils.to_yaml(self.info_dict, self.info_file)
+                except io.UnsupportedOperation:  # container is probably in read mode
+                    pass
             self.info_file.close()
             self.info_file = None
         if self.hdf5_file:
