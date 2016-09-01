@@ -16,8 +16,8 @@ class Predictor(utils.ConfigObject):
         for input_name in self.input_names:
             if input_name not in self.transformers:
                 self.transformers[input_name] = utils.Transformer()  # identity transformation by default
-        self.preprocessed_input_shapes = [self.transformers[name].preprocess_shape(shape)
-                                          for (name, shape) in zip(self.input_names, self.input_shapes)]
+        self.preprocessed_input_shapes = [self.transformers[input_name].preprocess_shape(input_shape)
+                                          for (input_name, input_shape) in zip(self.input_names, self.input_shapes)]
         self.name = name or self.__class__.__name__
 
     def train(self, *train_data_fnames, **kwargs):
