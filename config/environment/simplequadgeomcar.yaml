@@ -1,8 +1,8 @@
 class: !!python/name:envs.quad_ogre_env.SimpleQuadOgreEnv ''
 action_space:
   class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
-  low: [-10, -10, -10, -0.17453292519943295]
-  high: [10, 10, 10, 0.17453292519943295]
+  low: [-10, -10, -10, -0.26179938779914941]
+  high: [10, 10, 10, 0.26179938779914941]
   dtype: float64
 observation_space:
   class: !!python/name:spaces.tuple_space.Tuple ''

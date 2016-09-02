@@ -1,23 +1,26 @@
 class: !!python/name:policy.mixed_policy.MixedPolicy ''
 policies:
-- class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
-  env: null
-  target_env: null
-  camera_node_name: quad_camera
-  agent_node_name: quad
-  target_node_name: car
-  offset: [-16.0, 0.0, 4.0]
-  tightness: 1.0
-- class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
-  env: null
-  target_env: null
-  camera_node_name: quad_camera
-  agent_node_name: quad
-  target_node_name: car
-  offset: [16.0, 0.0, 4.0]
-  tightness: 1.0
+- class: !!python/name:policy.choice_policy.ChoicePolicy ''
+  policies:
+  - class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
+    env: null
+    target_env: null
+    camera_node_name: quad_camera
+    agent_node_name: quad
+    target_node_name: car
+    offset: [-16.0, 0.0, 4.0]
+    tightness: 1.0
+  - class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
+    env: null
+    target_env: null
+    camera_node_name: quad_camera
+    agent_node_name: quad
+    target_node_name: car
+    offset: [16.0, 0.0, 4.0]
+    tightness: 1.0
+  reset_probs: [0.5, 0.5]
 - class: !!python/name:policy.random_policy.RandomPolicy ''
   action_space: null
   state_space: null
-act_probs: [0.125, 0.125, 0.75]
-reset_probs: [0.5, 0.5, 0]
+act_probs: [0.5, 0.5]
+reset_probs: [1, 0]

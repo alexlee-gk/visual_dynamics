@@ -11,5 +11,5 @@ policies:
 - class: !!python/name:policy.random_policy.RandomPolicy ''
   action_space: null
   state_space: null
-act_probs: [0.25, 0.75]
+act_probs: [0.5, 0.5]
 reset_probs: [1, 0]

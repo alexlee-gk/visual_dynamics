@@ -33,9 +33,9 @@ class SimpleQuadOgreEnv(OgreEnv):
 
         super(SimpleQuadOgreEnv, self).__init__(action_space, observation_space, state_space, sensor_names, app=app, dt=dt)
 
-        # modify the car's speed limits so that the car's speed is always half of the quad's maximum forward velocity
-        self.car_env.state_space.low[0] = self.action_space.high[1] / 2  # meters per second
-        self.car_env.state_space.high[0] = self.action_space.high[1] / 2
+        # modify the car's speed limits so that the car's speed is always a quater of the quad's maximum forward velocity
+        self.car_env.state_space.low[0] = self.action_space.high[1] / 4  # meters per second
+        self.car_env.state_space.high[0] = self.action_space.high[1] / 4
         self.car_node = self.car_env.car_node
         self.city_node = self.car_env.city_node
         self.skybox_node = self.car_env.skybox_node
@@ -116,7 +116,7 @@ class SimpleQuadOgreEnv(OgreEnv):
             quad_state, car_state = np.split(state, [6])
         self.car_env.reset(car_state)
         # TODO: verify that the car speed doesn't need to be set every time
-        # self.car_env.speed = self.action_space.high[1] / 2
+        # self.car_env.speed = self.action_space.high[1] / 4
         quad_T = tf.position_axis_angle_matrix(quad_state)
         self.quad_node.setTransform(quad_T)
 
@@ -129,7 +129,7 @@ class SimpleQuadOgreEnv(OgreEnv):
     #         car_state = self.car_env.state_space.sample()
     #     self.car_env.reset(car_state)
     #     # TODO: verify that the car speed doesn't need to be set every time
-    #     # self.car_env.speed = self.action_space.high[1] / 2
+    #     # self.car_env.speed = self.action_space.high[1] / 4
     #     if state_or_policy is not None:
     #         if isinstance(state_or_policy, policy.Policy):
     #             quad_state = state_or_policy.reset()
