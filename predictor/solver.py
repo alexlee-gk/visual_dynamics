@@ -480,7 +480,8 @@ class BilinearSolver(TheanoNetSolver):
                     next_pred_layer = net.pred_layers[next_pred_name]
                     curr_layer, bilinear_layer = next_pred_layer.input_layers
                     if curr_layer != net.pred_layers[curr_name] or not isinstance(bilinear_layer,
-                                                                                  layers_theano.BilinearLayer):
+                                                                                  (layers_theano.BilinearLayer,
+                                                                                   layers_theano.BilinearChannelwiseLayer)):
                         raise Exception
                     curr_names.append(curr_name)
                     bilinear_layers.append(bilinear_layer)

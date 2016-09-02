@@ -34,7 +34,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         self.pred_layers = self.build_net(self.preprocessed_input_shapes, **kwargs)
         for pred_layer in list(self.pred_layers.values()):
             self.pred_layers.update((layer.name, layer) for layer in lasagne.layers.get_all_layers(pred_layer) if layer.name is not None)
-        self.input_vars = [self.pred_layers[name].input_var for name in self.input_names]
+        self.input_vars = [self.pred_layers[input_name].input_var for input_name in self.input_names]
         # layer_name_aliases = [('x0', 'x'), ('x', 'x0'), ('x0_next', 'x_next'), ('x_next', 'x0_next'), ('x0', 'image_curr'), ('x0_next', 'image_next'), ('x0_next_pred', 'image_next_pred')]
         # for name, name_alias  in layer_name_aliases:
         #     if name in self.pred_layers and name_alias not in self.pred_layers:
