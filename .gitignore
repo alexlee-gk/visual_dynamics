@@ -2,6 +2,7 @@
 data/*
 videos/*
 images/*
+models/*
 
 # Backup files
 *.bak
