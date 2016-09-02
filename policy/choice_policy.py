@@ -1,8 +1,8 @@
 import numpy as np
-from policy import Policy
+from policy import TargetPolicy
 
 
-class ChoicePolicy(Policy):
+class ChoicePolicy(TargetPolicy):
     def __init__(self, policies, reset_probs=None):
         """
         Unlike a MixedPolicy, a ChoicePolicy randomly picks one of the policies
@@ -24,6 +24,13 @@ class ChoicePolicy(Policy):
     def reset(self):
         self._ind = np.random.choice(len(self.policies), p=self.reset_probs)
         return self.policies[self._ind].reset()
+
+    def get_target_state(self):
+        for policy in self.policies:
+            if not isinstance(policy, TargetPolicy):
+                raise ValueError("A policy in policies is of type %r but it"
+                                 "should be of type TargetPolicy" % type(policy))
+        return self.policies[self._ind].get_target_state()
 
     def _get_config(self):
         config = super(ChoicePolicy, self)._get_config()

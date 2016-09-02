@@ -355,9 +355,8 @@ class Head(TrajectoryControllerWrapper):
     def set_pan_tilt(self, pan, tilt):
         self.goto_joint_positions([pan, tilt])
 
-    def command_pan_tilt_vel(self, pan_vel, tilt_vel):
+    def command_pan_tilt_vel(self, pan_vel, tilt_vel, dt=0.2):
         pan, tilt = self.get_joint_positions()
-        dt = 0.2
         jt = tm.JointTrajectory()
         jt.header.stamp = rospy.Time.now() + rospy.Duration(0.01)
         jt.joint_names = ["head_pan_joint", "head_tilt_joint"]

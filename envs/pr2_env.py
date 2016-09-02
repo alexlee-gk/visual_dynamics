@@ -9,8 +9,9 @@ import spaces
 
 
 class Pr2Env(RosEnv):
-    def __init__(self, action_space, observation_space, state_space, sensor_names):
+    def __init__(self, action_space, observation_space, state_space, sensor_names, dt=None):
         super(Pr2Env, self).__init__(action_space, observation_space, state_space, sensor_names)
+        self._dt = 0.2 if dt is None else dt
         self.pr2 = PR2.PR2()
         self.pr2.larm.goto_posture('side')
         self.pr2.rarm.goto_posture('side')
@@ -31,7 +32,7 @@ class Pr2Env(RosEnv):
 
         action[:] = self.state_space.clip(pan_tilt_angles + action) - pan_tilt_angles
 
-        self.pr2.head.command_pan_tilt_vel(*action)
+        self.pr2.head.command_pan_tilt_vel(*action, dt=self._dt)
         rospy.sleep(.3)
 
     def get_state(self):
@@ -61,6 +62,10 @@ class Pr2Env(RosEnv):
 
     def render(self):
         pass
+
+    @property
+    def dt(self):
+        return self._dt
 
     def _get_config(self):
         config = super(Pr2Env, self)._get_config()

@@ -1,9 +1,9 @@
 import numpy as np
 import utils.transformations as tf
-from policy import Policy
+from policy import TargetPolicy
 
 
-class OgreCameraTargetPolicy(Policy):
+class OgreCameraTargetPolicy(TargetPolicy):
     def __init__(self, env, target_env, camera_node_name, agent_node_name, target_node_name, offset, tightness=0.1):
         """
         Args:
@@ -95,6 +95,11 @@ class OgreCameraTargetPolicy(Policy):
         des_agent_T = self.compute_desired_agent_transform(tightness=1.0)
         # restore original state of the target environment
         self.target_env.reset(orig_target_state)
+        return np.concatenate([tf.position_axis_angle_from_matrix(des_agent_T), target_state])
+
+    def get_target_state(self):
+        des_agent_T = self.compute_desired_agent_transform(tightness=1.0)
+        target_state = self.target_env.get_state()
         return np.concatenate([tf.position_axis_angle_from_matrix(des_agent_T), target_state])
 
     def _get_config(self):

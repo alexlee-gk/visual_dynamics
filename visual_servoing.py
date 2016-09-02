@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import cv2
+import envs
 import policy
 import utils
 import utils.transformations as tf
@@ -10,12 +11,6 @@ import matplotlib.animation as manimation
 from gui.grid_image_visualizer import GridImageVisualizer
 import _tkinter
 
-
-"""
-pixel-level
-VGG
-VGG with weights (weights learned before hand)
-"""
 
 def main():
     parser = argparse.ArgumentParser()
@@ -38,7 +33,10 @@ def main():
     except AttributeError:
         pass
     pol = utils.from_config(policy_config, replace_config=replace_config)
-    assert isinstance(pol.policies[-1], policy.RandomPolicy)
+    assert len(pol.policies) == 2
+    target_pol, random_pol = pol.policies
+    assert isinstance(target_pol, policy.TargetPolicy)
+    assert isinstance(random_pol, policy.RandomPolicy)
     assert pol.reset_probs[-1] == 0
     servoing_pol = policy.ServoingPolicy(predictor, alpha=1.0, lambda_=0.0)
     pol.policies[-1] = servoing_pol
@@ -47,7 +45,7 @@ def main():
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
-        container.reserve('action', (args.num_trajs, args.num_steps))
+        container.reserve(['action', 'state_diff', 'error'], (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
         container.add_info(policy_config=pol.get_config())
     else:
@@ -84,11 +82,16 @@ def main():
 
     np.random.seed(seed=7)
     errors = []
-    error_names = ['masked image', 'position', 'rotation']
+    if isinstance(env, envs.SimpleQuadOgreEnv):
+        error_names = ['position', 'rotation']
+    elif isinstance(env, envs.Pr2Env):
+        error_names = ['pan_angle', 'tilt_angle']
+    else:
+        raise NotImplementedError
     error_header_format = "{:>15}" * (1 + len(error_names))
     error_row_format = "{:>15}" + "{:>15.2f}" * len(error_names)
     print('=' * 15 * (1 + len(error_names)))
-    print(error_header_format.format("", *error_names))
+    print(error_header_format.format("(traj_iter, step_iter)", *error_names))
     done = False
     for traj_iter in range(args.num_trajs):
         print('traj_iter', traj_iter)
@@ -106,10 +109,28 @@ def main():
                 action = pol.act(obs)
                 env.step(action)  # action is updated in-place if needed
 
+                # errors
+                target_state = target_pol.get_target_state()
+                if isinstance(env, envs.SimpleQuadOgreEnv):
+                    target_T = tf.position_axis_angle_matrix(target_state[:6])
+                    quad_T = tf.position_axis_angle_matrix(env.get_state()[:6])
+                    quad_to_target_T = tf.inverse_matrix(quad_T).dot(target_T)
+                    pos_error = np.linalg.norm(quad_to_target_T[:3, 3])
+                    angle_error = np.linalg.norm(tf.axis_angle_from_matrix(quad_to_target_T))
+                    error = [pos_error, angle_error]
+                elif isinstance(env, envs.Pr2Env):
+                    pan_error, tilt_error = np.abs(target_state - env.get_state())
+                    error = [pan_error, tilt_error]
+                else:
+                    raise NotImplementedError
+                print(error_row_format.format(str((traj_iter, step_iter)), *error))
+                errors.append(error)
+
+                # container
                 if container:
                     if step_iter > 0:
                         container.add_datum(traj_iter, step_iter - 1, state_diff=state - prev_state)
-                    container.add_datum(traj_iter, step_iter, state=state, action=action,
+                    container.add_datum(traj_iter, step_iter, state=state, action=action, error=error,
                                         **dict(zip(env.sensor_names, obs)))
                     prev_state = state
                     if step_iter == (args.num_steps-1):
@@ -117,6 +138,8 @@ def main():
                         container.add_datum(traj_iter, step_iter, state_diff=next_state - state)
                         container.add_datum(traj_iter, step_iter + 1, state=next_state,
                                             **dict(zip(env.sensor_names, next_obs)))
+
+                # visualization
                 if args.visualize:
                     env.render()
                     obs_next = env.observe()
@@ -149,134 +172,15 @@ def main():
                             writer.grab_frame()
                     except _tkinter.TclError:  # TODO: is this the right exception?
                         done = True
-
-                    if False:
-                        image_next_pred = predictor.predict('x0_next_pred', image, action)
-                        # done, key = utils.visualization.visualize_images_callback(*predictor.preprocess(image),
-                        #                                                           image_next_pred,
-                        #                                                           image_target,
-                        #                                                           image_transformer=
-                        #                                                           predictor.transformers['x'].transformers[-1],
-                        #                                                           vis_scale=args.vis_scale,
-                        #                                                           delay=100)
-
-                        image_masked = obs[1]
-                        # image_masked_next_pred = predictor.predict('x0_next_pred', image_masked, action)
-                        image_masked_target = obs_target[1]
-                        image_masked_target, = predictor.preprocess(image_masked_target)
-                        next_image_masked, = predictor.preprocess(env.observe()[1])
-
-
-                        if 'pixel' in mode:
-                            features = predictor.predict(predictor.feature_name + predictor.next_feature_name, image, action)
-                            next_pred_features = features[3:]
-                            features = features[:3]
-                            next_features = predictor.predict(predictor.feature_name, next_image)
-                            target_features = predictor.predict(predictor.feature_name, image_target, preprocessed=True)
-                            images = list(zip(*[features, next_pred_features, next_features, target_features]))
-                        else:
-                            feature, feature_next_pred = predictor.predict(['x5', 'x5_next_pred'],
-                                                                           image, action)
-                            next_feature = predictor.predict('x5', next_image)
-                            feature_target = predictor.predict('x5', image_target, preprocessed=True)
-                            # pol.w *= np.repeat((feature_target.sum(axis=(-2, -1)) != 0.0).astype(np.float), 32 * 32)
-
-                            try:
-                                order_inds = np.argsort(q_learning.theta[:512])[::-1]
-                            except NameError:
-                                # order_inds = np.argsort(pol.w.reshape((512, 32 * 32, 3)).mean(axis=1).sum(axis=1))[::-1]
-                                # order_inds = np.argsort(pol.w.reshape((512, 32 * 32, 3)).mean(axis=1)[:, 0])[::-1]  # red
-                                order_inds = np.argsort(V[:, 0])[::-1]  # red
-
-                            globals().update(locals())
-                            images = [[predictor.preprocess(image)[0], image_next_pred, image_target],
-                                      # *[[feature[ind], feature_next_pred[ind], feature_target[ind]] for ind in order_inds[:4]],
-                                      [predictor.preprocess(image_masked)[0], next_image_masked, image_masked_target],
-                                      [np.tensordot(V.T, feature, axes=1),
-                                       np.tensordot(V_hat.T, feature_next_pred, axes=1),
-                                       np.tensordot(V.T, feature_target, axes=1)]]
-
-                        import time
-                        start_time = time.time()
-                        globals().update(locals())
-                        images = [image for row_images in images for image in row_images]
-                        images = [predictor.transformers['x'].transformers[-1].deprocess(image) for image in images]
-                        images.append(visualization_camera_sensor.observe())
-                        try:
-                            image_visualizer.update(images)
-                            if args.record_file:
-                                writer.grab_frame()
-                        except:
-                            done = True
-                        # fig, axarr = utils.draw_images_callback(images,
-                        #                                         image_transformer=predictor.transformers['x'].transformers[-1],
-                        #                                         num=10)
-                        # print(time.time() - start_time)
-                        image_masked_error = np.linalg.norm(image_masked_target - next_image_masked) ** 2
-                        target_T = target_pol.target_node.getTransform()
-                        target_to_offset_T = tf.translation_matrix(target_pol.offset)
-                        offset_T = target_T.dot(target_to_offset_T)
-                        agent_T = target_pol.agent_node.getTransform()
-                        agent_to_camera_T = target_pol.camera_node.getTransform()
-                        camera_T = agent_T.dot(agent_to_camera_T)
-                        pos_error = np.square(offset_T[:3, 3] - camera_T[:3, 3]).sum()
-                        angle_error = tf.angle_between_vectors(camera_T[:3, 2], camera_T[:3, 3] - target_T[:3, 3])
-                        errors.append([image_masked_error, pos_error, angle_error])
-                        print(error_row_format.format(str((traj_iter, step_iter)), *np.sqrt([image_masked_error, pos_error, angle_error])))
-
-                        # target_T = target_pol.target_node.getTransform()
-                        # target_to_offset_T = tf.translation_matrix(target_pol.offset)
-                        # offset_T = target_T @ target_to_offset_T
-                        # agent_T = target_pol.agent_node.getTransform()
-                        # agent_to_camera_T = target_pol.camera_node.getTransform()
-                        # camera_T = agent_T @ agent_to_camera_T
-                        # pos_err = np.square(offset_T[:3, 3] - camera_T[:3, 3]).sum()
-                        # angle = tf.angle_between_vectors(camera_T[:3, 2], camera_T[:3, 3] - target_T[:3, 3])
-                        # r = 0.1 * pos_err + 1000.0 * angle ** 2
-                        # print(r, pos_err, angle ** 2)
-
-                        # feature_next = predictor.next_feature(image, action).reshape((512, 32, 32))
-                        # feature_target = predictor.feature(image_target, preprocessed=True).reshape((512, 32, 32))
-                        # order_inds = np.argsort(q_learning.theta)[::-1]
-                        # feature_next = feature_next[order_inds, ...]
-                        # feature_target = feature_target[order_inds, ...]
-                        # output_pair_arr = np.array([feature_next, feature_target])
-
-                        # plt.ion()
-                        # data_min = min(feature_next.min(), feature_target.min())
-                        # data_max = max(feature_next.max(), feature_target.max())
-                        # plt.subplot(221)
-                        # plt.imshow(utils.vis_square(feature_next, data_min=data_min, data_max=data_max))
-                        # plt.subplot(222)
-                        # plt.imshow(utils.vis_square(feature_target, data_min=data_min, data_max=data_max))
-                        # data_min = output_pair_arr.min(axis=(0, 2, 3))[:, None, None]
-                        # data_max = output_pair_arr.max(axis=(0, 2, 3))[:, None, None]
-                        # plt.subplot(223)
-                        # plt.imshow(utils.vis_square(feature_next, data_min=data_min, data_max=data_max))
-                        # plt.subplot(224)
-                        # plt.imshow(utils.vis_square(feature_target, data_min=data_min, data_max=data_max))
-                        # plt.draw()
-
-
-                        # feature_next = (feature_next * 255.0).astype(np.uint8)
-                        # feature_target = (feature_target * 255.0).astype(np.uint8)
-                        # done, key = utils.visualization.visualize_images_callback(feature_next,
-                        #                                                           feature_target,
-                        #                                                           window_name='features7',
-                        #                                                           vis_scale=1,
-                        #                                                           delay=100)
                 if done:
                     break
-                # if key == 32:  # space
-                #     break
             if done:
                 break
         except KeyboardInterrupt:
             break
     print('-' * 15 * (1 + len(error_names)))
-    print(error_row_format.format("RMS", *np.sqrt(np.mean(np.array(errors), axis=0))))
-    print('%.2f\t%.2f\t%.2f' % tuple([*np.sqrt(np.mean(np.array(errors), axis=0))]))
-    if record:
+    print(error_row_format.format("RMS", *np.sqrt(np.mean(np.square(errors), axis=0))))
+    if args.record_file:
         writer.finish()
 
     env.close()
