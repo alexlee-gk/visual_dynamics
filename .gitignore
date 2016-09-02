@@ -1,3 +1,8 @@
+# Data
+data/*
+videos/*
+images/*
+
 # Backup files
 *.bak
 
