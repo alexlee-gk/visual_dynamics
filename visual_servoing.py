@@ -39,9 +39,10 @@ def main():
     pol.policies[-1] = servoing_pol
     pol.act_probs[:] = [0] * (len(pol.act_probs) - 1) + [1]
 
-    error_names = list(env.get_errors(target_pol.get_target_state()).keys())
+    error_names = env.get_error_names()
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
+        container.reserve(['target_' + sensor_name for sensor_name in env.sensor_names], args.num_trajs)
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
         container.reserve(['action', 'state_diff'] + error_names, (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
@@ -95,6 +96,9 @@ def main():
             image_target = obs_target[0]
             servoing_pol.set_image_target(image_target)
 
+            if container:
+                container.add_datum(traj_iter,
+                                    **dict(zip(['target_' + sensor_name for sensor_name in env.sensor_names], obs_target)))
             for step_iter in range(args.num_steps):
                 state, obs = env.get_state_and_observe()
                 image = obs[0]

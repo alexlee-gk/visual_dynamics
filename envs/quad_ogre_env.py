@@ -121,6 +121,9 @@ class SimpleQuadOgreEnv(OgreEnv):
         quad_T = tf.position_axis_angle_matrix(quad_state)
         self.quad_node.setTransform(quad_T)
 
+    def get_error_names(self):
+        return ['position', 'rotation']
+
     def get_errors(self, target_state):
         target_T = tf.position_axis_angle_matrix(target_state[:6])
         quad_T = tf.position_axis_angle_matrix(self.get_state()[:6])

@@ -45,6 +45,9 @@ class Pr2Env(RosEnv):
         self.pr2.head.goto_joint_positions(state)
         rospy.sleep(1.0)
 
+    def get_error_names(self):
+        return ['pan_angle', 'tilt_angle']
+
     def get_errors(self, target_state):
         pan_error, tilt_error = np.abs(target_state - self.get_state())
         return OrderedDict([('pan_angle', pan_error), ('tilt_angle', tilt_error)])
