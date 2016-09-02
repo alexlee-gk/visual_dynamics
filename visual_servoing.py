@@ -1,10 +1,8 @@
 import argparse
 import numpy as np
 import cv2
-import envs
 import policy
 import utils
-import utils.transformations as tf
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as manimation
@@ -14,7 +12,6 @@ import _tkinter
 
 def main():
     parser = argparse.ArgumentParser()
-    # parser.add_argument('env_fname', type=str, help='config file with environment arguments')
     parser.add_argument('predictor_fname', type=str)
     parser.add_argument('--output_dir', '-o', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
@@ -42,10 +39,11 @@ def main():
     pol.policies[-1] = servoing_pol
     pol.act_probs[:] = [0] * (len(pol.act_probs) - 1) + [1]
 
+    error_names = list(env.get_errors(target_pol.get_target_state()).keys())
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
-        container.reserve(['action', 'state_diff', 'error'], (args.num_trajs, args.num_steps))
+        container.reserve(['action', 'state_diff'] + error_names, (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
         container.add_info(policy_config=pol.get_config())
     else:
@@ -81,17 +79,11 @@ def main():
             writer.setup(fig, args.record_file, fig.dpi)
 
     np.random.seed(seed=7)
-    errors = []
-    if isinstance(env, envs.SimpleQuadOgreEnv):
-        error_names = ['position', 'rotation']
-    elif isinstance(env, envs.Pr2Env):
-        error_names = ['pan_angle', 'tilt_angle']
-    else:
-        raise NotImplementedError
-    error_header_format = "{:>15}" * (1 + len(error_names))
-    error_row_format = "{:>15}" + "{:>15.2f}" * len(error_names)
-    print('=' * 15 * (1 + len(error_names)))
-    print(error_header_format.format("(traj_iter, step_iter)", *error_names))
+    all_errors = []
+    errors_header_format = "{:>30}" + "{:>15}" * len(error_names)
+    errors_row_format = "{:>30}" + "{:>15.2f}" * len(error_names)
+    print('=' * (30 + 15 * len(error_names)))
+    print(errors_header_format.format("(traj_iter, step_iter)", *error_names))
     done = False
     for traj_iter in range(args.num_trajs):
         print('traj_iter', traj_iter)
@@ -110,28 +102,16 @@ def main():
                 env.step(action)  # action is updated in-place if needed
 
                 # errors
-                target_state = target_pol.get_target_state()
-                if isinstance(env, envs.SimpleQuadOgreEnv):
-                    target_T = tf.position_axis_angle_matrix(target_state[:6])
-                    quad_T = tf.position_axis_angle_matrix(env.get_state()[:6])
-                    quad_to_target_T = tf.inverse_matrix(quad_T).dot(target_T)
-                    pos_error = np.linalg.norm(quad_to_target_T[:3, 3])
-                    angle_error = np.linalg.norm(tf.axis_angle_from_matrix(quad_to_target_T))
-                    error = [pos_error, angle_error]
-                elif isinstance(env, envs.Pr2Env):
-                    pan_error, tilt_error = np.abs(target_state - env.get_state())
-                    error = [pan_error, tilt_error]
-                else:
-                    raise NotImplementedError
-                print(error_row_format.format(str((traj_iter, step_iter)), *error))
-                errors.append(error)
+                errors = env.get_errors(target_pol.get_target_state())
+                print(errors_row_format.format(str((traj_iter, step_iter)), *errors.values()))
+                all_errors.append(errors.values())
 
                 # container
                 if container:
                     if step_iter > 0:
                         container.add_datum(traj_iter, step_iter - 1, state_diff=state - prev_state)
-                    container.add_datum(traj_iter, step_iter, state=state, action=action, error=error,
-                                        **dict(zip(env.sensor_names, obs)))
+                    container.add_datum(traj_iter, step_iter, state=state, action=action,
+                                        **dict(list(errors.items()) + list(zip(env.sensor_names, obs))))
                     prev_state = state
                     if step_iter == (args.num_steps-1):
                         next_state, next_obs = env.get_state_and_observe()
@@ -178,8 +158,8 @@ def main():
                 break
         except KeyboardInterrupt:
             break
-    print('-' * 15 * (1 + len(error_names)))
-    print(error_row_format.format("RMS", *np.sqrt(np.mean(np.square(errors), axis=0))))
+    print('-' * (30 + 15 * len(error_names)))
+    print(errors_row_format.format("RMS", *np.sqrt(np.mean(np.square(all_errors), axis=0))))
     if args.record_file:
         writer.finish()
 
