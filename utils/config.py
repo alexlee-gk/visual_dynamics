@@ -1,6 +1,6 @@
-import inspect
 import yaml
 import numpy as np
+import utils
 
 
 def get_config(instance):
@@ -63,8 +63,7 @@ class ConfigObject(object):
         attr_dict = {k: getattr(self, k) for k in dir(self) if k in config}
         # order attributes based in the order in which they appear in the constructor
         ordered_attr_pairs = []
-        sig = inspect.signature(self.__init__)
-        for arg_name in sig.parameters.keys():
+        for arg_name in utils.get_signature_args(self.__init__):
             try:
                 ordered_attr_pairs.append((arg_name, attr_dict.pop(arg_name)))
             except KeyError:

@@ -1,3 +1,4 @@
+import sys
 import inspect
 
 
@@ -10,3 +11,15 @@ def get_kwargs(default_kwargs, kwargs):
     updated_kwargs = dict(default_kwargs)
     updated_kwargs.update(kwargs)
     return updated_kwargs
+
+
+def get_signature_args(f):
+    if sys.version_info.major == 2:
+        argspec = inspect.getargspec(f)
+        args = argspec.args
+    elif sys.version_info.major == 3:
+        sig = inspect.signature(f)
+        args = list(sig.parameters.keys())
+    else:
+        raise ValueError('Unknown python version %d', sys.version_info.major)
+    return args
