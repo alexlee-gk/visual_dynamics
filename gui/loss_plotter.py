@@ -39,6 +39,7 @@ class LossPlotter:
         ylim = self._ax.get_ylim()
         ylim = (min(0, ylim[0]), min(2 * np.median(np.concatenate(all_losses)), ylim[1]))
         self._ax.set_ylim(ylim)
+        self._ax.set_xlim((0, loss_iters[-1]))
         self._ax.legend(loc='upper right', bbox_to_anchor=(1, 1))
         self.draw(num_plots=data_len)
 

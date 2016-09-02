@@ -16,7 +16,8 @@ def main():
     parser.add_argument('--output_dir', '-o', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
-    parser.add_argument('--visualize', '-v', type=str, default=None)
+    parser.add_argument('--visualize', '-v', type=int, default=None)
+    parser.add_argument('--record_file', '-r', type=str, default=None)
     args = parser.parse_args()
 
     with open(args.env_fname) as yaml_string:
@@ -47,17 +48,18 @@ def main():
     else:
         container = None
 
-    record = args.visualize and args.visualize.endswith('.mp4')
+    if args.record_file and not args.visualize:
+        args.visualize = 1
     if args.visualize:
         fig = plt.figure(figsize=(16, 12), frameon=False, tight_layout=True)
         gs = gridspec.GridSpec(1, 1)
         image_visualizer = GridImageVisualizer(fig, gs[0], len(env.sensor_names))
         plt.show(block=False)
 
-        if record:
+        if args.record_file:
             FFMpegWriter = manimation.writers['ffmpeg']
             writer = FFMpegWriter(fps=1.0 / env.dt)
-            writer.setup(fig, args.visualize, fig.dpi)
+            writer.setup(fig, args.record_file, fig.dpi)
 
     done = False
     for traj_iter in range(args.num_trajs):
@@ -85,7 +87,7 @@ def main():
                     env.render()
                     try:
                         image_visualizer.update(obs)
-                        if record:
+                        if args.record_file:
                             writer.grab_frame()
                     except:
                         done = True
@@ -96,7 +98,7 @@ def main():
         except KeyboardInterrupt:
             break
     env.close()
-    if record:
+    if args.record_file:
         writer.finish()
     if container:
         container.close()

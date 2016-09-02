@@ -78,22 +78,30 @@ class GridImageVisualizer:
         if images is None:
             return
         for i, (ax_image, plot, image) in enumerate(zip(self._axarr_image, self._plots, images)):
-            if image.ndim == 3 and image.shape[2] != 3:
-                if image.shape[0] > 3:
-                    image = utils.vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize)
-                elif image.shape[0] == 1:
-                    image = np.squeeze(image, axis=0)
-                elif image.shape[-1] == 1:
-                    image = np.squeeze(image, axis=-1)
-            if plot is None or image.shape != plot.get_array().shape:
-                ax_image.images[:] = []
-                self._plots[i] = ax_image.imshow(image, interpolation='none', aspect='equal', picker=True)
+            if image is None:
+                if ax_image in self._fig.axes:
+                    self._fig.delaxes(ax_image)
             else:
-                plot.set_data(image)
+                if ax_image not in self._fig.axes:
+                    self._fig.add_axes(ax_image)
+                if image.ndim == 3 and image.shape[2] != 3:
+                    if image.shape[0] > 3:
+                        image = utils.vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize)
+                    elif image.shape[0] == 1:
+                        image = np.squeeze(image, axis=0)
+                    elif image.shape[-1] == 1:
+                        image = np.squeeze(image, axis=-1)
+                if plot is None or image.shape != plot.get_array().shape:
+                    ax_image.images[:] = []
+                    self._plots[i] = ax_image.imshow(image, interpolation='none', aspect='equal', picker=True)
+                else:
+                    plot.set_data(image)
         self.draw(num_plots=len(images))  # update the minimum number of necessary axes
 
     def draw(self, num_plots=None):
         for ax_image, plot in zip(self._axarr_image[:num_plots], self._plots[:num_plots]):
+            if ax_image not in self._fig.axes or plot is None:
+                continue
             ax_image.draw_artist(ax_image.patch)
             ax_image.draw_artist(plot)
         self._fig.canvas.draw()
