@@ -14,7 +14,7 @@ class OgreEnv(Env):
             self.app = app
         self.app.camera.setNearClipDistance(0.01)  # 1cm
         self.app.camera.setFarClipDistance(10000.0)  # 10km
-        self._dt = 0.1 if dt is None else 0.1
+        self._dt = 0.1 if dt is None else dt
 
     def render(self):
         self.app.camera.setOrientation(np.array([1., 0., 0., 0.]))
