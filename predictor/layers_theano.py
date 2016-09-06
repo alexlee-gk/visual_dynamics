@@ -1151,7 +1151,7 @@ class CaffeConv2DLayer(L.Conv2DLayer):
         return self.nonlinearity(activation)
 
 
-class GroupConv2DLayer(L.Conv2DLayer):
+class ScanGroupConv2DLayer(L.Conv2DLayer):
     def __init__(self, incoming, num_filters, filter_size, stride=(1, 1),
                  pad=0, untie_biases=False, groups=1,
                  W=init.Uniform(), b=init.Constant(0.),
@@ -1160,7 +1160,7 @@ class GroupConv2DLayer(L.Conv2DLayer):
         L.Layer.__init__(self, incoming, **kwargs)
         assert num_filters % groups == 0
         self.groups = groups
-        # super(GroupConv2DLayer, self).__init__(incoming, num_filters, filter_size,
+        # super(ScanGroupConv2DLayer, self).__init__(incoming, num_filters, filter_size,
         #                                        stride=stride, pad=pad,
         #                                        untie_biases=untie_biases,
         #                                        W=W, b=b,
@@ -1268,6 +1268,68 @@ class GroupConv2DLayer(L.Conv2DLayer):
             activation = conved + self.b.dimshuffle(('x', 0) + ('x',) * self.n)
 
         return self.nonlinearity(activation)
+
+
+class GroupConv2DLayer(L.Conv2DLayer):
+    def __init__(self, incoming, num_filters, filter_size, stride=(1, 1),
+                 pad=0, untie_biases=False, groups=1,
+                 W=init.Uniform(), b=init.Constant(0.),
+                 nonlinearity=nl.rectify, flip_filters=True,
+                 convolution=T.nnet.conv2d, filter_dilation=(1, 1), **kwargs):
+        assert num_filters % groups == 0
+        self.groups = groups
+        super(GroupConv2DLayer, self).__init__(incoming, num_filters, filter_size,
+                                               stride=stride, pad=pad,
+                                               untie_biases=untie_biases,
+                                               W=W, b=b,
+                                               nonlinearity=nonlinearity,
+                                               flip_filters=flip_filters,
+                                               convolution=convolution,
+                                               filter_dilation=filter_dilation,
+                                               **kwargs)
+
+    def get_W_shape(self):
+        num_input_channels = self.input_shape[1]
+        assert num_input_channels % self.groups == 0
+        return (self.num_filters, num_input_channels // self.groups, self.filter_size[0], self.filter_size[1])
+
+    def convolve(self, input, **kwargs):
+        W_shape = self.get_W_shape()
+        W_shape = (W_shape[0], W_shape[1] * self.groups, W_shape[2], W_shape[3])
+
+        # the following is the symbolic equivalent of
+        # W = np.zeros(W_shape)
+        # for g in range(self.groups):
+        #     input_slice = slice(g * self.input_shape[1] // self.groups,
+        #                         (g + 1) * self.input_shape[1] // self.groups)
+        #     output_slice = slice(g * self.num_filters // self.groups, (g + 1) * self.num_filters // self.groups)
+        #     W[output_slice, input_slice, :, :] = self.W.get_value()[output_slice, :, :, :]
+
+        # repeat W across the second dimension and then mask the terms outside the block diagonals
+        mask = np.zeros(W_shape[:2]).astype(theano.config.floatX)
+        for g in range(self.groups):
+            input_slice = slice(g * self.input_shape[1] // self.groups,
+                                (g + 1) * self.input_shape[1] // self.groups)
+            output_slice = slice(g * self.num_filters // self.groups, (g + 1) * self.num_filters // self.groups)
+            mask[output_slice, input_slice] = 1
+
+        # elementwise multiplication along broadcasted dimensions is faster than T.tile
+        # the following is equivalent to
+        # W = T.tile(self.W, (1, self.groups, 1, 1)) * mask[:, :, None, None]
+        W = (T.ones((1, self.groups, 1, 1, 1)) * self.W[:, None, :, :, :]).reshape(W_shape) * mask[:, :, None, None]
+
+        # similarly for T.repeat but we don't use that in here
+        # W = T.repeat(self.W, self.groups, axis=1) * mask[:, :, None, None]
+        # W = (T.ones((1, 1, self.groups, 1, 1)) * self.W[:, :, None, :, :]).reshape(W_shape) * mask[:, :, None, None]
+
+        border_mode = 'half' if self.pad == 'same' else self.pad
+        conved = self.convolution(input, W,
+                                  self.input_shape, W_shape,
+                                  subsample=self.stride,
+                                  filter_dilation=self.filter_dilation,
+                                  border_mode=border_mode,
+                                  filter_flip=self.flip_filters)
+        return conved
 
 
 class CrossConv2DLayer(L.MergeLayer):
