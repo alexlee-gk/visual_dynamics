@@ -168,14 +168,32 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             output_var = T.concatenate([output_var.flatten() for output_var in output_vars])
             jac_var = theano.gradient.jacobian(output_var, wrt_var)
             jac_var = jac_var[:, 0, :]
+        elif mode == 'linear':
+            jac_vars = []
+            for output_var in output_vars:
+                input_vars = [input_var for input_var in self.input_vars if
+                              input_var in theano.gof.graph.inputs([output_var])]
+                # using tensordot to multiply ones with the input_var seems to be faster than using repeat
+                # rep_dict = {input_var: T.repeat(input_var, wrt_dim + 1, axis=0)
+                #             for input_var in input_vars if input_var != wrt_var}
+                rep_dict = {input_var: T.tensordot(T.ones((wrt_dim + 1, 1)), input_var, axes=1)
+                            for input_var in input_vars if input_var != wrt_var}
+                rep_dict[wrt_var] = np.r_[np.zeros((1, wrt_dim)), np.eye(wrt_dim)].astype(theano.config.floatX)
+                rep_output_var = theano.clone(output_var, replace=rep_dict)
+                jac_var = rep_output_var[1:] - rep_output_var[0]
+                jac_var = jac_var.reshape((wrt_dim, -1)).T
+                jac_vars.append(jac_var)
         else:
-            raise ValueError('mode can only be fwd, forward, rev, reverse or batched, but %r was given' % mode)
+            raise ValueError('mode can only be fwd, forward, rev, reverse, batched or linear, but %r was given' % mode)
         if isinstance(name_or_names, str):
+            if mode == 'linear':
+                jac_var, = jac_vars
             output_var, = output_vars
             return jac_var, output_var
         else:
-            split_inds = np.r_[0, np.cumsum([np.prod(output_shape[1:]) for output_shape in output_shapes])]
-            jac_vars = [jac_var[start_ind:end_ind] for (start_ind, end_ind) in zip(split_inds[:-1], split_inds[1:])]
+            if mode != 'linear':
+                split_inds = np.r_[0, np.cumsum([np.prod(output_shape[1:]) for output_shape in output_shapes])]
+                jac_vars = [jac_var[start_ind:end_ind] for (start_ind, end_ind) in zip(split_inds[:-1], split_inds[1:])]
             return jac_vars, output_vars
 
     def _compile_jacobian_fn(self, name_or_names, wrt_name, ret_outputs=False, mode=None):
