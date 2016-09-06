@@ -300,6 +300,27 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         params_dict = self.get_all_params(**tags)
         set_param_names = []
         skipped_param_names = []
+
+        # special-case rule to convert parameters of the old bilinear group convolution to the new one
+        inferred_param_values_dict = dict()
+        for name, value in param_values_dict.items():
+            try:
+                base_name, var_name = name.split('.')
+            except ValueError:
+                continue
+            if base_name.endswith('diff_pred'):
+                u_dim_p1 = param_values_dict['%s.%s' % (base_name, 'W')].shape[1]
+                if var_name == 'W':
+                    for i in range(u_dim_p1):
+                        gconv_name = '%s_gconv%d.%s' % (base_name, i, var_name)
+                        if gconv_name not in param_values_dict:
+                            inferred_param_values_dict[gconv_name] = value[:, i:i+1]
+                elif var_name == 'b':
+                    gconv_name = '%s_gconv%d.%s' % (base_name, u_dim_p1 - 1, var_name)
+                    if gconv_name not in param_values_dict:
+                        inferred_param_values_dict[gconv_name] = value
+        param_values_dict.update(inferred_param_values_dict)
+
         for name, value in param_values_dict.items():
             try:
                 param = params_dict[name]

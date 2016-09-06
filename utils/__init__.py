@@ -12,3 +12,4 @@ except:
 from .visualization import *
 from .visualization_theano import *
 from .python3 import *
+from .time_util import *
