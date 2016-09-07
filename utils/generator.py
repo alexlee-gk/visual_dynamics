@@ -42,7 +42,7 @@ def generator_queue(generator, max_q_size=10, wait_time=0.05, nb_worker=1):
     return q, _stop, generator_threads
 
 
-class ParallelGenerator:
+class ParallelGenerator(object):
     def __init__(self, generator, max_q_size=10, wait_time=0.05, nb_worker=1):
         self.wait_time = wait_time
         self.data_gen_queue, self._data_stop, self.generator_threads = \
@@ -74,7 +74,7 @@ class ParallelGenerator:
         return self._size
 
 
-class DataGenerator:
+class DataGenerator(object):
     def __init__(self, container_fnames, data_name_offset_pairs, transformers=None, once=False, batch_size=0, shuffle=False, dtype=None):
         """
         Iterate through all the data once or indefinitely. The data from
@@ -96,13 +96,8 @@ class DataGenerator:
         self._data_name_offset_pairs = data_name_offset_pairs
         self.transformers_dict = transformers or dict()
         self.once = once
-        # for some reason self._squeeze is not defined in batch_size.setter, so do it here
-        if batch_size == 0:
-            self._batch_size = 1
-            self._squeeze = True
-        else:
-            self._batch_size = batch_size
-            self._squeeze = False
+        self._batch_size = None
+        self._squeeze = None
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.dtype = dtype
@@ -184,7 +179,7 @@ class DataGenerator:
         indices = []
         continue_extending = True
         while True:
-            if len(indices) < self.batch_size and continue_extending:
+            if len(indices) < self._batch_size and continue_extending:
                 if self.shuffle:
                     new_indices = np.random.permutation(self.size)
                 else:
@@ -192,8 +187,8 @@ class DataGenerator:
                 indices.extend(new_indices)
                 if self.once:
                     continue_extending = False
-            excerpt = np.asarray(indices[0:self.batch_size])
-            del indices[0:self.batch_size]
+            excerpt = np.asarray(indices[0:self._batch_size])
+            del indices[0:self._batch_size]
             yield excerpt
 
     def __iter__(self):
