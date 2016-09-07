@@ -27,7 +27,7 @@ class LossPlotter:
         self._labels += [None] * (data_len - len(self._labels))
 
         for i, (plot, label, losses) in enumerate(zip(self._plots, self._labels, all_losses)):
-            if i < len(all_loss_iters) and all_loss_iters[i] is not None:
+            if all_loss_iters is not None and i < len(all_loss_iters) and all_loss_iters[i] is not None:
                 loss_iters = all_loss_iters[i]
             else:
                 loss_iters = np.arange(len(losses))
@@ -39,7 +39,7 @@ class LossPlotter:
         ylim = self._ax.get_ylim()
         ylim = (min(0, ylim[0]), min(2 * np.median(np.concatenate(all_losses)), ylim[1]))
         self._ax.set_ylim(ylim)
-        self._ax.set_xlim((0, loss_iters[-1]))
+        self._ax.set_xlim((0, loss_iters[-1] if loss_iters[-1] > 0 else 1))
         self._ax.legend(loc='upper right', bbox_to_anchor=(1, 1))
         self.draw(num_plots=data_len)
 
