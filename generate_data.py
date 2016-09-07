@@ -48,7 +48,7 @@ def main():
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
         # save errors if they are available (e.g. env defines get_errors())
         try:
-            error_names = list(env.get_errors(target_pol.get_target_state()).keys())
+            error_names = env.get_error_names()
         except AttributeError:
             error_names = []
         container.reserve(['action', 'state_diff'] + error_names, (args.num_trajs, args.num_steps))
