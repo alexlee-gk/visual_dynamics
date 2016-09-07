@@ -2176,8 +2176,8 @@ class BatchwiseSumLayer(L.ElemwiseMergeLayer):
     def get_output_for(self, inputs, **kwargs):
         xs = inputs[:-1]
         u = inputs[-1]
-        _, u_dim = u.shape
-        xs = [x if i == 6 else x * u[:, i, None, None, None] for i, x in enumerate(xs)]
+        _, u_dim = self.input_shapes[-1]
+        xs = [x if i == u_dim else x * u[:, i, None, None, None] for i, x in enumerate(xs)]
         return super(BatchwiseSumLayer, self).get_output_for(xs, **kwargs)
 
 
