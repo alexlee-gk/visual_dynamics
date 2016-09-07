@@ -309,7 +309,10 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             except ValueError:
                 continue
             if base_name.endswith('diff_pred'):
-                u_dim_p1 = param_values_dict['%s.%s' % (base_name, 'W')].shape[1]
+                try:
+                    u_dim_p1 = param_values_dict['%s.%s' % (base_name, 'W')].shape[1]
+                except KeyError:
+                    continue
                 if var_name == 'W':
                     for i in range(u_dim_p1):
                         gconv_name = '%s_gconv%d.%s' % (base_name, i, var_name)
