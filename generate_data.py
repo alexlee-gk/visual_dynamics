@@ -1,11 +1,11 @@
 import argparse
-import numpy as np
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as manimation
 from gui.grid_image_visualizer import GridImageVisualizer
 import envs
+import policy
 import utils
 
 
@@ -38,11 +38,20 @@ def main():
             pass
         # TODO: better way to populate config with existing instances
         pol = utils.from_config(policy_config, replace_config=replace_config)
+        assert len(pol.policies) == 2
+        target_pol, random_pol = pol.policies
+        assert isinstance(target_pol, policy.TargetPolicy)
+        assert isinstance(random_pol, policy.RandomPolicy)
 
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
-        container.reserve(['action', 'state_diff'], (args.num_trajs, args.num_steps))
+        # save errors if they are available (e.g. env defines get_errors())
+        try:
+            error_names = list(env.get_errors(target_pol.get_target_state()).keys())
+        except AttributeError:
+            error_names = []
+        container.reserve(['action', 'state_diff'] + error_names, (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
         container.add_info(policy_config=pol.get_config())
     else:
@@ -75,8 +84,12 @@ def main():
                 if container:
                     if step_iter > 0:
                         container.add_datum(traj_iter, step_iter - 1, state_diff=state - prev_state)
+                    try:
+                        errors = env.get_errors(target_pol.get_target_state())
+                    except AttributeError:
+                        errors = dict()
                     container.add_datum(traj_iter, step_iter, state=state, action=action,
-                                        **dict(zip(env.sensor_names, obs)))
+                                        **dict(list(errors.items()) + list(zip(env.sensor_names, obs))))
                     prev_state = state
                     if step_iter == (args.num_steps-1):
                         next_state, next_obs = env.get_state_and_observe()

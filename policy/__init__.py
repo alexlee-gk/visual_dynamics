@@ -1,5 +1,6 @@
 from .base import *
 from .random_policy import *
+from .momentum_policy import *
 from .mixed_policy import *
 from .target_policy import *
 from .choice_policy import *

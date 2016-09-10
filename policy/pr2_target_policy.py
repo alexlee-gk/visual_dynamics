@@ -33,16 +33,15 @@ class Pr2TargetPolicy(TargetPolicy):
     def get_target_state(self):
         self.env.pr2.update_rave()
         # target transform in world coordinates
-        target_T = self.env.pr2_robot.GetLink(self.frame_id).GetTransform()
+        target_T = self.env.pr2.robot.GetLink(self.frame_id).GetTransform()
         # target offset relative to target
         target_to_offset_T = tf.translation_matrix(self.offset)
+        # target offset in world coordinates
         offset_T = target_T.dot(target_to_offset_T)
-        # agent transform in world coordinates
+        # camera transform in world coordinates
         camera_T = berkeley_pr2.get_kinect_transform(self.env.pr2.robot)
-        # offset_to_agent_T = tf.inverse_matrix(offset_T).dot(camera_T)
-        camera_to_offset_T = tf.inverse_matrix(camera_T).dot(offset_T)
-
-        ax = camera_to_offset_T[:3, 3]  # pointing axis
+        # pointing axis
+        ax = offset_T[:3, 3] - camera_T[:3, 3]
         pan = np.arctan(ax[1] / ax[0])
         tilt = np.arcsin(-ax[2] / np.linalg.norm(ax))
         return pan, tilt

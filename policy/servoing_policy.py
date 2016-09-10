@@ -21,6 +21,13 @@ class ServoingPolicy(Policy):
             jac, next_feature = self.predictor.feature_jacobian(image, self.u_prev)  # Jacobian is in preprocessed units
             J = np.concatenate(jac)
             y_next_pred = np.concatenate([f.flatten() for f in next_feature])
+            if self.alpha == 1.0:
+                y_target = self.y_target
+            else:
+                # TODO: get feature in the same pass as when the jacobian is computed
+                feature = self.predictor.feature(image)
+                y = np.concatenate([f.flatten() for f in feature])
+                y_target = self.alpha * self.y_target + (1 - self.alpha) * y
             if self.w is None:
                 WJ = J
             elif self.w.ndim == 1 and self.w.shape == (J.shape[0],):
@@ -32,9 +39,9 @@ class ServoingPolicy(Policy):
             else:
                 raise ValueError('invalid weights w, %r' % self.w)
             try:
-                u = self.alpha * np.linalg.solve(WJ.T.dot(J) + self.lambda_ * np.eye(J.shape[1]),
-                                                 WJ.T.dot(self.y_target - y_next_pred
-                                                          + J.dot(self.action_transformer.preprocess(self.u_prev))))  # preprocessed units
+                u = np.linalg.solve(WJ.T.dot(J) + self.lambda_ * np.eye(J.shape[1]),
+                                    WJ.T.dot(y_target - y_next_pred
+                                             + J.dot(self.action_transformer.preprocess(self.u_prev))))  # preprocessed units
             except np.linalg.LinAlgError:
                 u = None
         else:
@@ -66,6 +73,9 @@ class ServoingPolicy(Policy):
 
     def set_image_target(self, image_target):
         self.image_target = image_target
+
+    def set_target(self, target_obs):
+        self.image_target = target_obs[0]
 
     def _get_config(self):
         config = super(ServoingPolicy, self)._get_config()

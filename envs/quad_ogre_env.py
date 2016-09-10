@@ -1,5 +1,6 @@
 import time
 import numpy as np
+from collections import OrderedDict
 import ogre
 import spaces
 from envs import OgreEnv, StraightCarOgreEnv
@@ -119,6 +120,17 @@ class SimpleQuadOgreEnv(OgreEnv):
         # self.car_env.speed = self.action_space.high[1] / 4
         quad_T = tf.position_axis_angle_matrix(quad_state)
         self.quad_node.setTransform(quad_T)
+
+    def get_error_names(self):
+        return ['position', 'rotation']
+
+    def get_errors(self, target_state):
+        target_T = tf.position_axis_angle_matrix(target_state[:6])
+        quad_T = tf.position_axis_angle_matrix(self.get_state()[:6])
+        quad_to_target_T = tf.inverse_matrix(quad_T).dot(target_T)
+        pos_error = np.linalg.norm(quad_to_target_T[:3, 3])
+        angle_error = np.linalg.norm(tf.axis_angle_from_matrix(quad_to_target_T))
+        return OrderedDict([('position', pos_error), ('rotation', angle_error)])
 
     # def reset(self, state_or_policy=None):
     #     # allow to pass in policy in case that the reset state of the policy depends on the state of the car
