@@ -1,12 +1,15 @@
+from __future__ import division, print_function
 import argparse
 import numpy as np
 import cv2
+import envs
 import policy
 import utils
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as manimation
 from gui.grid_image_visualizer import GridImageVisualizer
+from gui.loss_plotter import LossPlotter
 import _tkinter
 
 
@@ -18,6 +21,7 @@ def main():
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=None)
     parser.add_argument('--record_file', '-r', type=str, default=None)
+    parser.add_argument('--target_distance', '-d', type=int, default=1)
     args = parser.parse_args()
 
     predictor = utils.from_yaml(open(args.predictor_fname))
@@ -34,17 +38,16 @@ def main():
     target_pol, random_pol = pol.policies
     assert isinstance(target_pol, policy.TargetPolicy)
     assert isinstance(random_pol, policy.RandomPolicy)
-    assert pol.reset_probs[-1] == 0
+    assert pol.reset_probs == [1, 0]
     servoing_pol = policy.ServoingPolicy(predictor, alpha=1.0, lambda_=0.0)
-    pol.policies[-1] = servoing_pol
-    pol.act_probs[:] = [0] * (len(pol.act_probs) - 1) + [1]
+    pol = policy.MixedPolicy([target_pol, servoing_pol], act_probs=[0, 1], reset_probs=[1, 0])
 
     error_names = env.get_error_names()
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
-        container.reserve(['target_' + sensor_name for sensor_name in env.sensor_names], args.num_trajs)
-        container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
-        container.reserve(['action', 'state_diff'] + error_names, (args.num_trajs, args.num_steps))
+        container.reserve(['target_state'] + ['target_' + sensor_name for sensor_name in env.sensor_names], args.num_trajs)
+        container.reserve(env.sensor_names + ['state'] + error_names, (args.num_trajs, args.num_steps + 1))
+        container.reserve(['action'], (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
         container.add_info(policy_config=pol.get_config())
     else:
@@ -79,6 +82,15 @@ def main():
             writer = FFMpegWriter(fps=1.0 / env.dt)
             writer.setup(fig, args.record_file, fig.dpi)
 
+        # plotting
+        fig = plt.figure(figsize=(12, 6), frameon=False, tight_layout=True)
+        fig.canvas.set_window_title(predictor.name)
+        gs = gridspec.GridSpec(len(error_names), 1)
+        plt.show(block=False)
+        rms_error_plotters = []
+        for i, error_name in enumerate(error_names):
+            rms_error_plotters.append(LossPlotter(fig, gs[i], ['--'], labels=['rms error'], xlabel='time', ylabel=error_name + ' error'))
+
     np.random.seed(seed=7)
     all_errors = []
     errors_header_format = "{:>30}" + "{:>15}" * len(error_names)
@@ -92,43 +104,50 @@ def main():
             state = pol.reset()
             env.reset(state)
 
-            obs_target = env.observe()
-            image_target = obs_target[0]
-            servoing_pol.set_image_target(image_target)
+            target_state, target_obs = env.get_state_and_observe()
+            servoing_pol.set_target(target_obs)
+
+            reset_action = random_pol.act(obs=None)
+            for _ in range(args.target_distance):
+                env.step(reset_action)
+            if isinstance(env, envs.Pr2Env):
+                import rospy
+                rospy.sleep(2)
 
             if container:
                 container.add_datum(traj_iter,
-                                    **dict(zip(['target_' + sensor_name for sensor_name in env.sensor_names], obs_target)))
+                                    **dict(zip(['target_' + sensor_name for sensor_name in env.sensor_names], target_obs)))
             for step_iter in range(args.num_steps):
                 state, obs = env.get_state_and_observe()
                 image = obs[0]
+
                 action = pol.act(obs)
                 env.step(action)  # action is updated in-place if needed
 
-                # errors
                 errors = env.get_errors(target_pol.get_target_state())
                 print(errors_row_format.format(str((traj_iter, step_iter)), *errors.values()))
                 all_errors.append(errors.values())
 
+                if step_iter == (args.num_steps - 1):
+                    next_state, next_obs = env.get_state_and_observe()
+                    next_errors = env.get_errors(target_pol.get_target_state())
+                    all_errors.append(next_errors.values())
+
                 # container
                 if container:
-                    if step_iter > 0:
-                        container.add_datum(traj_iter, step_iter - 1, state_diff=state - prev_state)
                     container.add_datum(traj_iter, step_iter, state=state, action=action,
                                         **dict(list(errors.items()) + list(zip(env.sensor_names, obs))))
-                    prev_state = state
                     if step_iter == (args.num_steps-1):
-                        next_state, next_obs = env.get_state_and_observe()
-                        container.add_datum(traj_iter, step_iter, state_diff=next_state - state)
                         container.add_datum(traj_iter, step_iter + 1, state=next_state,
-                                            **dict(zip(env.sensor_names, next_obs)))
+                                            **dict(list(next_errors.items()) + list(zip(env.sensor_names, next_obs))))
 
                 # visualization
                 if args.visualize:
                     env.render()
-                    obs_next = env.observe()
-                    image_next = obs_next[0]
-                    vis_images = [image, image_next, image_target]
+                    next_obs = env.observe()
+                    next_image = next_obs[0]
+                    target_image = target_obs[0]
+                    vis_images = [image, next_image, target_image]
                     for i, vis_image in enumerate(vis_images):
                         vis_images[i] = predictor.transformers['x'].preprocess(vis_image)
                     if args.visualize == 1:
@@ -136,8 +155,8 @@ def main():
                     else:
                         feature = predictor.feature(image)
                         feature_next_pred = predictor.next_feature(image, action)
-                        feature_next = predictor.feature(image_next)
-                        feature_target = predictor.feature(image_target)
+                        feature_next = predictor.feature(next_image)
+                        feature_target = predictor.feature(target_image)
                         # put all features into a flattened list
                         vis_features = [feature, feature_next_pred, feature_next, feature_target]
                         if not isinstance(predictor.feature_name, str):
@@ -162,10 +181,19 @@ def main():
                 break
         except KeyboardInterrupt:
             break
+
     print('-' * (30 + 15 * len(error_names)))
     print(errors_row_format.format("RMS", *np.sqrt(np.mean(np.square(all_errors), axis=0))))
+
+    # plotting
+    all_errors = np.array(all_errors).reshape((args.num_trajs, args.num_steps + 1, -1))
+    for errors, rms_errors, rms_error_plotter in zip(all_errors.transpose([2, 0, 1]), np.sqrt(np.mean(np.square(all_errors), axis=0)).T,rms_error_plotters):
+        rms_error_plotter.update(np.r_[[rms_errors], errors])
+
     if args.record_file:
         writer.finish()
+
+    import IPython as ipy; ipy.embed()
 
     env.close()
     if args.visualize:

@@ -1,11 +1,12 @@
 import numpy as np
-from policy import Policy
+from policy import TargetPolicy
 
 
-class RandomPolicy(Policy):
+class RandomPolicy(TargetPolicy):
     def __init__(self, action_space, state_space):
         self.action_space = action_space
         self.state_space = state_space
+        self._state = None
 
     def act(self, obs):
         return self.action_space.sample()
@@ -14,7 +15,11 @@ class RandomPolicy(Policy):
         state = self.state_space.sample()
         if isinstance(state, tuple):
             state = np.concatenate(state)
+        self._state = state
         return state
+
+    def get_target_state(self):
+        return self._state
 
     def _get_config(self):
         config = super(RandomPolicy, self)._get_config()

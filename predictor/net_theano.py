@@ -290,7 +290,8 @@ def build_multiscale_action_cond_encoder_net(input_shapes, levels=None, bilinear
 def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
                                                          num_encoding_levels=5,
                                                          scales=None,
-                                                         bilinear_type=None):
+                                                         bilinear_type=None,
+                                                         channel_inds=None):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -315,6 +316,9 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
             l_xlevel = LT.DilatedVggEncodingLayer(l_xlevels[level-1], xlevels_c_dim[level], name='x%d' % level)
         else:
             l_xlevel = LT.DilatedVggEncoding3Layer(l_xlevels[level-1], xlevels_c_dim[level], name='x%d' % level)
+        if level == num_encoding_levels and channel_inds:
+            l_xlevel.name += '_all'
+            l_xlevel = L.SliceLayer(l_xlevel, channel_inds, axis=1, name='x%d' % level)
         l_xlevels[level] = l_xlevel
 
     # multi-scale pyramid
