@@ -2,6 +2,33 @@ from __future__ import division, print_function
 import numpy as np
 
 
+class OnlineStatistics(object):
+    def __init__(self, axis=0):
+        self.axis = axis
+        self.n = None
+        self.s = None
+        self.s2 = None
+        self.reset()
+
+    def reset(self):
+        self.n = 0
+        self.s = 0.0
+        self.s2 = 0.0
+
+    def add_data(self, data):
+        self.n += data.shape[self.axis]
+        self.s += data.sum(axis=self.axis)
+        self.s2 += (data ** 2).sum(axis=self.axis)
+
+    @property
+    def mean(self):
+        return self.s / self.n
+
+    @property
+    def std(self):
+        return np.sqrt((self.s2 - (self.s ** 2) / self.n) / self.n)
+
+
 def divide_nonzero(a, b):
     """
     Return a/b for the nonzero elements of b and return 0 for the zero elements of b.
