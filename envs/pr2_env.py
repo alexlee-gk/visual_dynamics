@@ -23,6 +23,7 @@ class Pr2Env(RosEnv):
         self.pr2.head.set_pan_tilt(*((self.state_space.low + self.state_space.high) / 2.0))
 
         self.msg_and_camera_sensor = camera_sensor.MessageAndCameraSensor()
+        rospy.sleep(5.0)
 
     def step(self, action):
         # update action to be within the action space
