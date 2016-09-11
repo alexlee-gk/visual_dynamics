@@ -25,6 +25,9 @@ def main():
     args = parser.parse_args()
 
     predictor = utils.from_yaml(open(args.predictor_fname))
+    if issubclass(predictor.environment_config['class'], envs.RosEnv):
+        import rospy
+        rospy.init_node("visual_servoing")
     env = utils.from_config(predictor.environment_config)
 
     policy_config = predictor.policy_config
@@ -34,11 +37,15 @@ def main():
     except AttributeError:
         pass
     pol = utils.from_config(policy_config, replace_config=replace_config)
-    assert len(pol.policies) == 2
-    target_pol, random_pol = pol.policies
+    if isinstance(pol, policy.RandomPolicy):
+        target_pol = pol
+        random_pol = pol
+    else:
+        assert len(pol.policies) == 2
+        target_pol, random_pol = pol.policies
+        assert pol.reset_probs == [1, 0]
     assert isinstance(target_pol, policy.TargetPolicy)
     assert isinstance(random_pol, policy.RandomPolicy)
-    assert pol.reset_probs == [1, 0]
     servoing_pol = policy.ServoingPolicy(predictor, alpha=1.0, lambda_=0.0)
     pol = policy.MixedPolicy([target_pol, servoing_pol], act_probs=[0, 1], reset_probs=[1, 0])
 
