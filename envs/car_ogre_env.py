@@ -1,5 +1,6 @@
 import numpy as np
 from collections import defaultdict
+import os.path
 import ogre
 import collada
 from envs import OgreEnv, CityOgreEnv
@@ -8,7 +9,7 @@ import spaces
 
 
 class CarOgreEnv(OgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None):
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, color=None):
         # state
         self._speed = 1.0
         self._lane_offset = 2.0
@@ -16,6 +17,9 @@ class CarOgreEnv(OgreEnv):
         # road properties
         self._lane_width = 4.0
         self._num_lanes = 2
+
+        self.color = color or 'red'
+        self._write_car_material_file(self.color)
 
         state_space = spaces.BoxSpace([0.0, 0.5 * self._lane_width, -np.inf],
                                       [10.0, (self._num_lanes - 0.5) * self._lane_width, np.inf])
@@ -101,18 +105,55 @@ class CarOgreEnv(OgreEnv):
         self.app.root.renderOneFrame()
         self.app.window.update()
 
+    def _write_car_material_file(self, color_name, template_fname=None, new_fname=None):
+        """
+        TODO: this hard-coded way to generate a material file for the car
+        """
+        if color_name == 'red':
+            ambient_material21 = '0.427451 0.0117647 0.0117647'
+            diffuse_material21 = '0.843137 0.027451 0.027451'
+            ambient_material23 = '0.498039 0.0509804 0.0509804'
+            diffuse_material23 = '1 0.105882 0.105882'
+        elif color_name == 'green':
+            ambient_material21 = '0.0117647 0.127451 0.0117647'
+            diffuse_material21 = '0.027451 0.543137 0.027451'
+            ambient_material23 = '0.0509804 0.298039 0.0509804'
+            diffuse_material23 = '0.105882 0.4 0.105882'
+        elif color_name == 'random':
+            ambient_material21 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
+            diffuse_material21 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
+            ambient_material23 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
+            diffuse_material23 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
+        else:
+            raise ValueError('unknown color %s' % color_name)
+        replace = dict(ambient_material21=ambient_material21,
+                       diffuse_material21=diffuse_material21,
+                       ambient_material23=ambient_material23,
+                       diffuse_material23=diffuse_material23)
+        template_fname = template_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/camaro2_3ds_template.material')
+        new_fname = new_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/camaro2_3ds.material')
+        with open(template_fname, 'r') as template_file:
+            with open(new_fname, 'w') as new_file:
+                for line in template_file:
+                    for old_string, new_string in replace.items():
+                        old_string = '%%{%s}' % old_string
+                        if old_string in line:
+                            line = line.replace(old_string, new_string)
+                    new_file.write(line)
+
     def _get_config(self):
         config = super(CarOgreEnv, self)._get_config()
+        config.update({'color': self.color})
         config.pop('state_space')
         return config
 
 
 class StraightCarOgreEnv(CarOgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None):
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, color=None):
         # minimum and maximum position of the car
         # [-51 - 6, -275, 10.7]
         # [-51 + 6, 225, 10.7]
-        super(StraightCarOgreEnv, self).__init__(action_space, observation_space, sensor_names, app=app, dt=dt)
+        super(StraightCarOgreEnv, self).__init__(action_space, observation_space, sensor_names, app=app, dt=dt, color=color)
         # modify the straight_dist limits
         self.state_space.low[2] = 0
         self.state_space.high[2] = 275 + 225
@@ -141,10 +182,10 @@ class StraightCarOgreEnv(CarOgreEnv):
 
 
 class SimpleGeometricCarOgreEnv(CarOgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None):
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None, color=None):
         # TODO: find file in path
-        self._graph_collada_fname = graph_collada_fname or '/home/alex/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-directed-graph.dae'
-        self._faces_collada_fname = faces_collada_fname or '/home/alex/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-faces.dae'
+        self._graph_collada_fname = graph_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-directed-graph.dae')
+        self._faces_collada_fname = faces_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-faces.dae')
         self._edge_normals = {}
         self._last_edge = self._edge_normal = None
         self._build_graph()
@@ -153,7 +194,7 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
         self.angle_thresh = np.pi * 3.0 / 4.0
         # state
         self._start_ind, self._end_ind = self.sample_vertex_inds()
-        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt)
+        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt, color=color)
         self.car_node.setTransform(self.transform)
 
     @property
@@ -336,10 +377,10 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
 
 
 class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None):
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None, color=None):
         # TODO: find file in path
-        self._graph_collada_fname = graph_collada_fname or '/home/alex/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-directed-graph.dae'
-        self._faces_collada_fname = faces_collada_fname or '/home/alex/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-faces.dae'
+        self._graph_collada_fname = graph_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-directed-graph.dae')
+        self._faces_collada_fname = faces_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-faces.dae')
         self._edge_normals = {}
         self._last_edge = self._edge_normal = None
         self._build_graph()
@@ -349,7 +390,7 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
         # state
         self._turn_angle = None  # angle along current curve (defined by two adjacent edges)
         self._start_ind, self._middle_ind, self._end_ind = self.sample_vertex_inds()  # SimpleCarOgreEnv's start_ind and end_ind are CarOgreEnv's start_ind and middle_ind
-        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt)
+        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt, color=color)
         self.car_node.setTransform(self.transform)
 
     @property

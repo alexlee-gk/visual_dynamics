@@ -9,16 +9,18 @@ import utils.transformations as tf
 
 
 class SimpleQuadOgreEnv(OgreEnv):
-    def __init__(self, action_space, observation_space, state_space, sensor_names, car_env_class=None, car_action_space=None, app=None, dt=None):
+    def __init__(self, action_space, observation_space, state_space, sensor_names, car_env_class=None, car_action_space=None, car_color=None, app=None, dt=None):
         self.car_action_space = car_action_space or spaces.BoxSpace(np.array([0.0, 0.0]), np.array([0.0, 0.0]))
         # self.car_action_space = spaces.BoxSpace(np.array([0.0, -0.1]), np.array([1.0, 0.1]))
         # self.car_env = StraightCarOgreEnv(self.car_action_space,
         self.car_env_class = car_env_class or StraightCarOgreEnv
+        self.car_color = car_color or 'red'
         self.car_env = self.car_env_class(self.car_action_space,
                                           None,  # no need to observe from car
                                           None,
                                           app=app,
-                                          dt=dt)
+                                          dt=dt,
+                                          color=self.car_color)
         app, dt = self.car_env.app, self.car_env.dt
 
         if isinstance(state_space, spaces.TranslationAxisAngleSpace):
@@ -196,7 +198,8 @@ class SimpleQuadOgreEnv(OgreEnv):
     def _get_config(self):
         config = super(SimpleQuadOgreEnv, self)._get_config()
         config.update({'car_env_class': self.car_env_class,
-                       'car_action_space': self.car_action_space})
+                       'car_action_space': self.car_action_space,
+                       'car_color': self.car_color})
         return config
 
 
