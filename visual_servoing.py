@@ -22,9 +22,14 @@ def main():
     parser.add_argument('--visualize', '-v', type=int, default=None)
     parser.add_argument('--record_file', '-r', type=str, default=None)
     parser.add_argument('--target_distance', '-d', type=int, default=1)
+    parser.add_argument('--feature_inds', '-i', type=int, nargs='+', help='inds of subset of features to use')
+
     args = parser.parse_args()
 
     predictor = utils.from_yaml(open(args.predictor_fname))
+    if args.feature_inds:
+        predictor.feature_name = [predictor.feature_name[ind] for ind in args.feature_inds]
+        predictor.next_feature_name = [predictor.next_feature_name[ind] for ind in args.feature_inds]
     if issubclass(predictor.environment_config['class'], envs.RosEnv):
         import rospy
         rospy.init_node("visual_servoing")
@@ -199,8 +204,6 @@ def main():
 
     if args.record_file:
         writer.finish()
-
-    import IPython as ipy; ipy.embed()
 
     env.close()
     if args.visualize:
