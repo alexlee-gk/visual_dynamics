@@ -340,19 +340,46 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             print('set parameters with names: %r' % set_param_names)
 
     def save_model(self, model_fname):
-        model_fname = model_fname.replace('.yaml', '.pkl')
-        print("Saving model parameters to file", model_fname)
-        with open(model_fname, 'wb') as model_file:
-            all_param_values = self.get_all_param_values()
-            pickle.dump(all_param_values, model_file, protocol=pickle.HIGHEST_PROTOCOL)
+        all_param_values = self.get_all_param_values()
+        try:
+            model_fname = model_fname.replace('.yaml', '.pkl')
+            print("Saving model parameters to file", model_fname)
+            with open(model_fname, 'wb') as model_file:
+                pickle.dump(all_param_values, model_file, protocol=pickle.HIGHEST_PROTOCOL)
+        except:
+            try:
+                print("Could not save model parameters to file", model_fname)
+                model_fname = model_fname.replace('.pkl', '.hdf5')
+                print("Saving model parameters to file", model_fname)
+                import h5py
+                with h5py.File(model_fname, 'w') as hdf5_file:
+                    for name, value in all_param_values.items():
+                        dset = hdf5_file.create_dataset(name, data=value)
+            except:
+                print("Could not save model parameters to file", model_fname)
+                import IPython as ipy; ipy.embed()
         return model_fname
 
     def copy_from(self, model_fname):
         print("Copying model parameters from file", model_fname)
-        with open(model_fname, 'rb') as model_file:
-            param_values = pickle.load(model_file)
-            param_values = OrderedDict([(name, value.astype(theano.config.floatX, copy=False)) for (name, value) in param_values.items()])
-            self.set_all_param_values(param_values)
+        try:
+            with open(model_fname, 'rb') as model_file:
+                param_values = pickle.load(model_file)
+        except:
+            try:
+                print("Could not copy model parameters from file", model_fname)
+                model_fname = model_fname.replace('.pkl', '.hdf5')
+                print("Copying model parameters from file", model_fname)
+                import h5py
+                with h5py.File(model_fname, 'r') as hdf5_file:
+                    param_values = dict()
+                    for name in hdf5_file.keys():
+                        param_values[name] = hdf5_file[name][:]
+            except:
+                print("Could not copy model parameters from file", model_fname)
+                import IPython as ipy; ipy.embed()
+        param_values = OrderedDict([(name, value.astype(theano.config.floatX, copy=False)) for (name, value) in param_values.items()])
+        self.set_all_param_values(param_values)
 
     def draw(self):
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
