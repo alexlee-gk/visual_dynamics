@@ -106,7 +106,7 @@ def main():
     np.random.seed(seed=7)
     all_errors = []
     errors_header_format = "{:>30}" + "{:>15}" * len(error_names)
-    errors_row_format = "{:>30}" + "{:>15.2f}" * len(error_names)
+    errors_row_format = "{:>30}" + "{:>15.4f}" * len(error_names)
     print('=' * (30 + 15 * len(error_names)))
     print(errors_header_format.format("(traj_iter, step_iter)", *error_names))
     done = False
@@ -144,6 +144,7 @@ def main():
                     next_state, next_obs = env.get_state_and_observe()
                     next_errors = env.get_errors(target_pol.get_target_state())
                     all_errors.append(next_errors.values())
+                    print(errors_row_format.format(str((traj_iter, step_iter + 1)), *next_errors.values()))
 
                 # container
                 if container:
@@ -193,13 +194,15 @@ def main():
                 break
         except KeyboardInterrupt:
             break
-
     print('-' * (30 + 15 * len(error_names)))
-    print(errors_row_format.format("RMS", *np.sqrt(np.mean(np.square(all_errors), axis=0))))
+    rms_errors = np.sqrt(np.mean(np.square(all_errors), axis=0))
+    print(errors_row_format.format("RMS", *rms_errors))
 
     # plotting
     all_errors = np.array(all_errors).reshape((args.num_trajs, args.num_steps + 1, -1))
-    for errors, rms_errors, rms_error_plotter in zip(all_errors.transpose([2, 0, 1]), np.sqrt(np.mean(np.square(all_errors), axis=0)).T,rms_error_plotters):
+    for errors, rms_errors, rms_error_plotter in zip(all_errors.transpose([2, 0, 1]),
+                                                     np.sqrt(np.mean(np.square(all_errors), axis=0)).T,
+                                                     rms_error_plotters):
         rms_error_plotter.update(np.r_[[rms_errors], errors])
 
     if args.record_file:
@@ -210,6 +213,8 @@ def main():
         cv2.destroyAllWindows()
     if container:
         container.close()
+
+    import IPython as ipy; ipy.embed()
 
 
 if __name__ == "__main__":
