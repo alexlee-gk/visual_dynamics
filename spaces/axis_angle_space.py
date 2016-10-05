@@ -14,12 +14,10 @@ class AxisAngleSpace(Space):
         """
         TODO: handle angle wrap-around
         """
-        try:
-            self.low, self.high = [np.asscalar(np.squeeze(limit)) for limit in [low, high]]
-        except ValueError:
+        self.low = np.squeeze(low)[None]
+        self.high = np.squeeze(high)[None]
+        if self.low.shape != (1,) or self.high.shape != (1,):
             raise ValueError("low and high should each contain a single number or be a single number")
-        assert np.isscalar(self.low)
-        assert np.isscalar(self.high)
         self.axis = axis / np.linalg.norm(axis) if axis is not None else None
         if self.axis is None:
             assert -self.low == self.high
@@ -48,6 +46,7 @@ class AxisAngleSpace(Space):
         return axis_contained and angle_contained
 
     def clip(self, x, out=None):
+        import IPython as ipy; ipy.embed()
         assert x.shape == self.shape
         if self.axis is None:
             axis_clipped, angle = tf.split_axis_angle(x)
@@ -71,7 +70,7 @@ class AxisAngleSpace(Space):
 
     def _get_config(self):
         config = super(AxisAngleSpace, self)._get_config()
-        config.update({'low': self.low,
-                       'high': self.high,
+        config.update({'low': np.asscalar(self.low),
+                       'high': np.asscalar(self.high),
                        'axis': self.axis.tolist() if self.axis is not None else None})
         return config

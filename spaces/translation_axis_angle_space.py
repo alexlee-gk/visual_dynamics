@@ -19,6 +19,9 @@ class TranslationAxisAngleSpace(ConcatenationSpace):
         super(TranslationAxisAngleSpace, self).__init__([self.box_space, self.axis_angle_space])
         self.low = np.append(self.box_space.low, self.axis_angle_space.low)
         self.high = np.append(self.box_space.high, self.axis_angle_space.high)
+        # alias the corresponding slices of self.low and self.high
+        self.box_space.low, self.box_space.high = self.low[:3], self.high[:3]
+        self.axis_angle_space.low, self.axis_angle_space.high = self.low[3:], self.high[3:]
         assert self.low.shape == (4,)
         assert self.high.shape == (4,)
 
