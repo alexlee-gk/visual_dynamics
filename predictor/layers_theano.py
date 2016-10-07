@@ -1332,6 +1332,76 @@ class GroupConv2DLayer(L.Conv2DLayer):
         return conved
 
 
+class LocallyConnected2DLayer(L.Conv2DLayer):
+    """Similar to Conv2DLayer except that the filter weights are unshared
+
+    This implementation computes the output tensor by iterating over the filter
+    weights and multiplying them with shifted versions of the input tensor.
+    Assumes no stride, 'same' padding and no dilation.
+
+    Keras has a more general implementation in here:
+    https://github.com/fchollet/keras/blob/master/keras/layers/local.py
+    Their implementation iterates over the values of the output tensor, which
+    might be slower.
+    """
+
+    def __init__(self, incoming, num_filters, filter_size, channelwise=False, **kwargs):
+        self.channelwise = channelwise
+        super(LocallyConnected2DLayer, self).__init__(incoming, num_filters, filter_size, **kwargs)
+        if self.channelwise:
+            assert num_filters == self.input_shape[1]
+
+    def get_W_shape(self):
+        num_input_channels = self.input_shape[1]
+        output_shape = self.get_output_shape_for(self.input_shape)
+        if self.channelwise:
+            num_output_channels = output_shape[1]
+            assert num_input_channels == num_output_channels
+            return (self.num_filters,) + self.filter_size + output_shape[-2:]
+        else:
+            return (self.num_filters, num_input_channels) + self.filter_size + output_shape[-2:]
+
+    def convolve(self, input, **kwargs):
+        if self.stride != (1, 1) or self.pad != 'same' or self.filter_dilation != (1, 1):
+            raise NotImplementedError
+
+        output_shape = self.get_output_shape_for(self.input_shape)
+
+        # start with ii == jj == 0 case to initialize tensor
+        i = self.filter_size[0] // 2
+        j = self.filter_size[0] // 2
+        filter_h_ind = -i-1 if self.flip_filters else i
+        filter_w_ind = -j-1 if self.flip_filters else j
+        if self.channelwise:
+            conved = input * self.W[..., filter_h_ind, filter_w_ind, :, :]
+        else:
+            conved = (input[:, None, :, :, :] * self.W[..., filter_h_ind, filter_w_ind, :, :]).sum(axis=-3)
+
+        for i in range(self.filter_size[0]):
+            filter_h_ind = -i-1 if self.flip_filters else i
+            ii = i - (self.filter_size[0] // 2)
+            input_h_slice = slice(max(ii, 0), min(ii + output_shape[-2], output_shape[-2]))
+            output_h_slice = slice(max(-ii, 0), min(-ii + output_shape[-2], output_shape[-2]))
+
+            for j in range(self.filter_size[1]):
+                filter_w_ind = -j-1 if self.flip_filters else j
+                jj = j - (self.filter_size[1] // 2)
+                input_w_slice = slice(max(jj, 0), min(jj + output_shape[-1], output_shape[-1]))
+                output_w_slice = slice(max(-jj, 0), min(-jj + output_shape[-1], output_shape[-1]))
+                # skip this case since it was done at the beginning
+                if ii == jj == 0:
+                    continue
+                if self.channelwise:
+                    conved = T.inc_subtensor(conved[..., output_h_slice, output_w_slice],
+                                             input[..., input_h_slice, input_w_slice] *
+                                             self.W[..., filter_h_ind, filter_w_ind, output_h_slice, output_w_slice])
+                else:
+                    conved = T.inc_subtensor(conved[..., output_h_slice, output_w_slice],
+                                             (input[:, None, :, input_h_slice, input_w_slice] *
+                                              self.W[..., filter_h_ind, filter_w_ind, output_h_slice, output_w_slice]).sum(axis=-3))
+        return conved
+
+
 class CrossConv2DLayer(L.MergeLayer):
     def __init__(self, incomings, num_filters, filter_size, stride=1,
                  pad=0, untie_biases=False,
