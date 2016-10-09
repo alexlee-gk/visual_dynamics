@@ -16,7 +16,10 @@ class OnlineStatistics(object):
         self.s2 = 0.0
 
     def add_data(self, data):
-        self.n += data.shape[self.axis]
+        if isinstance(self.axis, (list, tuple)):
+            self.n += np.prod([data.shape[axis] for axis in self.axis])
+        else:
+            self.n += data.shape[self.axis]
         self.s += data.sum(axis=self.axis)
         self.s2 += (data ** 2).sum(axis=self.axis)
 
