@@ -1,8 +1,12 @@
+from __future__ import division, print_function
 import time
 import numpy as np
 import yaml
+from collections import OrderedDict
 import theano
+import theano.tensor as T
 import lasagne
+import lasagne.layers as L
 import utils
 import bilinear
 from . import layers_theano
@@ -630,3 +634,123 @@ class BilinearSolver(TheanoNetSolver):
                        'average_loss': self.average_loss,
                        'iter_': self.iter_})
         return config
+
+
+class StandarizeSolver(TheanoNetSolver):
+    def __init__(self, train_data_fnames, data_names=None, data_name_offset_pairs=None,
+                 input_names=None, feature_name=None, aggregating_batch_size=1000, max_iter=1,
+                 snapshot_prefix='', iter_=0, check=False):
+        self.train_data_fnames = train_data_fnames or []
+        self.data_names = data_names or ['image', 'action']
+        self.data_name_offset_pairs = data_name_offset_pairs or [('image', 0)]
+        self.input_names = input_names or ['x', 'u', 'x_next']
+        self.feature_name = feature_name or 'x5'
+        self.aggregating_batch_size = aggregating_batch_size
+        self.max_iter = max_iter
+        self.snapshot_prefix = snapshot_prefix
+        self.iter_ = iter_
+        self._last_snapshot_iter = None
+        self.check = check
+
+    def _get_config(self):
+        config = utils.ConfigObject._get_config(self)
+        config.update({'train_data_fnames': self.train_data_fnames,
+                       'data_names': self.data_names,
+                       'data_name_offset_pairs': self.data_name_offset_pairs,
+                       'feature_name': self.feature_name,
+                       'input_names': self.input_names,
+                       'aggregating_batch_size': self.aggregating_batch_size,
+                       'max_iter': self.max_iter,
+                       'snapshot_prefix': self.snapshot_prefix,
+                       'iter_': self.iter_,
+                       'check': self.check})
+        return config
+
+    def solve(self, net):
+        self.step(self.max_iter - self.iter_, net)
+        if self._last_snapshot_iter != self.iter_:
+            self.snapshot(net)
+
+    def step(self, iters, net):
+        data_to_input_name = dict(zip(self.data_names, self.input_names))
+        transformers = {data_name: net.transformers[data_to_input_name[data_name]] for data_name in self.data_names}
+
+        stop_iter = self.iter_ + iters
+        while self.iter_ < stop_iter:
+            # training data (one pass)
+            train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
+                                                                data_name_offset_pairs=self.data_name_offset_pairs,
+                                                                transformers=transformers,
+                                                                once=True,
+                                                                batch_size=self.aggregating_batch_size,
+                                                                shuffle=False,
+                                                                dtype=theano.config.floatX)
+            train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=1)
+
+            # traverse the model starting from feature_name all the way down to the input layer
+            pred_layer = net.pred_layers[self.feature_name]
+            last_pred_layer = None
+            prerelu_pred_layers = OrderedDict()
+            postrelu_pred_layers = OrderedDict()
+            while not isinstance(pred_layer, L.InputLayer):
+                if last_pred_layer is not None:
+                    assert isinstance(last_pred_layer.layers[0], L.Conv2DLayer)
+                    postrelu_pred_layers[pred_layer.name + '_postrelu'] = last_pred_layer.layers[0]
+                assert isinstance(pred_layer.layers[-1], L.NonlinearityLayer)
+                assert isinstance(pred_layer.layers[-2], L.Conv2DLayer)
+                prerelu_pred_layers[pred_layer.name + '_prerelu'] = pred_layer.layers[-2]
+                last_pred_layer = pred_layer
+                pred_layer = pred_layer.layers[0].input_layer
+            prerelu_pred_layers = OrderedDict(prerelu_pred_layers.items()[::-1])
+            postrelu_pred_layers = OrderedDict(postrelu_pred_layers.items()[::-1])
+            net.pred_layers.update(prerelu_pred_layers)
+            net.pred_layers.update(postrelu_pred_layers)
+
+            prerelu_feature_names = prerelu_pred_layers.keys()
+            online_stats = [utils.OnlineStatistics(axis=(0, 2, 3)) for _ in prerelu_feature_names]
+
+            for batch_data in train_data_once_gen:
+                X = batch_data[0]
+                features = net.predict(prerelu_feature_names, X, preprocessed=True)
+
+                for feature, online_stat in zip(features, online_stats):
+                    online_stat.add_data(feature)
+
+            for online_stat, prerelu_pred_layer, postrelu_pred_layer in \
+                    zip(online_stats, prerelu_pred_layers.values(), list(postrelu_pred_layers.values()) + [None]):
+                W, b = prerelu_pred_layer.W, prerelu_pred_layer.b
+                W.set_value((W.get_value() / online_stat.std[:, None, None, None]).astype(theano.config.floatX))
+                if b is not None:
+                    b.set_value((b.get_value() / online_stat.std[((slice(None),) + (None,) * (b.ndim - 1))]).astype(theano.config.floatX))
+                # there layer after the one of the feature_name is not modified
+                if postrelu_pred_layer is not None:
+                    W = postrelu_pred_layer.W
+                    W.set_value((W.get_value() * online_stat.std[None, :, None, None]).astype(theano.config.floatX))
+
+            if self.check:
+                check_online_stats = [utils.OnlineStatistics(axis=(0, 2, 3)) for _ in prerelu_feature_names]
+                train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
+                                                                    data_name_offset_pairs=self.data_name_offset_pairs,
+                                                                    transformers=transformers,
+                                                                    once=True,
+                                                                    batch_size=self.aggregating_batch_size,
+                                                                    shuffle=False,
+                                                                    dtype=theano.config.floatX)
+                train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=1)
+
+                for batch_data in train_data_once_gen:
+                    X = batch_data[0]
+                    check_features = net.predict(prerelu_feature_names, X, preprocessed=True)
+
+                    for feature, online_stat in zip(check_features, check_online_stats):
+                        online_stat.add_data(feature)
+
+                # check that the standard deviation after standarization is actually 1
+                for online_stat in check_online_stats:
+                    assert np.allclose(online_stat.std, 1)
+
+                # check that the features (without the last normalization) are the same as before
+                for online_stat, feature, check_feature in zip(online_stats, features, check_features):
+                    assert np.allclose(feature, check_feature * online_stat.std[None, :, None, None], atol=1e-7)
+
+            self.iter_ += 1

@@ -53,7 +53,8 @@ class ParallelGenerator(object):
         return self
 
     def __next__(self):
-        while not self._data_stop.is_set() or not self.data_gen_queue.empty():
+        while not self._data_stop.is_set() or not self.data_gen_queue.empty() or \
+                any([thread.is_alive() for thread in self.generator_threads]):
             if not self.data_gen_queue.empty():
                 return self.data_gen_queue.get()
             else:

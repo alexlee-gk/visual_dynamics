@@ -68,7 +68,12 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             solver_file_base_name = os.path.splitext(os.path.split(solver_fname)[1])[0]
             solver.snapshot_prefix = self.get_snapshot_prefix(solver_file_base_name)
         self.solvers.append(solver)
-        data_fnames = solver.train_data_fnames + ([solver.val_data_fname] or [])
+        data_fnames = solver.train_data_fnames
+        try:
+            if solver.val_data_fname:
+                data_fnames += [solver.val_data_fname]
+        except AttributeError:
+            pass
         with utils.container.MultiDataContainer(data_fnames) as data_container:
             environment_config = data_container.get_info('environment_config')
             policy_config = data_container.get_info('policy_config')
