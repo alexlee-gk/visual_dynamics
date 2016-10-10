@@ -5,12 +5,16 @@ import utils
 
 @tools.params(((1000, 25), 10, 0),
               ((1000, 25), 10, 1),
-              ((1000, 25), 77, 0)
+              ((1000, 25), 77, 0),
+              ((1000, 1, 2, 3), 10, (0, 3))
               )
 def test_online_statistics(shape, batch_size, axis):
     online_stats = utils.OnlineStatistics(axis=axis)
     X = np.random.random(shape)
-    data_size = X.shape[axis]
+    if isinstance(axis, (list, tuple)):
+        data_size = np.prod([X.shape[ax] for ax in axis])
+    else:
+        data_size = X.shape[axis]
     curr_ind = 0
     while curr_ind < data_size:
         slices = []
