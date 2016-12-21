@@ -5,7 +5,6 @@ import matplotlib.gridspec as gridspec
 import matplotlib.animation as manimation
 from gui.grid_image_visualizer import GridImageVisualizer
 import envs
-import policy
 import utils
 
 
@@ -30,28 +29,17 @@ def main():
     with open(args.pol_fname) as yaml_string:
         policy_config = yaml.load(yaml_string)
         replace_config = {'env': env,
-                          'action_space': env.action_space,
-                          'state_space': env.state_space}
+                          'action_space': env.action_space}
         try:
             replace_config['target_env'] = env.car_env
         except AttributeError:
             pass
-        # TODO: better way to populate config with existing instances
         pol = utils.from_config(policy_config, replace_config=replace_config)
-        assert len(pol.policies) == 2
-        target_pol, random_pol = pol.policies
-        assert isinstance(target_pol, policy.TargetPolicy)
-        assert isinstance(random_pol, policy.RandomPolicy)
 
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
-        # save errors if they are available (e.g. env defines get_errors())
-        try:
-            error_names = env.get_error_names()
-        except AttributeError:
-            error_names = []
-        container.reserve(['action', 'state_diff'] + error_names, (args.num_trajs, args.num_steps))
+        container.reserve(['action', 'state_diff'], (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
         container.add_info(policy_config=pol.get_config())
     else:
@@ -70,32 +58,27 @@ def main():
             writer = FFMpegWriter(fps=1.0 / env.dt)
             writer.setup(fig, args.record_file, fig.dpi)
 
+    import time
+    start_time = time.time()
     done = False
     for traj_iter in range(args.num_trajs):
         print('traj_iter', traj_iter)
         try:
-            prev_state = None
             state = pol.reset()
-            env.reset(state)
+            obs = env.reset(state)
             for step_iter in range(args.num_steps):
-                state, obs = env.get_state_and_observe()
-                action = pol.act(obs)
-                env.step(action)  # action is updated in-place if needed
                 if container:
-                    if step_iter > 0:
-                        container.add_datum(traj_iter, step_iter - 1, state_diff=state - prev_state)
-                    try:
-                        errors = env.get_errors(target_pol.get_target_state())
-                    except AttributeError:
-                        errors = dict()
-                    container.add_datum(traj_iter, step_iter, state=state, action=action,
-                                        **dict(list(errors.items()) + list(zip(env.sensor_names, obs))))
-                    prev_state = state
-                    if step_iter == (args.num_steps-1):
-                        next_state, next_obs = env.get_state_and_observe()
-                        container.add_datum(traj_iter, step_iter, state_diff=next_state - state)
-                        container.add_datum(traj_iter, step_iter + 1, state=next_state,
-                                            **dict(zip(env.sensor_names, next_obs)))
+                    container.add_datum(traj_iter, step_iter, state=state, **dict(zip(env.sensor_names, obs)))
+
+                action = pol.act(obs)
+                obs, _, _, _ = env.step(action)  # action is updated in-place if needed
+
+                if container:
+                    prev_state, state = state, env.get_state()
+                    container.add_datum(traj_iter, step_iter, action=action, state_diff=state - prev_state)
+                    if step_iter == (args.num_steps - 1):
+                        container.add_datum(traj_iter, step_iter + 1, state=state, **dict(zip(env.sensor_names, obs)))
+
                 if args.visualize:
                     env.render()
                     try:
@@ -115,6 +98,8 @@ def main():
         writer.finish()
     if container:
         container.close()
+    end_time = time.time()
+    print("average FPS: {}".format(args.num_trajs * (args.num_steps + 1) / (end_time - start_time)))
 
 
 if __name__ == "__main__":

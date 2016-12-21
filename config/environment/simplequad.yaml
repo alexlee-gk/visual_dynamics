@@ -1,28 +1,12 @@
-class: !!python/name:envs.quad_ogre_env.SimpleQuadOgreEnv ''
+class: !!python/name:envs.quad_panda3d_env.SimpleQuadPanda3dEnv ''
 action_space:
   class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
-  low: [-10, -10, -10, -0.17453292519943295]
-  high: [10, 10, 10, 0.17453292519943295]
+  low: [-20, -10, -10, -1.5707963267948966]
+  high: [20, 10, 10, 1.5707963267948966]
+  axis: [0, 0, 1]
   dtype: float64
-observation_space:
-  class: !!python/name:spaces.tuple_space.Tuple ''
-  spaces:
-  - class: !!python/name:spaces.box_space.BoxSpace ''
-    low: 0
-    high: 255
-    shape: !!python/tuple [480, 640]
-    dtype: uint8
-  - class: !!python/name:spaces.box_space.BoxSpace ''
-    low: 0
-    high: 255
-    shape: !!python/tuple [480, 640]
-    dtype: uint8
-state_space:
-  class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
-  low: [-.inf, -.inf, -.inf, -.inf]
-  high: [.inf, .inf, .inf, .inf]
-#  low: [-76, -275, 15.7, -1.5707963267948966]
-#  high: [-26, 275, 65.7, 1.5707963267948966]
-  dtype: float64
-sensor_names: ['image', 'car_image']
+sensor_names: ['image']
+car_env_class: !!python/name:envs.car_panda3d_env.GeometricCarPanda3dEnv ''
+car_model_name: ['camaro2', 'mazda6', 'sport', 'kia_rio_blue', 'kia_rio_red', 'kia_rio_white']
+#car_model_name: ['kia_rio_silver', 'kia_rio_yellow', 'mitsubishi_lancer_evo']
 dt: 0.1

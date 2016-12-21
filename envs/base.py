@@ -2,53 +2,71 @@ import utils
 
 
 class Env(utils.config.ConfigObject):
-    def __init__(self, action_space, observation_space, state_space, sensor_names):
-        self._action_space = action_space
-        self._observation_space = observation_space
-        self._state_space = state_space
-        self._sensor_names = sensor_names or []
-
     def step(self, action):
         """
-        The action should be contained in the action_space.
-        """
-        raise NotImplementedError
+        Run one time step of the environment's dynamics
 
-    def get_state(self):
-        """
-        The returned state should be contained in the state_space.
+        Args:
+            action: numpy array, which should be contained in the action space
+                or be clippable by the action space.
+
+        Returns:
+            observation (object): agent's observation of the current environment.
+            reward (float) : amount of reward returned after previous action.
+            done (boolean): whether the episode has ended, in which case further step() calls will return undefined results.
+            info (dict): contains auxiliary diagnostic information (helpful for debugging, and sometimes learning).
+
+        Note:
+            The action is modified in-place with the action that was actually
+            taken. For example, this could happen if the action is not contained
+            in the action space or if applying it leads to an invalid state.
         """
         raise NotImplementedError
 
     def reset(self, state=None):
         """
-        The state (if specified) should be contained in the state_space.
+        Resets the state of the environment and returns an initial observation
+
+        Args:
+            state: numpy array, which is the state this environment should be
+                set to (if specified)
+
+        If state is specified, the environment is reset to that state,
+        otherwise, it is set to an arbitrary state (which may be chosen at
+        random).
+
+        Returns:
+            observation: the initial observation of the environment.
         """
         raise NotImplementedError
 
-    def observe(self):
+    def get_state(self):
         """
-        Returns a tuple of observations even if there is only one observation.
+        Returns the state of the environment
 
         Returns:
-            a tuple of observations, where each observations is a numpy array,
-            and the number of observations should match the number of
-            sensor_names. The observations should be contained in the
-            observation space.
+            a numpy array.
         """
         raise NotImplementedError
 
-    def get_state_and_observe(self):
+    def set_state(self, state):
         """
-        Returns the state of get_state() and the observations of observe(),
-        ensuring that they correspond to each other. This is particularly
-        useful in real-world systems.
+        Sets the state of the environment
 
-        Returns:
-            a tuple of the state and the observations
+        Args:
+            state: numpy array.
+
+        Note:
+            Setting the state of the environment to the current state should
+            not affect the state of the environment.
+
+        Example:
+
+            >>> state = self.get_state()
+            >>> self.set_state(state)
+            >>> assert np.allclose(state, self.get_state())
 
         """
-        return self.get_state(), self.observe()
 
     def render(self):
         pass
@@ -58,24 +76,14 @@ class Env(utils.config.ConfigObject):
 
     @property
     def action_space(self):
-        return self._action_space
+        """
+        Returns a Space object
+        """
+        raise NotImplementedError
 
     @property
     def observation_space(self):
-        return self._observation_space
-
-    @property
-    def state_space(self):
-        return self._state_space
-
-    @property
-    def sensor_names(self):
-        return self._sensor_names
-
-    def _get_config(self):
-        config = super(Env, self)._get_config()
-        config.update({'action_space': self.action_space,
-                       'observation_space': self.observation_space,
-                       'state_space': self.state_space,
-                       'sensor_names': self.sensor_names})
-        return config
+        """
+        Returns a Space object
+        """
+        raise NotImplementedError
