@@ -29,33 +29,22 @@ class AxisAngleSpace(Space):
             if not (self.low <= angle <= self.high):
                 # rescale angle from [-pi, pi) to [-low_angle, high_angle)
                 angle = self.low + (self.high - self.low) * (angle + np.pi) / (2 * np.pi)
+            return angle * axis
         else:
-            axis = self.axis
-            angle = np.random.uniform(low=self.low, high=self.high)
-        return angle * axis
+            angle = np.random.uniform(low=self.low, high=self.high, size=self.shape)
+            return angle
 
     def contains(self, x):
-        assert x.shape == self.shape
-        axis, angle = tf.split_axis_angle(x, reference_axis=self.axis)
-        if self.axis is None:
-            axis_contained = True
-        else:
-            assert np.dot(axis, self.axis) >= 0.0
-            axis_contained = np.dot(axis, self.axis) == 1.0
-        angle_contained = (self.low <= angle <= self.high)
-        return axis_contained and angle_contained
+        angle = np.linalg.norm(x)
+        return x.shape == self.shape and (self.low <= angle <= self.high)
 
     def clip(self, x, out=None):
-        import IPython as ipy; ipy.embed()
         assert x.shape == self.shape
         if self.axis is None:
-            axis_clipped, angle = tf.split_axis_angle(x)
+            axis, angle = tf.split_axis_angle(x)
+            x_clipped = np.clip(angle, self.low, self.high) * axis
         else:
-            x_projected = np.dot(x, self.axis) * self.axis
-            axis_clipped, angle = tf.split_axis_angle(x_projected, reference_axis=self.axis)
-            assert np.allclose(axis_clipped, self.axis)
-        angle_clipped = np.clip(angle, self.low, self.high)
-        x_clipped = angle_clipped * axis_clipped
+            x_clipped = np.clip(x, self.low, self.high)
         if out is not None:
             out[:] = x_clipped
             x_clipped = out
@@ -66,7 +55,10 @@ class AxisAngleSpace(Space):
         """
         shape of data that this space handles
         """
-        return (3,)
+        if self.axis is None:
+            return (3,)
+        else:
+            return (1,)
 
     def _get_config(self):
         config = super(AxisAngleSpace, self)._get_config()

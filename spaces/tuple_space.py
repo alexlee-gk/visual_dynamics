@@ -1,11 +1,11 @@
 from spaces import Space
 
 
-class Tuple(Space):
+class TupleSpace(Space):
     """
     A tuple (i.e., product) of simpler spaces
     Example usage:
-    self.observation_space = spaces.Tuple((spaces.Discrete(2), spaces.Discrete(3)))
+    self.observation_space = spaces.TupleSpace((spaces.Discrete(2), spaces.Discrete(3)))
     """
     def __init__(self, spaces):
         self.spaces = spaces
@@ -35,7 +35,7 @@ class Tuple(Space):
         return all([(space == other_space) for (space, other_space) in zip(self.spaces, other.spaces)])
 
     def _get_config(self):
-        config = super(Tuple, self)._get_config()
+        config = super(TupleSpace, self)._get_config()
         config.update({'spaces': self.spaces})
         return config
 
