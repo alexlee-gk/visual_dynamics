@@ -1,0 +1,14 @@
+class: !!python/name:policy.correlated_additive_normal_policy.CorrelatedAdditiveNormalPolicy ''
+pol:
+  class: !!python/name:policy.position_based_servoing_policy.PositionBasedServoingPolicy ''
+  lambda_: 1.0
+  target_to_obj_T: [[1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 1.4281480067421146],
+                    [0.0, 0.0, 1.0, -1.0],
+                    [0.0, 0.0, 0.0, 1.0]]
+  straight_trajectory: true
+action_space: null
+state_space: null
+act_std: 0.5
+reset_std: null
+averaging_window: 5

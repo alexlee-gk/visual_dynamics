@@ -13,5 +13,6 @@ except ImportError:
 try:
     from .ros_env import *
     from .pr2_env import *
+    from .quad_ros_env import *
 except ImportError:
     pass

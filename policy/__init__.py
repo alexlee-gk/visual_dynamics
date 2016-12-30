@@ -16,3 +16,4 @@ except ImportError:
     pass
 from .servoing_policy import *
 from .interactive_translation_angle_axis_policy import *
+from .position_based_servoing_policy import *

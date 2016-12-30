@@ -1,0 +1,7 @@
+class: !!python/name:policy.position_based_servoing_policy.PositionBasedServoingPolicy ''
+lambda_: 1.0
+target_to_obj_T: [[1.0, 0.0, 0.0, 0.0],
+                  [0.0, 1.0, 0.0, 1.4281480067421146],
+                  [0.0, 0.0, 1.0, -1.0],
+                  [0.0, 0.0, 0.0, 1.0]]
+straight_trajectory: true
