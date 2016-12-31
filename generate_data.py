@@ -41,6 +41,7 @@ def main():
         container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
         container.reserve(['action', 'state_diff'], (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
+        container.add_info(env_spec_config=envs.EnvSpec(env).get_config())
         container.add_info(policy_config=pol.get_config())
     else:
         container = None

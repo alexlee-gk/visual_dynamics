@@ -1,4 +1,5 @@
 from .base import *
+from .env_spec import *
 try:
     from .ogre_env import *
     from .city_ogre_env import *
