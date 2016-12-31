@@ -32,7 +32,9 @@ class TupleSpace(Space):
         return tuple([space.shape() for space in self.spaces])
 
     def __eq__(self, other):
-        return all([(space == other_space) for (space, other_space) in zip(self.spaces, other.spaces)])
+        return isinstance(other, (tuple, list)) and \
+               len(other) == len(self.spaces) and \
+               all([(space == other_space) for (space, other_space) in zip(self.spaces, other.spaces)])
 
     def _get_config(self):
         config = super(TupleSpace, self)._get_config()
