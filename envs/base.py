@@ -67,6 +67,7 @@ class Env(utils.config.ConfigObject):
             >>> assert np.allclose(state, self.get_state())
 
         """
+        raise NotImplementedError
 
     def render(self):
         pass
