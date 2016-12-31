@@ -30,10 +30,6 @@ def main():
         policy_config = yaml.load(yaml_string)
         replace_config = {'env': env,
                           'action_space': env.action_space}
-        try:
-            replace_config['target_env'] = env.car_env
-        except AttributeError:
-            pass
         pol = utils.from_config(policy_config, replace_config=replace_config)
 
     if args.output_dir:
@@ -67,12 +63,16 @@ def main():
         try:
             state = pol.reset()
             obs = env.reset(state)
+            if state is None:
+                state = env.get_state()
             for step_iter in range(args.num_steps):
                 if container:
                     container.add_datum(traj_iter, step_iter, state=state, **dict(zip(env.sensor_names, obs)))
 
                 action = pol.act(obs)
-                obs, _, _, _ = env.step(action)  # action is updated in-place if needed
+                obs, _, episode_done, _ = env.step(action)  # action is updated in-place if needed
+                if episode_done:
+                    raise NotImplementedError('Early termination of episodes is not allowed during data generation/collection.')
 
                 if container:
                     prev_state, state = state, env.get_state()
