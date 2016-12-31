@@ -1,7 +1,6 @@
 import citysim3d.envs
 from envs import Panda3dEnv
 from spaces import BoxSpace
-import utils
 
 
 class SimpleQuadPanda3dEnv(citysim3d.envs.SimpleQuadPanda3dEnv, Panda3dEnv):
@@ -21,7 +20,7 @@ class SimpleQuadPanda3dEnv(citysim3d.envs.SimpleQuadPanda3dEnv, Panda3dEnv):
                        'offset': self.offset.tolist(),
                        'car_env_class': self.car_env_class,
                        'car_action_space': car_action_space,
-                       'car_model_names': self.car_model_name})
+                       'car_model_name': self.car_model_name})
         return config
 
 
