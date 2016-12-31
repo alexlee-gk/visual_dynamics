@@ -1,7 +1,0 @@
-class: !!python/name:simulator.ServoPlatform ''
-dof_limits: [[230, 220], [610, 560]]
-dof_vel_limits: [[-50, -50], [50, 50]]
-background_window: false
-background_window_size: [5, 8]
-pwm_channels: [0, 1]
-camera_id: C
