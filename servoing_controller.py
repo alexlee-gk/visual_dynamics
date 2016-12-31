@@ -207,7 +207,7 @@ def main():
     ### BEGIN NEW ENV API
     import policy
     offset = np.array([0., -4., 3.]) * 4
-    target_pol = policy.OgreCameraTargetPolicy(env, env.quad_camera_node, env.quad_node, env.car_node, offset, tightness=1.0)
+    target_pol = policy.CameraTargetPolicy(env, env.quad_camera_node, env.quad_node, env.car_node, offset, tightness=1.0)
     assert (w_features == 1.0).all()
     servoing_pol = policy.ServoingPolicy(predictor, alpha=args.alpha, lambda_=args.lambda_, w=w_features)
     pol = policy.MixedPolicy(target_pol, servoing_pol, act_probs=[0, 1], reset_probs=[1, 0])

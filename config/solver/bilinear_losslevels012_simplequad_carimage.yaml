@@ -1,0 +1,13 @@
+class: !!python/name:predictor.solver.BilinearSolver ''
+loss_batch_size: 32
+aggregating_batch_size: 1000
+test_iter: 10
+weight_decay: 0.0005
+average_loss: 10
+data_names: ['car_image', 'action']
+data_name_offset_pairs: [['car_image', 0], ['action', 0], ['car_image', 1]]
+#data_names: ['image', 'depth_image', 'car_image', 'car_depth_image', 'action']
+
+train_data_fnames: ['/media/2tb/data/simplequad_train_data']
+val_data_fname: '/media/2tb/data/simplequad_val_data'
+output_names: [[x0_next_pred, [x0, 1]], [x1_next_pred, [x1, 1]], [x2_next_pred, [x2, 1]]]

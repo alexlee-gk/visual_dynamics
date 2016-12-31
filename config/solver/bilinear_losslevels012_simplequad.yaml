@@ -8,6 +8,6 @@ data_names: ['image', 'action']
 data_name_offset_pairs: [['image', 0], ['action', 0], ['image', 1]]
 #data_names: ['image', 'depth_image', 'car_image', 'car_depth_image', 'action']
 
-train_data_fnames: ['data/simplequad_train_data']
-val_data_fname: 'data/simplequad_val_data'
+train_data_fnames: ['/media/2tb/data/simplequad_train_data']
+val_data_fname: '/media/2tb/data/simplequad_val_data'
 output_names: [[x0_next_pred, [x0, 1]], [x1_next_pred, [x1, 1]], [x2_next_pred, [x2, 1]]]

@@ -1822,7 +1822,7 @@ class DilatedVggEncodingLayer(CompositionLayer):
                  **tags):
         super(DilatedVggEncodingLayer, self).__init__(incoming, name=name)
         layer = self.l_conv1 = self.add_layer(
-            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, stride=1, pad='same', nonlinearity=None,
+            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, filter_dilation=dilation, stride=1, pad='same', nonlinearity=None,
                           W=conv1_W,
                           b=conv1_b,
                           name='%s.%s' % (name, 'conv1') if name is not None else None))
@@ -1841,7 +1841,7 @@ class DilatedVggEncodingLayer(CompositionLayer):
                                 name='%s.%s' % (name, 'relu1') if name is not None else None))
 
         # layer = self.l_pad2 = self.add_layer(
-        #     L.PadLayer(layer, (filter_size - 1) * dilation // 2))  # 'same' padding
+        #     L.PadLayer(layer, (filter_size - 1) * dilation // 2))  # 'samoe' padding
         # layer = self.l_conv2 = self.add_layer(
         #     L.DilatedConv2DLayer(layer, num_filters, filter_size=filter_size, dilation=dilation, nonlinearity=None,
         #                          W=conv2_W,
@@ -1903,7 +1903,7 @@ class DilatedVggEncoding3Layer(CompositionLayer):
                  **tags):
         super(DilatedVggEncoding3Layer, self).__init__(incoming, name=name)
         layer = self.l_conv1 = self.add_layer(
-            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, stride=1, pad='same', nonlinearity=None,
+            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, filter_dilation=dilation, stride=1, pad='same', nonlinearity=None,
                           W=conv1_W,
                           b=conv1_b,
                           name='%s.%s' % (name, 'conv1') if name is not None else None))
@@ -1922,7 +1922,7 @@ class DilatedVggEncoding3Layer(CompositionLayer):
                                 name='%s.%s' % (name, 'relu1') if name is not None else None))
 
         layer = self.l_conv2 = self.add_layer(
-            L.Conv2DLayer(layer, num_filters, filter_size=filter_size, stride=1, pad='same', nonlinearity=None,
+            L.Conv2DLayer(layer, num_filters, filter_size=filter_size, filter_dilation=dilation, stride=1, pad='same', nonlinearity=None,
                           W=conv2_W,
                           b=conv2_b,
                           name='%s.%s' % (name, 'conv2') if name is not None else None))
@@ -2128,7 +2128,7 @@ class BilinearLayer(L.MergeLayer):
         self.axis = axis
 
         self.y_shape, self.u_shape = [input_shape[1:] for input_shape in self.input_shapes]
-        self.y_dim = int(np.prod(self.y_shape[self.axis-1:]))
+        self.y_dim = int(np.prvod(self.y_shape[self.axis-1:]))
         self.u_dim,  = self.u_shape
 
         self.Q = self.add_param(Q, (self.y_dim, self.y_dim, self.u_dim), name='Q')
@@ -2267,11 +2267,24 @@ def create_bilinear_layer(l_xlevel, l_u, level, bilinear_type='share', name=None
                 l_xlevel_gconv = GroupConv2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
                                                  untie_biases=True, groups=l_x_shape[1], nonlinearity=None,
                                                  name='%s_gconv%d' % (name, i))
+                set_layer_param_tags(l_xlevel_gconv, transformation=True, **dict([('level%d' % level, True)]))
                 l_xlevel_gconvs.append(l_xlevel_gconv)
             l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_gconvs + [l_u], name=name)
             # l_xlevel_u_outer = OuterProductLayer([l_xlevel, l_u], name='x%d_u_outer' % level)
             # l_xlevel_diff_pred = GroupConv2DLayer(l_xlevel_u_outer, l_x_shape[1], filter_size=5, stride=1, pad='same',
             #                                       untie_biases=True, groups=l_x_shape[1], nonlinearity=None, name=name)
+            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d' % level, True)]))
+        elif bilinear_type == 'channelwise_local':
+            l_x_shape = L.get_output_shape(l_xlevel)
+            _, u_dim = L.get_output_shape(l_u)
+            l_xlevel_convs = []
+            for i in range(u_dim + 1):
+                l_xlevel_conv = LocallyConnected2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
+                                                        untie_biases=True, channelwise=True, nonlinearity=None,
+                                                        name='%s_conv%d' % (name, i))
+                set_layer_param_tags(l_xlevel_conv, transformation=True, **dict([('level%d' % level, True)]))
+                l_xlevel_convs.append(l_xlevel_conv)
+            l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_convs + [l_u], name=name)
             set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d' % level, True)]))
         elif bilinear_type == 'full':
             l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=1, name=name)

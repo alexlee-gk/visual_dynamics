@@ -85,7 +85,7 @@ def main():
     rospy.init_node('camera_sensor', anonymous=True)
 
     action_space = spaces.BoxSpace(np.deg2rad([-5., -5.]), np.deg2rad([5., 5.]))
-    observation_space = spaces.Tuple([spaces.BoxSpace(0, 255, shape=(240, 320, 3), dtype=np.uint8)])
+    observation_space = spaces.TupleSpace([spaces.BoxSpace(0, 255, shape=(240, 320, 3), dtype=np.uint8)])
     state_space = spaces.BoxSpace(np.deg2rad([-30., 45.]), np.deg2rad([30., 75.]))
     sensor_names = ['image']
     pr2_env = Pr2Env(action_space, observation_space, state_space, sensor_names)

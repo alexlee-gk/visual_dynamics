@@ -288,14 +288,23 @@ def build_multiscale_action_cond_encoder_net(input_shapes, levels=None, bilinear
 
 
 def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
+                                                         encoding_levels=None,
                                                          num_encoding_levels=5,
                                                          scales=None,
                                                          bilinear_type=None,
-                                                         channel_inds=None):
+                                                         channel_inds=None,
+                                                         no_dynamics=False,
+                                                         tf_nl_layer=False,
+                                                         batch_norm=False,
+                                                         fix_beta=False):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
     scales = sorted(set(scales))
+    if encoding_levels is None:
+        encoding_levels = [num_encoding_levels]
+    else:
+        assert max(encoding_levels) == num_encoding_levels
 
     X_var = T.tensor4('x')
     U_var = T.matrix('u')
@@ -309,46 +318,79 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
 
     # encoding
     l_xlevels = OrderedDict()
+    l_xdlevels = OrderedDict()  # downsampled version of l_xlevels at the resolution for servoing
     for level in range(num_encoding_levels+1):
         if level == 0:
             l_xlevel = l_x
+            l_xdlevel = LT.Downscale2DLayer(l_xlevel, scale_factor=4,
+                                            name='x%dd' % level)
         elif level < 3:
-            l_xlevel = LT.DilatedVggEncodingLayer(l_xlevels[level-1], xlevels_c_dim[level], name='x%d' % level)
+            l_xlevel = LT.DilatedVggEncodingLayer(l_xlevels[level-1], xlevels_c_dim[level],
+                                                  dilation=(1, 1), name='x%d' % level)
+            l_xdlevel = LT.Downscale2DLayer(l_xlevel, scale_factor=2 ** (3 - level),
+                                            name='x%dd' % level)
+            l_xlevel = L.MaxPool2DLayer(l_xlevel, pool_size=2, stride=2, pad=0,
+                                        name='%s.%s' % ('x%d' % level, 'pool'))
         else:
-            l_xlevel = LT.DilatedVggEncoding3Layer(l_xlevels[level-1], xlevels_c_dim[level], name='x%d' % level)
-        if level == num_encoding_levels and channel_inds:
-            l_xlevel.name += '_all'
-            l_xlevel = L.SliceLayer(l_xlevel, channel_inds, axis=1, name='x%d' % level)
+            l_xlevel = LT.DilatedVggEncoding3Layer(l_xlevels[level-1], xlevels_c_dim[level],
+                                                   dilation=(2 ** (level - 3),) * 2, name='x%d' % level)
+            l_xdlevel = l_xlevel
+        if level == num_encoding_levels:
+            if batch_norm:
+                l_xlevel_name = l_xlevel.name
+                l_xlevel.name = l_xlevel_name + '_prebn'
+                l_xlevel = L.BatchNormLayer(l_xlevel, name=l_xlevel_name, **dict(beta=None) if fix_beta else dict())
+            if channel_inds:
+                l_xlevel.name += '_all'
+                l_xlevel = L.SliceLayer(l_xlevel, channel_inds, axis=1, name='x%d' % level)
         l_xlevels[level] = l_xlevel
+        l_xdlevels[level] = l_xdlevel
 
     # multi-scale pyramid
-    l_xlevel_scales = OrderedDict()
-    for scale in range(scales[-1]+1):
-        if scale == 0:
-            l_xlevel_scale = l_xlevels[num_encoding_levels]
-        else:
-            l_xlevel_scale = LT.Downscale2DLayer(l_xlevel_scales[scale-1],
-                                                 scale_factor=2,
-                                                 name='x%d_%d' % (num_encoding_levels, scale))
-        l_xlevel_scales[scale] = l_xlevel_scale
+    l_xdlevels_scales = OrderedDict()
+    for level in encoding_levels:
+        l_xdlevels_scales[level] = OrderedDict()
+        for scale in range(scales[-1]+1):
+            if scale == 0:
+                l_xdlevel_scale = l_xdlevels[level]
+            else:
+                l_xdlevel_scale = LT.Downscale2DLayer(l_xdlevels_scales[level][scale-1],
+                                                      scale_factor=2,
+                                                      name='x%dd_%d' % (level, scale))
+            l_xdlevels_scales[level][scale] = l_xdlevel_scale
 
     # bilinear
-    l_xlevel_scales_next_pred = OrderedDict()
-    for scale in scales:
-        l_xlevel_scale = l_xlevel_scales[scale]
-        l_xlevel_scale_diff_pred = LT.create_bilinear_layer(l_xlevel_scale,
-                                                            l_u,
-                                                            scale,
-                                                            bilinear_type=bilinear_type,
-                                                            name='x%d_%d_diff_pred' % (num_encoding_levels, scale))
-        l_xlevel_scales_next_pred[scale] = L.ElemwiseSumLayer([l_xlevel_scale, l_xlevel_scale_diff_pred],
-                                                              name='x%d_%d_next_pred' % (num_encoding_levels, scale))
+    if not no_dynamics:
+        l_xdlevels_scales_next_pred = OrderedDict()
+        for level in encoding_levels:
+            l_xdlevels_scales_next_pred[level] = OrderedDict()
+            for scale in scales:
+                l_xdlevel_scale = l_xdlevels_scales[level][scale]
+                l_xdlevel_scale_diff_pred = LT.create_bilinear_layer(l_xdlevel_scale,
+                                                                     l_u,
+                                                                     scale,
+                                                                     bilinear_type=bilinear_type,
+                                                                     name='x%dd_%d_diff_pred' % (level, scale))
+
+                if not tf_nl_layer:
+                    l_xdlevels_scales_next_pred[level][scale] = L.ElemwiseSumLayer([l_xdlevel_scale, l_xdlevel_scale_diff_pred],
+                                                                                   name='x%dd_%d_next_pred' % (level, scale))
+                else:
+                    l_xdlevel_scale_next_pred_ = L.ElemwiseSumLayer([l_xdlevel_scale, l_xdlevel_scale_diff_pred],
+                                                                    name='x%dd_%d_next_pred_' % (level, scale))
+                    l_xdlevels_scales_next_pred[level][scale] = L.NonlinearityLayer(l_xdlevel_scale_next_pred_, nonlinearity=nl.rectify,
+                                                                                    name='x%dd_%d_next_pred' % (level, scale))
 
     pred_layers = OrderedDict([('x', l_x),
                                ('x_next', l_x_next),
                                ])
-    pred_layers.update([('x%d_%d' % (num_encoding_levels, scale), l_xlevel_scales[scale]) for scale in l_xlevel_scales.keys()])
-    pred_layers.update([('x%d_%d_next_pred' % (num_encoding_levels, scale), l_xlevel_scales_next_pred[scale]) for scale in l_xlevel_scales_next_pred.keys()])
+    pred_layers.update([('x%dd_%d' % (level, scale), l_xdlevels_scales[level][scale])
+                        for level in l_xdlevels_scales.keys()
+                        for scale in l_xdlevels_scales[level].keys()])
+    if not no_dynamics:
+        pred_layers.update([('x%dd_%d_next_pred' % (level, scale), l_xdlevels_scales_next_pred[level][scale])
+                            for level in l_xdlevels_scales_next_pred.keys()
+                            for scale in l_xdlevels_scales_next_pred[level].keys()])
     return pred_layers
 
 

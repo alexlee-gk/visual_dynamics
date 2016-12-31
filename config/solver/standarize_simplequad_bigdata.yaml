@@ -1,0 +1,7 @@
+class: !!python/name:predictor.solver.StandarizeSolver ''
+aggregating_batch_size: 1000
+data_names: ['image', 'action']
+data_name_offset_pairs: [['image', 0]]
+feature_name: 'x5'
+
+train_data_fnames: ['data/simplequad_train_bigdata']

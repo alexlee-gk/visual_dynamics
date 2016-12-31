@@ -79,8 +79,8 @@ class ObjectOgreEnv(OgreEnv):
 def main():
     action_space = spaces.TranslationAxisAngleSpace(np.array([-2, -2, -2, -np.pi / 4]),
                                                     np.array([2, 2, 2, np.pi / 4]))
-    observation_space = spaces.Tuple([spaces.BoxSpace(0, 255, shape=(480, 640), dtype=np.uint8),
-                                      spaces.BoxSpace(0.0, np.inf, shape=(480, 640))])
+    observation_space = spaces.TupleSpace([spaces.BoxSpace(0, 255, shape=(480, 640), dtype=np.uint8),
+                                           spaces.BoxSpace(0.0, np.inf, shape=(480, 640))])
     state_space = spaces.TranslationAxisAngleSpace(np.array([0, 0, 0, -np.inf]), np.array([0, 0, 0, np.inf]))
     sensor_names = ['image', 'depth_image']
     object_fname = 'camaro2_3ds.mesh'

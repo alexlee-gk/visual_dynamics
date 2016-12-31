@@ -5,11 +5,75 @@ import ogre
 import collada
 from envs import OgreEnv, CityOgreEnv
 import utils.transformations as tf
+import utils
 import spaces
 
 
 class CarOgreEnv(OgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, color=None):
+    car_parameters = {
+        'camaro2':
+            ('camaro2_3ds.mesh',
+             np.array([0.3] * 3),
+             np.array([0, 0, 1.]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(np.pi, np.array([0, 0, 1])))),
+        'kia_rio_blue':
+            ('kia_rio_blue_obj.mesh',
+             np.array([0.4] * 3),
+             np.array([0, 0, -0.35]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(-np.pi / 2, np.array([0, 0, 1])))),
+        'kia_rio_red':
+            ('kia_rio_red_obj.mesh',
+             np.array([0.4] * 3),
+             np.array([0, 0, -0.35]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(-np.pi / 2, np.array([0, 0, 1])))),
+        'kia_rio_silver':
+            ('kia_rio_silver_obj.mesh',
+             np.array([0.4] * 3),
+             np.array([0, 0, -0.35]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(-np.pi / 2, np.array([0, 0, 1])))),
+        'kia_rio_white':
+            ('kia_rio_white_obj.mesh',
+             np.array([0.4] * 3),
+             np.array([0, 0, -0.35]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(-np.pi / 2, np.array([0, 0, 1])))),
+        'kia_rio_yellow':
+            ('kia_rio_yellow_obj.mesh',
+             np.array([0.4] * 3),
+             np.array([0, 0, -0.35]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(-np.pi / 2, np.array([0, 0, 1])))),
+        'mazda6':
+            ('mazda6_3ds.mesh',
+             np.array([3.7] * 3),
+             np.array([0, 0, 0.75]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(np.pi, np.array([0, 0, 1])))),
+        'mitsubishi_lancer_evo':
+            ('mitsubishi_lancer_evo_3ds.mesh',
+             np.array([0.0016] * 3),
+             np.array([0, -4.6, 0]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(np.pi / 2, np.array([0, 0, 1])))),
+        'ram3500':
+            ('ram3500_3ds.mesh',
+             np.array([6.] * 3),
+             np.array([0, 0, 1.3]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(np.pi, np.array([0, 0, 1])))),
+        'sport':
+            ('sport_3ds.mesh',
+             np.array([3.35] * 3),
+             np.array([0, 0, 1.2]),
+             tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
+                                    tf.quaternion_about_axis(np.pi, np.array([0, 0, 1]))))
+    }
+
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, model_name='camaro2'):
         # state
         self._speed = 1.0
         self._lane_offset = 2.0
@@ -18,9 +82,6 @@ class CarOgreEnv(OgreEnv):
         self._lane_width = 4.0
         self._num_lanes = 2
 
-        self.color = color or 'red'
-        self._write_car_material_file(self.color)
-
         state_space = spaces.BoxSpace([0.0, 0.5 * self._lane_width, -np.inf],
                                       [10.0, (self._num_lanes - 0.5) * self._lane_width, np.inf])
         super(CarOgreEnv, self).__init__(action_space, observation_space, state_space, sensor_names, app=app, dt=dt)
@@ -28,15 +89,13 @@ class CarOgreEnv(OgreEnv):
         self.city_node = self.city_env.city_node
         self.skybox_node = self.city_env.skybox_node
 
-        car_entity = self.app.scene_manager.createEntity('camaro2_3ds.mesh')
         self.car_node = self.app.scene_manager.getRootSceneNode().createChildSceneNode('car')
-        car_local_node = self.car_node.createChildSceneNode()
-        car_local_node.attachObject(car_entity)
-        car_local_node.setScale(np.array([0.3] * 3))
-        car_local_node.setPosition(np.array([0, 0, 1.]))
-        car_local_node.setOrientation(
-            tf.quaternion_multiply(tf.quaternion_about_axis(np.pi / 2, np.array([1, 0, 0])),
-                                   tf.quaternion_about_axis(np.pi, np.array([0, 0, 1]))))
+        self._car_local_node = self.car_node.createChildSceneNode()
+
+        self.model_name = model_name
+        self._model_name = None
+        self._car_entity = None
+        self._spawn_car()
 
         self.car_camera_node = self.car_node.createChildSceneNode('car_camera')
         car_camera = self.app.scene_manager.createCamera('car_camera')
@@ -53,6 +112,34 @@ class CarOgreEnv(OgreEnv):
             self.car_depth_camera_sensor = ogre.PyDepthCameraSensor(car_camera, 640, 480)
 
         self._first_render = True
+
+    def _spawn_car(self, model_name_or_ind=None):
+        if model_name_or_ind is None:
+            if isinstance(self.model_name, (list, tuple)):
+                model_name = np.random.choice(self.model_name)
+            else:
+                model_name = self.model_name
+        elif isinstance(model_name_or_ind, str):
+            model_name = model_name_or_ind
+        else:
+            model_ind = model_name_or_ind
+            if model_ind != -1:
+                assert isinstance(self.model_name, (list, tuple))
+                model_name = self.model_name[model_ind]
+            else:
+                model_name = self.model_name
+        # check if the desired car is already spawned
+        if model_name != self._model_name:
+            if self._car_entity is not None:
+                self._car_local_node.detachObject(self._car_entity)
+            fname, scale, position, orientation = self.car_parameters[model_name]
+            with utils.suppress_stdout():
+                self._car_entity = self.app.scene_manager.createEntity(fname)
+            self._car_local_node.attachObject(self._car_entity)
+            self._car_local_node.setScale(scale)
+            self._car_local_node.setPosition(position)
+            self._car_local_node.setOrientation(orientation)
+            self._model_name = model_name
 
     @property
     def speed(self):
@@ -102,58 +189,24 @@ class CarOgreEnv(OgreEnv):
         target_T = tf.pose_matrix(target_node._getDerivedOrientation(), target_node._getDerivedPosition())
         target_camera_pos = target_T[:3, 3] + target_T[:3, :3].dot(np.array([0., -4., 3.]) * 4)
         self.app.camera.setPosition((1 - tightness) * self.app.camera.getPosition() + tightness * target_camera_pos)
+        if self.app.window.isHidden():
+            self.app.window.setHidden(False)
         self.app.root.renderOneFrame()
         self.app.window.update()
 
-    def _write_car_material_file(self, color_name, template_fname=None, new_fname=None):
-        """
-        TODO: this hard-coded way to generate a material file for the car
-        """
-        if color_name == 'red':
-            ambient_material21 = '0.427451 0.0117647 0.0117647'
-            diffuse_material21 = '0.843137 0.027451 0.027451'
-            ambient_material23 = '0.498039 0.0509804 0.0509804'
-            diffuse_material23 = '1 0.105882 0.105882'
-        elif color_name == 'green':
-            ambient_material21 = '0.0117647 0.127451 0.0117647'
-            diffuse_material21 = '0.027451 0.543137 0.027451'
-            ambient_material23 = '0.0509804 0.298039 0.0509804'
-            diffuse_material23 = '0.105882 0.4 0.105882'
-        elif color_name == 'random':
-            ambient_material21 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
-            diffuse_material21 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
-            ambient_material23 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
-            diffuse_material23 = '%.6f %.6f %.6f' % tuple(np.random.random(3))
-        else:
-            raise ValueError('unknown color %s' % color_name)
-        replace = dict(ambient_material21=ambient_material21,
-                       diffuse_material21=diffuse_material21,
-                       ambient_material23=ambient_material23,
-                       diffuse_material23=diffuse_material23)
-        template_fname = template_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/camaro2_3ds_template.material')
-        new_fname = new_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/camaro2_3ds.material')
-        with open(template_fname, 'r') as template_file:
-            with open(new_fname, 'w') as new_file:
-                for line in template_file:
-                    for old_string, new_string in replace.items():
-                        old_string = '%%{%s}' % old_string
-                        if old_string in line:
-                            line = line.replace(old_string, new_string)
-                    new_file.write(line)
-
     def _get_config(self):
         config = super(CarOgreEnv, self)._get_config()
-        config.update({'color': self.color})
+        config.update({'model_name': self.model_name})
         config.pop('state_space')
         return config
 
 
 class StraightCarOgreEnv(CarOgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, color=None):
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, model_name='camaro2'):
         # minimum and maximum position of the car
         # [-51 - 6, -275, 10.7]
         # [-51 + 6, 225, 10.7]
-        super(StraightCarOgreEnv, self).__init__(action_space, observation_space, sensor_names, app=app, dt=dt, color=color)
+        super(StraightCarOgreEnv, self).__init__(action_space, observation_space, sensor_names, app=app, dt=dt, model_name=model_name)
         # modify the straight_dist limits
         self.state_space.low[2] = 0
         self.state_space.high[2] = 275 + 225
@@ -175,6 +228,7 @@ class StraightCarOgreEnv(CarOgreEnv):
 
     def reset(self, state=None):
         self.city_env.reset()
+        self._sample_car_model()
         if state is None:
             state = self.state_space.sample()
         self.speed, self.lane_offset, self.straight_dist = state
@@ -182,7 +236,7 @@ class StraightCarOgreEnv(CarOgreEnv):
 
 
 class SimpleGeometricCarOgreEnv(CarOgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None, color=None):
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None, model_name='camaro2'):
         # TODO: find file in path
         self._graph_collada_fname = graph_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-directed-graph.dae')
         self._faces_collada_fname = faces_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-faces.dae')
@@ -194,7 +248,7 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
         self.angle_thresh = np.pi * 3.0 / 4.0
         # state
         self._start_ind, self._end_ind = self.sample_vertex_inds()
-        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt, color=color)
+        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt, model_name=model_name)
         self.car_node.setTransform(self.transform)
 
     @property
@@ -328,6 +382,7 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
 
     def reset(self, state=None):
         self.city_env.reset()
+        self._sample_car_model()
         if state is None:
             # TODO: use state space sample?
             speed = 1.0
@@ -366,6 +421,8 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
         target_T = tf.pose_matrix(target_node._getDerivedOrientation(), target_node._getDerivedPosition())
         target_camera_pos = target_T[:3, 3] + target_T[:3, :3].dot(np.array([0., -4., 3.]) * 4)
         self.app.camera.setPosition((1 - tightness) * self.app.camera.getPosition() + tightness * target_camera_pos)
+        if self.app.window.isHidden():
+            self.app.window.setHidden(False)
         self.app.root.renderOneFrame()
         self.app.window.update()
 
@@ -377,7 +434,7 @@ class SimpleGeometricCarOgreEnv(CarOgreEnv):
 
 
 class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
-    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None, color=None):
+    def __init__(self, action_space, observation_space, sensor_names, app=None, dt=None, graph_collada_fname=None, faces_collada_fname=None, model_name='camaro2'):
         # TODO: find file in path
         self._graph_collada_fname = graph_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-directed-graph.dae')
         self._faces_collada_fname = faces_collada_fname or os.path.expanduser('~/rll/python-ogre-lite/media/converted/_urban-level-02-medium-road-faces.dae')
@@ -390,7 +447,7 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
         # state
         self._turn_angle = None  # angle along current curve (defined by two adjacent edges)
         self._start_ind, self._middle_ind, self._end_ind = self.sample_vertex_inds()  # SimpleCarOgreEnv's start_ind and end_ind are CarOgreEnv's start_ind and middle_ind
-        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt, color=color)
+        CarOgreEnv.__init__(self, action_space, observation_space, sensor_names, app=app, dt=dt, model_name=model_name)
         self.car_node.setTransform(self.transform)
 
     @property
@@ -405,13 +462,8 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
 
     @property
     def middle_rot(self):
-        pt0 = self._points[self._start_ind]
         pt1 = self._points[self._middle_ind]
         pt2 = self._points[self._end_ind]
-        up_v = np.array([0., 0., 1.])
-        rot_z = np.cross(pt1 - pt0, pt2 - pt1)
-        if rot_z.dot(up_v) < 0:
-            rot_z *= -1.0
         return self._compute_rotation(pt2 - pt1, self._get_or_compute_edge_normal((self._middle_ind, self._end_ind)))
 
     @property
@@ -435,36 +487,58 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
         return middle_T
 
     @property
-    def end_T(self):
-        end_T = np.eye(4)
-        end_T[:3, :3] = self.end_rot
-        end_T[:3, 3] = self.end_pos
-        return end_T
+    def start_local_pos(self):
+        # start_local_pos = tf.inverse_matrix(self.start_T).dot(np.r_[self.start_pos, 1])[:3]
+        # assert np.allclose(start_local_pos, 0.0)
+        return np.zeros(2)
+
+    @property
+    def middle_local_pos(self):
+        # middle_local_pos = tf.inverse_matrix(self.start_T).dot(np.r_[self.middle_pos, 1])[:3]
+        # assert np.allclose(middle_local_pos[[0, 2]], 0.0)
+        return np.array([0, np.linalg.norm(self.middle_pos - self.start_pos)])
+
+    @property
+    def project_T(self):
+        """
+        Transforms the second plane (defined by normal self.middle_rot[:, 2])
+        so that it is parallel to the first plane (defined by normal
+        self.start_rot[:, 2]).
+        """
+        axis = np.cross(self.middle_rot[:, 2], self.start_rot[:, 2])
+        angle = tf.angle_between_vectors(self.middle_rot[:, 2], self.start_rot[:, 2])
+        if np.isclose(angle, 0.0):
+            project_T = np.eye(4)
+        else:
+            project_T = tf.rotation_matrix(angle, axis, point=self.middle_pos)
+        # assert np.allclose(project_T.dot(self.middle_T)[:3, 3], self.middle_pos)
+        # assert np.allclose(project_T.dot(self.middle_T)[:3, 2], self.start_rot[:, 2], atol=1e-7)
+        return project_T
+
+    @property
+    def end_local_pos(self):
+        end_local_pos = tf.inverse_matrix(self.start_T).dot(self.project_T.dot(np.r_[self.end_pos, 1]))
+        # assert np.allclose(end_local_pos[2], 0.0, atol=1e-5)
+        return end_local_pos[:2]
 
     @property
     def max_straight_dist(self):
-        return np.linalg.norm(self.middle_pos - self.start_pos)
+        return self.middle_local_pos[1]
+        # return np.linalg.norm(self.middle_pos - self.start_pos)
 
     @property
     def max_turn_angle(self):
-        angle = tf.angle_between_vectors(self.middle_pos - self.start_pos, self.end_pos - self.middle_pos)
+        angle = tf.angle_between_vectors(self.middle_local_pos - self.start_local_pos, self.end_local_pos - self.middle_local_pos)
         assert 0 <= angle <= np.pi
         return angle
 
     @property
     def turn_radius(self):
-        return self._num_lanes * self._lane_width + self.left_turn * self._lane_offset
+        return self.dist_to_center + self.left_turn * self._lane_offset
 
     @property
     def left_turn(self):
-        collinear = (np.cross(self.middle_pos - self.start_pos, self.end_pos - self.middle_pos) == 0).all()
-        if collinear:
-            left_turn = 0.0
-        else:
-            left_turn = np.sign(
-                np.cross(self.middle_pos - self.start_pos, self.end_pos - self.middle_pos).dot(self.middle_rot[:, 2]))
-            assert left_turn != 0  # TODO: if max_turn_angle is pi, then do left turn
-        return left_turn
+        return np.sign(np.cross(self.middle_local_pos - self.start_local_pos, self.end_local_pos - self.middle_local_pos))
 
     @property
     def turn_dist_offset(self):
@@ -473,27 +547,20 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
         is the same the distance from the start of the next edge where the
         curve ends.
         """
-        if self.max_turn_angle == np.pi:  # U-turn
+        if np.isclose(self.max_turn_angle, np.pi):  # U-turn
             turn_dist_offset = 0.0
         else:
-            turn_dist_offset = (self._num_lanes * self._lane_width) / np.tan((np.pi - self.max_turn_angle) / 2)
+            turn_dist_offset = (self.dist_to_center) / np.tan((np.pi - self.max_turn_angle) / 2)
         return turn_dist_offset
 
     @property
-    def start_turn_angle_offset(self):
+    def dist_to_center(self):
         """
-        Angle from the start of the curve where the current edge starts.
+        Perpendicular distance from lane origin to center of turning. The
+        minimum is chosen so that turn_dist_offset <= max_straight_dist
         """
-        return max(0.0, np.arctan2(self.turn_dist_offset - self.max_straight_dist,
-                                   self._num_lanes * self._lane_width))
-
-    @property
-    def end_turn_angle_offset(self):
-        """
-        Angle from the end of the curve where the next edge ends.
-        """
-        return max(0.0, np.arctan2(self.turn_dist_offset - np.linalg.norm(self.end_pos - self.middle_pos),
-                                   self._num_lanes * self._lane_width))
+        min_dist_to_center = self.max_straight_dist * np.tan((np.pi - self.max_turn_angle) / 2)
+        return min(self._num_lanes * self._lane_width, min_dist_to_center)
 
     @property
     def transform(self):
@@ -505,14 +572,34 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
             middle_T = self.middle_T
             left_turn = self.left_turn
             translate_to_center_T = tf.translation_matrix(
-                np.array([-left_turn * self._num_lanes * self._lane_width,
+                np.array([-left_turn * self.dist_to_center,
                           self.turn_dist_offset,
                           0.]))
             rotate_about_center_T = tf.rotation_matrix(
                 left_turn * (self._turn_angle - self.max_turn_angle), middle_T[:3, 2])
             translate_to_lane_T = tf.translation_matrix(
-                np.array([left_turn * self._num_lanes * self._lane_width + self._lane_offset, 0., 0.]))
+                np.array([left_turn * self.dist_to_center + self._lane_offset, 0., 0.]))
             T = middle_T.dot(translate_to_center_T.dot(rotate_about_center_T.dot(translate_to_lane_T)))
+            if self._turn_angle < self.max_turn_angle / 2:
+                T = self.project_T.dot(T)
+
+        # distance from the next edge
+        if self._straight_dist is not None:
+            dist = self.max_straight_dist - self._straight_dist - self.turn_dist_offset + (self.max_turn_angle / 2) * self.turn_radius
+        else:
+            if self._turn_angle < self.max_turn_angle / 2:
+                dist = (self.max_turn_angle / 2 - self._turn_angle) * self.turn_radius
+            else:
+                dist = None  # hard to compute
+        dist_thresh = 5.0  # start transition when the next edge is closer than the threshold
+        if dist is not None and dist < dist_thresh:
+            # start with transform aligned with start_rot but end with transform aligned with middle_rot
+            fraction = dist / dist_thresh
+            axis = np.cross(self.middle_rot[:, 2], self.start_rot[:, 2])
+            angle = - (1 - fraction) * tf.angle_between_vectors(self.middle_rot[:, 2], self.start_rot[:, 2])
+            if not np.isclose(angle, 0.0):
+                project_T = tf.rotation_matrix(angle, axis, point=self.middle_pos)
+                T = project_T.dot(T)
         return T
 
     def step(self, action):
@@ -532,10 +619,9 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
                 else:
                     delta_dist -= remaining_dist
                     self._straight_dist = None
-                    self._turn_angle = self.start_turn_angle_offset
+                    self._turn_angle = 0.0
             else:  # self._turn_angle is not None
-                remaining_dist = (
-                                 self.max_turn_angle - self._turn_angle) * self.turn_radius - self.end_turn_angle_offset
+                remaining_dist = (self.max_turn_angle - self._turn_angle) * self.turn_radius
                 if delta_dist < remaining_dist:
                     self._turn_angle += delta_dist / self.turn_radius
                     delta_dist = 0.0
@@ -553,21 +639,35 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
         # convert None to -1 so that the state is a numeric array (as opposed to object array)
         straight_dist = self._straight_dist if self._straight_dist is not None else -1
         turn_angle = self._turn_angle if self._turn_angle is not None else -1
+        if isinstance(self.model_name, (list, tuple)):
+            model_ind = list(self.model_name).index(self._model_name)
+        else:
+            model_ind = -1
         return np.array([self.speed, self.lane_offset, straight_dist, turn_angle,
-                         self._start_ind, self._middle_ind, self._end_ind])
+                         self._start_ind, self._middle_ind, self._end_ind, model_ind])
 
     def reset(self, state=None):
         self.city_env.reset()
         if state is None:
             # TODO: use state space sample?
             speed = 1.0
-            lane_offset = 2.0
+            # TODO: hard-coded right lane
+            lane_offset = 6.0
             straight_dist = 0.0  # distance along current edge
             turn_angle = None  # angle along current curve (defined by two adjacent edges)
             vertex_inds = self.sample_vertex_inds()
+            # TODO: hack. set inds so that straight_dist uses the most up-to-date values
+            # self._start_ind, self._middle_ind, self._end_ind = vertex_inds
+            # straight_dist = (self.max_straight_dist - self.turn_dist_offset) * 0.9
+            if isinstance(self.model_name, (list, tuple)):
+                model_ind = np.random.choice(np.arange(len(self.model_name)))
+            else:
+                model_ind = -1
         else:
             speed, lane_offset, straight_dist, turn_angle = state[:4]
-            vertex_inds = state[4:]
+            vertex_inds = state[4:-1]
+            model_ind = int(state[-1])
+        self._spawn_car(model_ind)
         # convert -1 to None
         if straight_dist == -1:
             straight_dist = None
@@ -586,7 +686,7 @@ class GeometricCarOgreEnv(SimpleGeometricCarOgreEnv):
             start_ind = np.random.choice(list(self._graph.keys()))
         if middle_ind is None:
             middle_ind = np.random.choice(list(self._graph[start_ind]))
-        elif not middle_ind in self._graph[start_ind]:
+        elif middle_ind not in self._graph[start_ind]:
             raise ValueError("Invalid start_ind %d and end_ind %d" % (start_ind, middle_ind))
         end_ind = self._next_ind(start_ind, middle_ind)
         return start_ind, middle_ind, end_ind

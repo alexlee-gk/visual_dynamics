@@ -1,0 +1,8 @@
+class: !!python/name:predictor.predictor_theano.TheanoNetFeaturePredictor ''
+build_net: !!python/name:predictor.net_theano.build_multiscale_dilated_vgg_action_cond_encoder_net ''
+num_encoding_levels: 4
+scales: [0, 1, 2]
+bilinear_type: channelwise_local
+feature_name: [x4d_0, x4d_1, x4d_2]
+next_feature_name: [x4d_0_next_pred, x4d_1_next_pred, x4d_2_next_pred]
+pretrained_fname: models/theano/standarized_vgg/standarize_simplequad/_iter_1_model.pkl

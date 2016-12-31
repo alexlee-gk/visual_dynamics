@@ -4,7 +4,7 @@ policy:
   policies:
   - class: !!python/name:policy.choice_policy.ChoicePolicy ''
     policies:
-    - class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
+    - class: !!python/name:policy.camera_target_policy.CameraTargetPolicy ''
       env: null
       target_env: null
       camera_node_name: quad_camera
@@ -12,7 +12,7 @@ policy:
       target_node_name: car
       offset: [-16.0, 0.0, 4.0]
       tightness: 1.0
-    - class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
+    - class: !!python/name:policy.camera_target_policy.CameraTargetPolicy ''
       env: null
       target_env: null
       camera_node_name: quad_camera

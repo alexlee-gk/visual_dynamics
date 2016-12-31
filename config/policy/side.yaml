@@ -1,6 +1,6 @@
 class: !!python/name:policy.mixed_policy.MixedPolicy ''
 policies:
-- class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
+- class: !!python/name:policy.camera_target_policy.CameraTargetPolicy ''
   env: null
   target_env: null
   camera_node_name: quad_camera
@@ -11,5 +11,5 @@ policies:
 - class: !!python/name:policy.random_policy.RandomPolicy ''
   action_space: null
   state_space: null
-act_probs: [0.5, 0.5]
+act_probs: [0.25, 0.75]
 reset_probs: [1, 0]

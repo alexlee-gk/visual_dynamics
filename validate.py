@@ -26,7 +26,7 @@ def main():
     predictor = utils.from_yaml(open(args.predictor_fname))
     env = utils.from_config(predictor.environment_config)
 
-    # TODO: better way of handling policies. reset policies. control policies. mix of them at test time.
+    # TODO: better way of handling policy. reset policy. control policy. mix of them at test time.
     try:
         policy_config = predictor.policy_config
         replace_config = {'env': env}
@@ -40,8 +40,8 @@ def main():
     except:
         offset = np.array([0., -4., 3.]) * 4
         # offset = np.array([4., 0., 1.]) * 4  # TODO
-        target_pol = policy.OgreCameraTargetPolicy(env, env.car_env, 'quad_camera', 'quad', 'car', offset, tightness=1.0)
-        # target_pol = policy.OgreCameraTargetPolicy(env, env.quad_camera_node, env.quad_node, env.car_node, env.car_env, offset, tightness=1.0)
+        target_pol = policy.CameraTargetPolicy(env, env.car_env, 'quad_camera', 'quad', 'car', offset, tightness=1.0)
+        # target_pol = policy.CameraTargetPolicy(env, env.quad_camera_node, env.quad_node, env.car_node, env.car_env, offset, tightness=1.0)
         random_pol = policy.RandomPolicy(env.action_space, env.state_space)
         # pol = policy.MixedPolicy(target_pol, random_pol, act_probs=[0.25, 0.75], reset_probs=[1, 0])
         pol = policy.MixedPolicy([target_pol, random_pol], act_probs=[0.5, 0.5], reset_probs=[1, 0])

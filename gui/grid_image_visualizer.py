@@ -4,7 +4,7 @@ import matplotlib.gridspec as gridspec
 import utils
 
 
-class GridImageVisualizer:
+class GridImageVisualizer(object):
 
     def __init__(self, fig, gs, num_plots=None, rows=None, cols=None, labels=None, vs_grid_shape=None, vs_padsize=1):
         """
@@ -23,6 +23,8 @@ class GridImageVisualizer:
         if rows is None:
             rows = int(np.ceil(float(num_plots) / cols))
         assert num_plots <= rows * cols, 'Too many plots to put into gridspec.'
+        self._rows = rows
+        self._cols = cols
 
         self._fig = fig
         self._gs_image_axis = gs
@@ -72,6 +74,14 @@ class GridImageVisualizer:
 
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend
+
+    @property
+    def rows(self):
+        return self._rows
+
+    @property
+    def cols(self):
+        return self._cols
 
     def update(self, images):
         self._images = images

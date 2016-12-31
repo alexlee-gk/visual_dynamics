@@ -1,17 +1,20 @@
 import numpy as np
 from envs import Env
 import ogre
+import utils
 
 
 class OgreEnv(Env):
     def __init__(self, action_space, observation_space, state_space, sensor_names, app=None, dt=None):
         super(OgreEnv, self).__init__(action_space, observation_space, state_space, sensor_names)
         if app is None:
-            self.app = ogre.PyApplication()
-            if not self.app.setup():
-                raise Exception("Failed to setup ogre")
+            with utils.suppress_stdout():
+                self.app = ogre.PyApplication()
+                if not self.app.setup():
+                    raise Exception("Failed to setup ogre")
         else:
             self.app = app
+        self.root_node = self.app.scene_manager.getRootSceneNode()
         self.app.camera.setNearClipDistance(0.01)  # 1cm
         self.app.camera.setFarClipDistance(10000.0)  # 10km
         self._dt = 0.1 if dt is None else dt
@@ -19,6 +22,8 @@ class OgreEnv(Env):
     def render(self):
         self.app.camera.setOrientation(np.array([1., 0., 0., 0.]))
         self.app.camera.setPosition(np.array([0., 0., 1000.]))
+        if self.app.window.isHidden():
+            self.app.window.setHidden(False)
         self.app.root.renderOneFrame()
         self.app.window.update()
 

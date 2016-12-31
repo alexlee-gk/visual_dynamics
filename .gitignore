@@ -3,6 +3,8 @@ data/*
 videos/*
 images/*
 models/*
+*.h5
+*.pkl
 
 # Backup files
 *.bak

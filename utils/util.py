@@ -11,6 +11,67 @@ try:
     import gazebo_msgs.srv
 except ImportError:
     pass
+import time
+
+
+class suppress_stdout(object):
+    '''
+    A context manager for doing a "deep suppression" of stdout in
+    Python, i.e. will suppress all print, even if the print originates in a
+    compiled C/Fortran sub-function.
+    '''
+    def __init__(self):
+        # Open a null file
+        while True:
+            try:
+                self.null_fds =  os.open(os.devnull, os.O_RDWR)
+                break
+            except OSError:
+                time.sleep(1)
+        # Save the actual stdout file descriptor
+        self.save_fds = os.dup(1)
+
+    def __enter__(self):
+        # Assign the null pointers to stdout
+        os.dup2(self.null_fds, 1)
+        os.close(self.null_fds)
+
+    def __exit__(self, *_):
+        # Re-assign the real stdout back
+        os.dup2(self.save_fds, 1)
+        # Close the null file
+        os.close(self.save_fds)
+
+
+class suppress_stdout_stderr(object):
+    '''
+    A context manager for doing a "deep suppression" of stdout and stderr in
+    Python, i.e. will suppress all print, even if the print originates in a
+    compiled C/Fortran sub-function.
+       This will not suppress raised exceptions, since exceptions are printed
+    to stderr just before a script exits, and after the context manager has
+    exited (at least, I think that is why it lets exceptions through).
+
+    '''
+    def __init__(self):
+        # Open a pair of null files
+        self.null_fds =  [os.open(os.devnull,os.O_RDWR) for x in range(2)]
+        # Save the actual stdout (1) and stderr (2) file descriptors.
+        self.save_fds = (os.dup(1), os.dup(2))
+
+    def __enter__(self):
+        # Assign the null pointers to stdout and stderr.
+        os.dup2(self.null_fds[0],1)
+        os.dup2(self.null_fds[1],2)
+
+    def __exit__(self, *_):
+        # Re-assign the real stdout/stderr back to (1) and (2)
+        os.dup2(self.save_fds[0],1)
+        os.dup2(self.save_fds[1],2)
+        # Close the null files
+        os.close(self.null_fds[0])
+        os.close(self.null_fds[1])
+
 
 def standarize(data, in_min=0, in_max=255, out_min=-1, out_max=1):
     assert in_min <= data.min() <= data.max() <= in_max

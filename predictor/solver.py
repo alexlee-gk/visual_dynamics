@@ -284,7 +284,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
         plt.show(block=False)
 
         loss_labels = ['train', 'train', 'val']
-        loss_plotter = LossPlotter(fig, gs[0], loss_labels)
+        loss_plotter = LossPlotter(fig, gs[0], labels=loss_labels)
 
         output_labels = [str(output_name) for output_name_pair in self.output_names for output_name in output_name_pair]
         image_visualizer = GridImageVisualizer(fig, gs[1:], rows=len(self.output_names), cols=2, labels=output_labels)
@@ -381,7 +381,8 @@ class TheanoNetSolver(utils.config.ConfigObject):
 class BilinearSolver(TheanoNetSolver):
     def __init__(self, train_data_fnames, val_data_fname=None, data_names=None, data_name_offset_pairs=None,
                  input_names=None, output_names=None,
-                 loss_batch_size=32, aggregating_batch_size=1000, test_iter=10, max_iter=1, weight_decay=0.0005,
+                 loss_batch_size=32, aggregating_batch_size=1000, num_channel_groups=1,
+                 test_iter=10, max_iter=1, weight_decay=0.0005,
                  snapshot_prefix='', average_loss=10, iter_=0):
         self.train_data_fnames = train_data_fnames or []
         self.val_data_fname = val_data_fname
@@ -392,6 +393,7 @@ class BilinearSolver(TheanoNetSolver):
 
         self.loss_batch_size = loss_batch_size
         self.aggregating_batch_size = aggregating_batch_size
+        self.num_channel_groups = num_channel_groups
         self.test_iter = test_iter
         self.max_iter = max_iter
         self.weight_decay = weight_decay
@@ -459,16 +461,6 @@ class BilinearSolver(TheanoNetSolver):
                 val_loss = float(sum([val_fn(*next(val_data_gen)) for _ in range(self.test_iter)]) / self.test_iter)
                 print("    validation loss = {:.6f}".format(val_loss))
 
-            # training data (one pass)
-            train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
-                                                                data_name_offset_pairs=self.data_name_offset_pairs ,
-                                                                transformers=transformers,
-                                                                once=True,
-                                                                batch_size=self.aggregating_batch_size,
-                                                                shuffle=False,
-                                                                dtype=theano.config.floatX)
-            train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=4)
-
             # ensure outputs_names follow the expected format
             curr_names = []
             bilinear_layers = []
@@ -492,116 +484,138 @@ class BilinearSolver(TheanoNetSolver):
                 except Exception:
                     raise NotImplementedError('bilinear solver for output pair %r' % output_pair)
 
-            start_time = time.time()
-            print("Aggregating matrices...")
-            Ns = {i: 0 for i in range(len(bilinear_layers))}
-            As = {}
-            Bs = {}
-            post_fit_all = {}
-            diff_outputs = {}
-            batch_iter = 0
-            for X, U, X_next in train_data_once_gen:
-                print("batch %d" % batch_iter)
-                curr_outputs = net.predict(curr_names, X, preprocessed=True)
-                next_outputs = net.predict(curr_names, X_next, preprocessed=True)
-                for i, (bilinear_layer, curr_output, next_output) in \
-                        enumerate(zip(bilinear_layers, curr_outputs, next_outputs)):
-                    c_dim = curr_output.shape[1]
-                    if net.bilinear_type == 'share':
-                        batch_size = np.prod(curr_output.shape[:2])
-                        vel = np.repeat(U[:, None, :], c_dim, axis=1).reshape((batch_size, -1))
-                    else:
-                        batch_size = curr_output.shape[0]
-                        vel = U
-                    Ns[i] += batch_size
+            for channel_group in range(self.num_channel_groups):
+                print("channel group %d" % channel_group)
+                # training data (one pass)
+                train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
+                                                                    data_name_offset_pairs=self.data_name_offset_pairs ,
+                                                                    transformers=transformers,
+                                                                    once=True,
+                                                                    batch_size=self.aggregating_batch_size,
+                                                                    shuffle=False,
+                                                                    dtype=theano.config.floatX)
+                train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=4)
+
+                start_time = time.time()
+                print("Aggregating matrices...")
+                Ns = {i: 0 for i in range(len(bilinear_layers))}
+                As = {}
+                Bs = {}
+                post_fit_all = {}
+                diff_outputs = {}
+                batch_iter = 0
+                for X, U, X_next in train_data_once_gen:
+                    print("batch %d" % batch_iter)
+                    curr_outputs = net.predict(curr_names, X, preprocessed=True)
+                    next_outputs = net.predict(curr_names, X_next, preprocessed=True)
+                    for i, (bilinear_layer, curr_output, next_output) in \
+                            enumerate(zip(bilinear_layers, curr_outputs, next_outputs)):
+                        c_dim = curr_output.shape[1]
+                        assert c_dim % self.num_channel_groups == 0
+                        if self.num_channel_groups != 1 and net.bilinear_type != 'channelwise':
+                            raise ValueError("num_channel_groups != 1 is only valid for channelwise bilinear layers")
+                        if net.bilinear_type == 'share':
+                            batch_size = np.prod(curr_output.shape[:2])
+                            vel = np.repeat(U[:, None, :], c_dim, axis=1).reshape((batch_size, -1))
+                        else:
+                            batch_size = curr_output.shape[0]
+                            vel = U
+                        Ns[i] += batch_size
+                        if net.bilinear_type == 'share' or net.bilinear_type == 'full':
+                            if i not in As:
+                                As[i] = 0
+                                Bs[i] = 0
+                                diff_outputs[i] = 0
+                            curr_output = curr_output.reshape((batch_size, -1))
+                            next_output = next_output.reshape((batch_size, -1))
+                            diff_output = next_output - curr_output
+                            diff_outputs[i] += diff_output.sum(axis=0)
+                            A, B, post_fit = bilinear.BilinearFunction.compute_solver_terms(curr_output, vel,
+                                                                                            diff_output)
+                            As[i] += A
+                            Bs[i] += B
+                        elif net.bilinear_type == 'channelwise':
+                            cg_dim = c_dim // self.num_channel_groups
+                            cg_slice = slice(channel_group * cg_dim, (channel_group + 1) * cg_dim)
+                            if i not in As:
+                                y_dim = bilinear_layer.y_dim
+                                u_dim = bilinear_layer.u_dim
+                                As[i] = np.zeros((cg_dim, (y_dim+1)*(u_dim+1), (y_dim+1)*(u_dim+1)), dtype=theano.config.floatX)
+                                Bs[i] = np.zeros((cg_dim, (y_dim+1)*(u_dim+1), y_dim), dtype=theano.config.floatX)
+                                diff_outputs[i] = np.zeros((cg_dim, y_dim), dtype=theano.config.floatX)
+                            curr_output = curr_output[:, cg_slice].reshape((batch_size, cg_dim, -1))
+                            next_output = next_output[:, cg_slice].reshape((batch_size, cg_dim, -1))
+                            diff_output = next_output - curr_output
+                            diff_outputs[i] += diff_output.sum(axis=0)
+                            for channel in range(cg_slice.start, cg_slice.stop):
+                                A, B, post_fit = bilinear.BilinearFunction.compute_solver_terms(curr_output[:, channel % cg_dim, :], vel,
+                                                                                                diff_output[:, channel % cg_dim, :])
+                                As[i][channel % cg_dim] += A.astype(theano.config.floatX)
+                                Bs[i][channel % cg_dim] += B.astype(theano.config.floatX)
+                                del A, B
+                        else:
+                            raise NotImplementedError("aggregating matrices for bilinear_type %s" % net.bilinear_type)
+                        if i not in post_fit_all:
+                            post_fit_all[i] = post_fit
+                    batch_iter += 1
+                    # if batch_iter == 2:  # TODO: remove me
+                    #     break
+                print("... finished in %2.f s" % (time.time() - start_time))
+
+                # mean_diff_output = {}
+                # scale_offset_transformer = net.transformers[0].transformers[-1]
+                # for i in range(len(diff_outputs)):
+                #     mean_diff_output[i] = ((diff_outputs[i] / Ns[i] - scale_offset_transformer.offset) \
+                #                            * (1.0 / scale_offset_transformer.scale)).astype(scale_offset_transformer._data_dtype)
+                # mean_diff_output_flat = np.concatenate([mean.flatten() for mean in mean_diff_output.values()])
+                # for i in range(256):
+                #     num = (mean_diff_output_flat == i).sum()
+                #     if num > 0:
+                #         print('%d: %d' % (i, num))
+
+                start_time = time.time()
+                print("Solving linear systems...")
+                for i, bilinear_layer in enumerate(bilinear_layers):
+                    start_time_single = time.time()
+                    post_fit = post_fit_all[i]
+                    Q_param, R_param, S_param, b_param = bilinear_layer.get_params()
                     if net.bilinear_type == 'share' or net.bilinear_type == 'full':
-                        if i not in As:
-                            As[i] = 0
-                            Bs[i] = 0
-                            diff_outputs[i] = 0
-                        curr_output = curr_output.reshape((batch_size, -1))
-                        next_output = next_output.reshape((batch_size, -1))
-                        diff_output = next_output - curr_output
-                        diff_outputs[i] += diff_output.sum(axis=0)
-                        A, B, post_fit = bilinear.BilinearFunction.compute_solver_terms(curr_output, vel,
-                                                                                        diff_output)
-                        As[i] += A
-                        Bs[i] += B
-                    elif net.bilinear_type == 'channelwise':
-                        if i not in As:
-                            As[i] = [0] * c_dim
-                            Bs[i] = [0] * c_dim
-                            diff_outputs[i] = 0
-                        curr_output = curr_output.reshape((batch_size, c_dim, -1))
-                        next_output = next_output.reshape((batch_size, c_dim, -1))
-                        diff_output = next_output - curr_output
-                        diff_outputs[i] += diff_output.sum(axis=0)
-                        for channel in range(c_dim):
-                            A, B, post_fit = bilinear.BilinearFunction.compute_solver_terms(curr_output[:, channel, :], vel,
-                                                                                            diff_output[:, channel, :])
-                            As[i][channel] += A
-                            Bs[i][channel] += B
-                    else:
-                        raise NotImplementedError("aggregating matrices for bilinear_type %s" % net.bilinear_type)
-                    if i not in post_fit_all:
-                        post_fit_all[i] = post_fit
-                batch_iter += 1
-                # if batch_iter == 2:  # TODO: remove me
-                #     break
-            print("... finished in %2.f s" % (time.time() - start_time))
-
-            # mean_diff_output = {}
-            # scale_offset_transformer = net.transformers[0].transformers[-1]
-            # for i in range(len(diff_outputs)):
-            #     mean_diff_output[i] = ((diff_outputs[i] / Ns[i] - scale_offset_transformer.offset) \
-            #                            * (1.0 / scale_offset_transformer.scale)).astype(scale_offset_transformer._data_dtype)
-            # mean_diff_output_flat = np.concatenate([mean.flatten() for mean in mean_diff_output.values()])
-            # for i in range(256):
-            #     num = (mean_diff_output_flat == i).sum()
-            #     if num > 0:
-            #         print('%d: %d' % (i, num))
-
-            start_time = time.time()
-            print("Solving linear systems...")
-            for i, bilinear_layer in enumerate(bilinear_layers):
-                start_time_single = time.time()
-                post_fit = post_fit_all[i]
-                if net.bilinear_type == 'share' or net.bilinear_type == 'full':
-                    A = As[i] / (2. * Ns[i])
-                    A += self.weight_decay * np.diag([1.] * (len(A) - 1) + [0.])  # don't regularize bias, which is the last one
-                    B = Bs[i] / (2. * Ns[i])
-                    Q, R, S, b = post_fit(np.linalg.solve(A, B))
-                    Q = np.asarray(Q, dtype=theano.config.floatX)
-                    R = np.asarray(R, dtype=theano.config.floatX)
-                    S = np.asarray(S, dtype=theano.config.floatX)
-                    b = np.asarray(b, dtype=theano.config.floatX)
-                elif net.bilinear_type == 'channelwise':
-                    Qchannels = []
-                    Rchannels = []
-                    Schannels = []
-                    bchannels = []
-                    for A, B in zip(As[i], Bs[i]):
-                        A = A / (2. * Ns[i])
+                        A = As[i] / (2. * Ns[i])
                         A += self.weight_decay * np.diag([1.] * (len(A) - 1) + [0.])  # don't regularize bias, which is the last one
-                        B = B / (2. * Ns[i])
+                        B = Bs[i] / (2. * Ns[i])
                         Q, R, S, b = post_fit(np.linalg.solve(A, B))
-                        Qchannels.append(Q)
-                        Rchannels.append(R)
-                        Schannels.append(S)
-                        bchannels.append(b)
-                    Q = np.asarray(Qchannels, dtype=theano.config.floatX)
-                    R = np.asarray(Rchannels, dtype=theano.config.floatX)
-                    S = np.asarray(Schannels, dtype=theano.config.floatX)
-                    b = np.asarray(bchannels, dtype=theano.config.floatX)
-                else:
-                    raise NotImplementedError("exact solve for bilinear_type %s" % net.bilinear_type)
-                Q_param, R_param, S_param, b_param = bilinear_layer.get_params()
-                Q_param.set_value(Q)
-                R_param.set_value(R)
-                S_param.set_value(S)
-                b_param.set_value(b)
-                print("%2.f s" % (time.time() - start_time_single))
-            print("... finished in %2.f s" % (time.time() - start_time))
+                        Q = np.asarray(Q, dtype=theano.config.floatX)
+                        R = np.asarray(R, dtype=theano.config.floatX)
+                        S = np.asarray(S, dtype=theano.config.floatX)
+                        b = np.asarray(b, dtype=theano.config.floatX)
+                        Q_param.set_value(Q)
+                        R_param.set_value(R)
+                        S_param.set_value(S)
+                        b_param.set_value(b)
+                    elif net.bilinear_type == 'channelwise':
+                        c_dim = L.get_output_shape(bilinear_layer)[1]
+                        cg_dim = c_dim // self.num_channel_groups
+                        cg_slice = slice(channel_group * cg_dim, (channel_group + 1) * cg_dim)
+                        # use borrow=True only if the param is shared variable in cpu (i.e. TensorSharedVariable)
+                        Q = Q_param.get_value(borrow=isinstance(Q_param, T.sharedvar.TensorSharedVariable))
+                        R = R_param.get_value(borrow=isinstance(R_param, T.sharedvar.TensorSharedVariable))
+                        S = S_param.get_value(borrow=isinstance(S_param, T.sharedvar.TensorSharedVariable))
+                        b = b_param.get_value(borrow=isinstance(b_param, T.sharedvar.TensorSharedVariable))
+                        for channel, A, B in (zip(range(cg_slice.start, cg_slice.stop), As[i], Bs[i])):
+                            A = A / (2. * Ns[i])
+                            A += self.weight_decay * np.diag([1.] * (len(A) - 1) + [0.])  # don't regularize bias, which is the last one
+                            B = B / (2. * Ns[i])
+                            Q[channel], R[channel], S[channel], b[channel] = post_fit(np.linalg.solve(A, B))
+                        Q_param.set_value(Q, borrow=isinstance(Q_param, T.sharedvar.TensorSharedVariable))
+                        R_param.set_value(R, borrow=isinstance(R_param, T.sharedvar.TensorSharedVariable))
+                        S_param.set_value(S, borrow=isinstance(S_param, T.sharedvar.TensorSharedVariable))
+                        b_param.set_value(b, borrow=isinstance(b_param, T.sharedvar.TensorSharedVariable))
+                    else:
+                        raise NotImplementedError("exact solve for bilinear_type %s" % net.bilinear_type)
+                    del Q, R, S, b
+                    print("%2.f s" % (time.time() - start_time_single))
+                del Ns, As, Bs, post_fit_all, diff_outputs
+                print("... finished in %2.f s" % (time.time() - start_time))
 
             self.iter_ += 1
 
@@ -627,6 +641,7 @@ class BilinearSolver(TheanoNetSolver):
                        'output_names': self.output_names,
                        'loss_batch_size': self.loss_batch_size,
                        'aggregating_batch_size': self.aggregating_batch_size,
+                       'num_channel_groups': self.num_channel_groups,
                        'test_iter': self.test_iter,
                        'max_iter': self.max_iter,
                        'weight_decay': self.weight_decay,

@@ -1,0 +1,13 @@
+class: !!python/name:predictor.solver.BilinearSolver ''
+loss_batch_size: 32
+aggregating_batch_size: 1000
+num_channel_groups: 4
+test_iter: 10
+weight_decay: 0.0005
+average_loss: 10
+data_names: ['image', 'action']
+data_name_offset_pairs: [['image', 0], ['action', 0], ['image', 1]]
+
+train_data_fnames: ['data/pr2_train_data_0', 'data/pr2_train_data_1', 'data/pr2_train_data_2', 'data/pr2_train_data_3', 'data/pr2_train_data_4', 'data/pr2_train_data_5', 'data/pr2_train_data_6', 'data/pr2_train_data_7', 'data/pr2_train_data_8', 'data/pr2_train_data_9', 'data/pr2_train_data_10', 'data/pr2_train_data_11', 'data/pr2_train_data_12', 'data/pr2_train_data_13', 'data/pr2_train_data_14', 'data/pr2_train_data_15', 'data/pr2_train_data_16', 'data/pr2_train_data_17', 'data/pr2_train_data_19', 'data/pr2_train_data_20', 'data/pr2_train_data_21', 'data/pr2_train_data_22', 'data/pr2_train_data_23', 'data/pr2_train_data_24', 'data/pr2_train_data_25', 'data/pr2_train_data_26', 'data/pr2_train_data_27', 'data/pr2_train_data_28', 'data/pr2_train_data_29', 'data/pr2_train_data_30', 'data/pr2_train_data_31']
+val_data_fname: 'data/pr2_val_data'
+output_names: [[x5_0_next_pred, [x5_0, 1]], [x5_1_next_pred, [x5_1, 1]], [x5_2_next_pred, [x5_2, 1]]]

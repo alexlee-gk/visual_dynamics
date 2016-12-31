@@ -6,6 +6,8 @@ import time
 import theano
 import theano.tensor as T
 import lasagne
+import lasagne.layers as L
+from . import layers_theano as LT
 import matplotlib.pyplot as plt
 from . import predictor
 import utils
@@ -34,7 +36,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         self.pred_layers = self.build_net(self.preprocessed_input_shapes, **kwargs)
         for pred_layer in list(self.pred_layers.values()):
             self.pred_layers.update((layer.name, layer) for layer in lasagne.layers.get_all_layers(pred_layer) if layer.name is not None)
-        self.input_vars = [self.pred_layers[input_name].input_var for input_name in self.input_names]
+        self.input_vars = [self.pred_layers[input_name].input_var for input_name in self.input_names if input_name in self.pred_layers]
         # layer_name_aliases = [('x0', 'x'), ('x', 'x0'), ('x0_next', 'x_next'), ('x_next', 'x0_next'), ('x0', 'image_curr'), ('x0_next', 'image_next'), ('x0_next_pred', 'image_next_pred')]
         # for name, name_alias  in layer_name_aliases:
         #     if name in self.pred_layers and name_alias not in self.pred_layers:
@@ -188,21 +190,173 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                 jac_var = rep_output_var[1:] - rep_output_var[0]
                 jac_var = jac_var.reshape((wrt_dim, -1)).T
                 jac_vars.append(jac_var)
+        elif mode == 'linear2':
+            wrt_var = L.get_output(self.pred_layers[wrt_name], deterministic=True)
+            l_linear_output_lists = []
+            for name in names:
+                l_output = self.pred_layers[name]
+                assert isinstance(l_output, L.ElemwiseSumLayer)
+                l_output0, l_output1 = l_output.input_layers
+                # ensure l_output0 doesn't depend on wrt
+                assert wrt_var not in theano.gof.graph.inputs([L.get_output(l_output0, deterministic=True)])
+                assert l_output.coeffs[1] == 1
+                assert isinstance(l_output1, LT.BatchwiseSumLayer)
+                l_linear_output_list, l_wrt = l_output1.input_layers[:-1], l_output1.input_layers[-1]
+                l_linear_output_lists.append(l_linear_output_list)
+                assert self.pred_layers[wrt_name] == l_wrt
+            output_linear_output_vars = lasagne.layers.get_output(
+                [self.pred_layers[name] for name in names] +
+                [l_linear_output for l_linear_output_list in l_linear_output_lists
+                 for l_linear_output in l_linear_output_list], deterministic=True)
+            output_vars = output_linear_output_vars[:len(names)]
+            jac_vars = []
+            ind = len(names)
+            for l_linear_output_list in l_linear_output_lists:
+                linear_output_vars = output_linear_output_vars[ind:ind + len(l_linear_output_list)]
+                ind += len(l_linear_output_list)
+                jac_var = T.concatenate([T.flatten(linear_output_var, outdim=2)[:, :, None]
+                                         for linear_output_var in linear_output_vars[:-1]], axis=-1)
+                jac_vars.append(jac_var[0])
+            assert ind == len(output_linear_output_vars)
         else:
             raise ValueError('mode can only be fwd, forward, rev, reverse, batched or linear, but %r was given' % mode)
         if isinstance(name_or_names, str):
-            if mode == 'linear':
+            if mode in ('linear', 'linear2'):
                 jac_var, = jac_vars
             output_var, = output_vars
             return jac_var, output_var
         else:
-            if mode != 'linear':
+            if mode not in ('linear', 'linear2'):
                 split_inds = np.r_[0, np.cumsum([np.prod(output_shape[1:]) for output_shape in output_shapes])]
                 jac_vars = [jac_var[start_ind:end_ind] for (start_ind, end_ind) in zip(split_inds[:-1], split_inds[1:])]
             return jac_vars, output_vars
 
+    def _get_batched_jacobian_var(self, name_or_names, wrt_name, mode=None):
+        """
+        Returns the jacobian expressions and the respective outputs for a single
+        data point. Assumes that the inputs being passed have a single leading
+        dimension (i.e. batch_size=1).
+        """
+        if isinstance(name_or_names, str):
+            names = [name_or_names]
+        else:
+            names = name_or_names
+        output_wrt_vars = lasagne.layers.get_output([self.pred_layers[name] for name in names] +
+                                                    [self.pred_layers[wrt_name]], deterministic=True)
+        output_vars, wrt_var = output_wrt_vars[:-1], output_wrt_vars[-1]
+        output_wrt_shapes = lasagne.layers.get_output_shape([self.pred_layers[name] for name in names] +
+                                                            [self.pred_layers[wrt_name]])
+        output_shapes, wrt_shape = output_wrt_shapes[:-1], output_wrt_shapes[-1]
+        if len(wrt_shape) != 2 or wrt_shape[0] not in (1, None):
+            raise ValueError("the shape of the wrt variable is %r but the"
+                             "variable should be two-dimensional with the"
+                             "leading axis being a singleton or None")
+        _, wrt_dim = wrt_shape
+        if mode == 'linear':
+            jac_vars = []
+            for output_var in output_vars:
+                input_vars = [input_var for input_var in self.input_vars if
+                              input_var in theano.gof.graph.inputs([output_var])]
+                batch_size = input_vars[0].shape[0]
+                rep_dict = {input_var: T.repeat(input_var, (wrt_dim + 1), axis=0)
+                            for input_var in input_vars if input_var != wrt_var}
+                # rep_dict[wrt_var] = T.concatenate([T.zeros((batch_size, wrt_dim)),
+                #                                    T.tile(T.eye(wrt_dim), (batch_size, 1))])
+                rep_dict[wrt_var] = T.tile(np.r_[np.zeros((1, wrt_dim)), np.eye(wrt_dim)].astype(theano.config.floatX),
+                                           (batch_size, 1))
+                rep_output_var = theano.clone(output_var, replace=rep_dict)
+                # jac_var = rep_output_var[batch_size:] - T.repeat(rep_output_var[:batch_size], wrt_dim, axis=0)
+                # Construct tuple for shape since Theano errors when concatenating a tuple and a shape of a variable
+                rep_output_var = T.reshape(rep_output_var,
+                                           (batch_size, wrt_dim + 1) + tuple(rep_output_var.shape[i] for i in range(1, rep_output_var.ndim)))
+                # jac_var = rep_output_var[batch_size:] - rep_output_var[:batch_size]
+                jac_var = rep_output_var[:, 1:] - rep_output_var[:, 0][:, None, ...]
+                jac_var = jac_var.reshape((batch_size, wrt_dim, -1)).transpose((0, 2, 1))
+                jac_vars.append(jac_var)
+                """
+                rep_output[1:
+                (5, 64, 8, 8)
+                rep_dict = {input_var: T.tensordot(T.ones((wrt_dim + 1, 1)), input_var, axes=1)
+                            for input_var in input_vars if input_var != wrt_var}
+                rep_dict[wrt_var] = np.r_[np.zeros((1, wrt_dim)), np.eye(wrt_dim)].astype(theano.config.floatX)
+                rep_output_var = theano.clone(output_var, replace=rep_dict)
+                jac_var = rep_output_var[1:] - rep_output_var[0]
+                jac_var = jac_var.reshape((wrt_dim, -1)).T
+                """
+        elif mode == 'linear2':
+            wrt_var = L.get_output(self.pred_layers[wrt_name], deterministic=True)
+            l_linear_output_lists = []
+            for name in names:
+                l_output = self.pred_layers[name]
+                assert isinstance(l_output, L.ElemwiseSumLayer)
+                l_output0, l_output1 = l_output.input_layers
+                # ensure l_output0 doesn't depend on wrt
+                assert wrt_var not in theano.gof.graph.inputs([L.get_output(l_output0, deterministic=True)])
+                assert l_output.coeffs[1] == 1
+                assert isinstance(l_output1, LT.BatchwiseSumLayer)
+                l_linear_output_list, l_wrt = l_output1.input_layers[:-1], l_output1.input_layers[-1]
+                l_linear_output_lists.append(l_linear_output_list)
+                assert self.pred_layers[wrt_name] == l_wrt
+            output_linear_output_vars = lasagne.layers.get_output(
+                [self.pred_layers[name] for name in names] +
+                [l_linear_output for l_linear_output_list in l_linear_output_lists
+                 for l_linear_output in l_linear_output_list], deterministic=True)
+            output_vars = output_linear_output_vars[:len(names)]
+            jac_vars = []
+            ind = len(names)
+            for l_linear_output_list in l_linear_output_lists:
+                linear_output_vars = output_linear_output_vars[ind:ind + len(l_linear_output_list)]
+                ind += len(l_linear_output_list)
+                jac_var = T.concatenate([T.flatten(linear_output_var, outdim=2)[:, :, None]
+                                         for linear_output_var in linear_output_vars[:-1]], axis=-1)
+                jac_vars.append(jac_var)
+            assert ind == len(output_linear_output_vars)
+        else:
+            raise ValueError('mode for batched jacobians can only be linear, but %r was given' % mode)
+
+        # import IPython as ipy;
+        # ipy.embed()
+        #
+        # # batched_inputs = [np.concatenate([input_] * 10) for input_ in inputs]
+        # # batched_outputs = jac_fn(*batched_inputs)
+        # input_vars = [input_var for input_var in self.input_vars
+        #               if input_var in theano.gof.graph.inputs([jac_var])]
+        # jac_fn = theano.function(input_vars, jac_var, on_unused_input='warn')
+        # # batch_inputs = [np.concatenate([input] * 2, axis=0).astype(np.float32) for input in inputs]
+        # batch_inputs = [np.random.random((2, 3, 32, 32)).astype(np.float32), np.random.random((2, 4)).astype(np.float32)]
+        # batch_jac = jac_fn(batch_inputs[0])
+        #
+        # rep_output_fn = theano.function(input_vars, rep_output_var, on_unused_input='warn')
+        # batch_inputs = [np.concatenate([input] * 2, axis=0).astype(np.float32) for input in inputs]
+        # batch_rep_output = rep_output_fn(*batch_inputs)
+
+
+        if isinstance(name_or_names, str):
+            jac_var, = jac_vars
+            output_var, = output_vars
+            return jac_var, output_var
+        else:
+            return jac_vars, output_vars
+
     def _compile_jacobian_fn(self, name_or_names, wrt_name, ret_outputs=False, mode=None):
         jac_var_or_vars, output_var_or_vars = self._get_jacobian_var(name_or_names, wrt_name, mode=mode)
+        if ret_outputs:
+            if isinstance(name_or_names, str):
+                all_vars = [jac_var_or_vars] + [output_var_or_vars]
+            else:
+                all_vars = jac_var_or_vars + output_var_or_vars
+        else:
+            all_vars = jac_var_or_vars
+        input_vars = [input_var for input_var in self.input_vars
+                      if input_var in theano.gof.graph.inputs(all_vars if isinstance(all_vars, list) else [all_vars])]
+        start_time = time.time()
+        print("Compiling jacobian function...")
+        jac_fn = theano.function(input_vars, all_vars, on_unused_input='warn')
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return jac_fn
+
+    def _compile_batched_jacobian_fn(self, name_or_names, wrt_name, ret_outputs=False, mode=None):
+        jac_var_or_vars, output_var_or_vars = self._get_batched_jacobian_var(name_or_names, wrt_name, mode=mode)
         if ret_outputs:
             if isinstance(name_or_names, str):
                 all_vars = [jac_var_or_vars] + [output_var_or_vars]
@@ -237,6 +391,27 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                      self.jac_fns.setdefault(jac_fn_key,
                                              self._compile_jacobian_fn(name_or_names, wrt_name, ret_outputs=ret_outputs, mode=mode))
             outputs = jac_fn(*inputs)
+            # jac_fn = self.jac_fns.get(jac_fn_key) or \
+            #          self.jac_fns.setdefault(jac_fn_key,
+            #                                  self._compile_batched_jacobian_fn(name_or_names, wrt_name, ret_outputs=ret_outputs, mode=mode))
+            # batched_inputs = [np.concatenate([input_] * 10) for input_ in inputs]
+            # batched_outputs = jac_fn(*batched_inputs)
+            # outputs = [batched_output[0] for batched_output in batched_outputs]
+
+            # batched_jac_fn2 = self._compile_batched_jacobian_fn(name_or_names, wrt_name, ret_outputs=ret_outputs, mode='linear2')
+            # batched_jac_fn = self._compile_batched_jacobian_fn(name_or_names, wrt_name, ret_outputs=ret_outputs, mode='linear')
+            # batched_inputs = [np.concatenate([input_] * 2) for input_ in inputs]
+            # from utils import tic, toc
+            # tic()
+            # outputs = jac_fn(*inputs)
+            # toc('single')
+            # tic()
+            # batched_outputs2 = batched_jac_fn2(*batched_inputs)
+            # toc('linear2')
+            # tic()
+            # batched_outputs = batched_jac_fn(*batched_inputs)
+            # toc('linear')
+
             if ret_outputs:
                 if isinstance(name_or_names, str):
                     jac_or_jacs, output_or_outputs = outputs
@@ -282,6 +457,35 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                 else:
                     jacs = zip(*preds)
                     return [np.asarray(jac) for jac in jacs]
+
+    def batched_jacobian(self, name_or_names, wrt_name, *inputs, **kwargs):
+        kwargs = utils.python3.get_kwargs(dict(preprocessed=False,
+                                               ret_outputs=False,
+                                               mode=None),
+                                          kwargs)
+        preprocessed, ret_outputs, mode = [kwargs[key] for key in ['preprocessed', 'ret_outputs', 'mode']]
+        if not preprocessed:
+            inputs = self.preprocess(*inputs)
+        inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
+
+        jac_fn_key = tuple([name_or_names] if isinstance(name_or_names, str) else name_or_names) + \
+                     (wrt_name, ret_outputs, mode, 1)
+        jac_fn = self.jac_fns.get(jac_fn_key) or \
+                 self.jac_fns.setdefault(jac_fn_key,
+                                         self._compile_batched_jacobian_fn(name_or_names, wrt_name, ret_outputs=ret_outputs, mode=mode))
+        outputs = jac_fn(*inputs)
+        if ret_outputs:
+            if isinstance(name_or_names, str):
+                jac_or_jacs, output_or_outputs = outputs
+            else:
+                jac_or_jacs = outputs[:len(outputs) // 2]
+                output_or_outputs = outputs[len(outputs) // 2:]
+        else:
+            jac_or_jacs = outputs
+        if ret_outputs:
+            return jac_or_jacs, output_or_outputs
+        else:
+            return jac_or_jacs
 
     def get_all_layers(self):
         layers = []
@@ -333,7 +537,8 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             try:
                 param = params_dict[name]
             except KeyError:
-                skipped_param_names.append(name)
+                if name not in inferred_param_values_dict:
+                    skipped_param_names.append(name)
                 continue
             if param.get_value().shape != value.shape:
                 raise ValueError('mismatch: parameter has shape %r but value to set has shape %r' %
@@ -369,7 +574,11 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         print("Copying model parameters from file", model_fname)
         try:
             with open(model_fname, 'rb') as model_file:
-                param_values = pickle.load(model_file)
+                import sys
+                if sys.version_info.major == 2:
+                    param_values = pickle.load(model_file)
+                else:
+                    param_values = pickle.load(model_file, encoding='latin1')
         except:
             try:
                 print("Could not copy model parameters from file", model_fname)
@@ -385,6 +594,11 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                 import IPython as ipy; ipy.embed()
         param_values = OrderedDict([(name, value.astype(theano.config.floatX, copy=False)) for (name, value) in param_values.items()])
         self.set_all_param_values(param_values)
+
+        # with open('models/theano/standarized_vgg/simplequad_bigdata_model.pkl', 'rb') as model_file:
+        #     param_values = pickle.load(model_file)
+        # param_values = OrderedDict([(name, value.astype(theano.config.floatX, copy=False)) for (name, value) in param_values.items()])
+        # self.set_all_param_values(param_values)
 
     def draw(self):
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
@@ -423,6 +637,14 @@ class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
             feature_name=feature_name, next_feature_name=next_feature_name, control_name=control_name)
 
     def feature_jacobian(self, X, U, preprocessed=False, mode=None):
+        if mode is None:
+            try:
+                if self.bilinear_type in ('group_convolution', 'channelwise_local'):
+                    mode = 'linear2'
+                elif self.bilinear_type == 'channelwise' or self.tf_nl_layer:
+                    mode = 'linear'
+            except AttributeError:
+                pass
         jac, next_feature = self.jacobian(self.next_feature_name, self.control_name,
                                           X, U, preprocessed=preprocessed,
                                           ret_outputs=True,

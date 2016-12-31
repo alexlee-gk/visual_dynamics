@@ -1,10 +1,13 @@
 import numpy as np
-import rospy
-import sensor_msgs.msg as sensor_msgs
-import geometry_msgs.msg as geometry_msgs
-import cv_bridge
-import tf
 from envs import RosEnv
+try:
+    import rospy
+    import sensor_msgs.msg as sensor_msgs
+    import geometry_msgs.msg as geometry_msgs
+    import cv_bridge
+    import tf
+except ImportError:
+    pass
 from spaces import TranslationAxisAngleSpace
 
 

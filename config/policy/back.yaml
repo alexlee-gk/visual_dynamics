@@ -1,6 +1,6 @@
 class: !!python/name:policy.mixed_policy.MixedPolicy ''
 policies:
-- class: !!python/name:policy.ogre_camera_target_policy.OgreCameraTargetPolicy ''
+- class: !!python/name:policy.camera_target_policy.CameraTargetPolicy ''
   env: null
   target_env: null
   camera_node_name: quad_camera
