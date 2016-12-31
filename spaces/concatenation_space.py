@@ -35,3 +35,7 @@ class ConcatenationSpace(Space):
         config = super(ConcatenationSpace, self)._get_config()
         config.update({'spaces': self.spaces})
         return config
+
+    @staticmethod
+    def create(other):
+        return ConcatenationSpace(other.spaces)

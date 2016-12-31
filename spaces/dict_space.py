@@ -38,3 +38,7 @@ class DictSpace(Space):
         config = super(DictSpace, self)._get_config()
         config.update({'spaces': self.spaces})
         return config
+
+    @staticmethod
+    def create(other):
+        return DictSpace(other.spaces)

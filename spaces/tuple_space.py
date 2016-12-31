@@ -14,9 +14,7 @@ class TupleSpace(Space):
         return tuple([space.sample() for space in self.spaces])
 
     def contains(self, x):
-        if isinstance(x, list):
-            x = tuple(x)  # Promote list to tuple for contains check
-        return isinstance(x, tuple) and len(x) == len(self.spaces) and all(
+        return isinstance(x, (tuple, list)) and len(x) == len(self.spaces) and all(
             space.contains(part) for (space, part) in zip(self.spaces, x))
 
     def clip(self, x, out=None):
@@ -41,3 +39,6 @@ class TupleSpace(Space):
         config.update({'spaces': self.spaces})
         return config
 
+    @staticmethod
+    def create(other):
+        return TupleSpace(other.spaces)

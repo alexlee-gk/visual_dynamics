@@ -8,9 +8,9 @@ class Space(utils.config.ConfigObject):
     E.g. to choose a random action.
     """
 
-    def sample(self, seed=0):
+    def sample(self):
         """
-        Uniformly randomly sample a random elemnt of this space
+        Uniformly randomly sample a random element of this space
         """
         raise NotImplementedError
 
@@ -23,3 +23,12 @@ class Space(utils.config.ConfigObject):
 
     def clip(self, x, out=None):
         raise NotImplementedError
+
+    @staticmethod
+    def create(other):
+        """
+        Creates a space from another space-like object
+        compatible with this class
+        """
+        import spaces
+        return getattr(spaces, other.__class__.__name__).create(other)

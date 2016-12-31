@@ -66,3 +66,7 @@ class AxisAngleSpace(Space):
                        'high': np.asscalar(self.high),
                        'axis': self.axis.tolist() if self.axis is not None else None})
         return config
+
+    @staticmethod
+    def create(other):
+        return AxisAngleSpace(other.low, other.high, axis=other.axis)

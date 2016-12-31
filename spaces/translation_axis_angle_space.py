@@ -45,3 +45,7 @@ class TranslationAxisAngleSpace(ConcatenationSpace):
                        'axis': self.axis.tolist() if self.axis is not None else None,
                        'dtype': self.dtype.name})
         return config
+
+    @staticmethod
+    def create(other):
+        return TranslationAxisAngleSpace(other.low, other.high, axis=other.axis, dtype=other.dtype)

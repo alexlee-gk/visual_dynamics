@@ -1,6 +1,7 @@
 import citysim3d.envs
 from envs import Panda3dEnv
-from spaces import BoxSpace
+from spaces import Space
+import utils
 
 
 class SimpleQuadPanda3dEnv(citysim3d.envs.SimpleQuadPanda3dEnv, Panda3dEnv):
@@ -8,13 +9,7 @@ class SimpleQuadPanda3dEnv(citysim3d.envs.SimpleQuadPanda3dEnv, Panda3dEnv):
         config = super(SimpleQuadPanda3dEnv, self)._get_config()
         car_action_space = self.car_action_space
         if not isinstance(car_action_space, utils.ConfigObject):
-            if isinstance(car_action_space, citysim3d.spaces.BoxSpace):
-                car_action_space = BoxSpace(low=car_action_space.low.tolist(),
-                                            high=car_action_space.high.tolist(),
-                                            shape=car_action_space._shape,
-                                            dtype=car_action_space.dtype.name)
-            else:
-                raise NotImplementedError
+            car_action_space = Space.create(car_action_space)
         config.update({'action_space': self.action_space,
                        'sensor_names': self.sensor_names,
                        'offset': self.offset.tolist(),

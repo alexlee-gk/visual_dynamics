@@ -60,3 +60,7 @@ class BoxSpace(Space):
                        'shape': self._shape,
                        'dtype': self.dtype.name})
         return config
+
+    @staticmethod
+    def create(other):
+        return BoxSpace(other.low, other.high, shape=other._shape, dtype=other.dtype)
