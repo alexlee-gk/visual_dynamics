@@ -348,7 +348,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             print('set parameters with names: %r' % set_param_names)
 
     def save_model(self, model_fname):
-        assert os.path.splitext(model_fname)[1] == '.h5'
+        model_fname = model_fname.replace('.yaml', '.h5')
         all_param_values = self.get_all_param_values()
         print("Saving model parameters to file", model_fname)
         with h5py.File(model_fname, 'w') as h5_file:
@@ -357,7 +357,6 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         return model_fname
 
     def copy_from(self, model_fname):
-        assert os.path.splitext(model_fname)[1] == '.h5'
         print("Copying model parameters from file", model_fname)
         with h5py.File(model_fname, 'r') as h5_file:
             param_values = dict()
