@@ -41,4 +41,5 @@ class DictSpace(Space):
 
     @staticmethod
     def create(other):
-        return DictSpace(other.spaces)
+        spaces = {key: Space.create(space) for (key, space) in other.spaces.items()}
+        return DictSpace(spaces)

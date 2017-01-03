@@ -34,10 +34,10 @@ def main():
 
     if args.output_dir:
         container = utils.container.ImageDataContainer(args.output_dir, 'x')
-        container.reserve(env.sensor_names + ['state'], (args.num_trajs, args.num_steps + 1))
+        container.reserve(list(env.observation_space.spaces.keys()) + ['state'], (args.num_trajs, args.num_steps + 1))
         container.reserve(['action', 'state_diff'], (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())
-        container.add_info(env_spec_config=envs.EnvSpec(env).get_config())
+        container.add_info(env_spec_config=envs.EnvSpec(env.action_space, env.observation_space).get_config())
         container.add_info(policy_config=pol.get_config())
     else:
         container = None
@@ -47,7 +47,7 @@ def main():
     if args.visualize:
         fig = plt.figure(figsize=(16, 12), frameon=False, tight_layout=True)
         gs = gridspec.GridSpec(1, 1)
-        image_visualizer = GridImageVisualizer(fig, gs[0], len(env.sensor_names))
+        image_visualizer = GridImageVisualizer(fig, gs[0], len(env.observation_space.spaces))
         plt.show(block=False)
 
         if args.record_file:
@@ -67,7 +67,7 @@ def main():
                 state = env.get_state()
             for step_iter in range(args.num_steps):
                 if container:
-                    container.add_datum(traj_iter, step_iter, state=state, **dict(zip(env.sensor_names, obs)))
+                    container.add_datum(traj_iter, step_iter, state=state, **obs)
 
                 action = pol.act(obs)
                 obs, _, episode_done, _ = env.step(action)  # action is updated in-place if needed
@@ -78,12 +78,12 @@ def main():
                     prev_state, state = state, env.get_state()
                     container.add_datum(traj_iter, step_iter, action=action, state_diff=state - prev_state)
                     if step_iter == (args.num_steps - 1):
-                        container.add_datum(traj_iter, step_iter + 1, state=state, **dict(zip(env.sensor_names, obs)))
+                        container.add_datum(traj_iter, step_iter + 1, state=state, **obs)
 
                 if args.visualize:
                     env.render()
                     try:
-                        image_visualizer.update(obs)
+                        image_visualizer.update(obs.values())
                         if args.record_file:
                             writer.grab_frame()
                     except:

@@ -4,15 +4,11 @@ image:
   transformers:
   - &id002
     class: !!python/name:utils.transformer.ImageTransformer ''
-    scale_size: 0.3
+    scale_size: 0.5
     crop_size: [128, 128]
     crop_offset: [0, 0]
-  - class: !!python/name:utils.transformer.NormalizerTransformer ''
-    space: null
+  - class: !!python/name:utils.transformer.OpsTransformer ''
     transpose: !!python/tuple [2, 0, 1]
-
-car_image:
-  *id001
 
 depth_image:
   &id003
@@ -21,9 +17,6 @@ depth_image:
   - *id002
   - class: !!python/name:utils.transformer.DepthImageTransformer ''
     space: null
-
-car_depth_image:
-  *id003
 
 action:
   class: !!python/name:utils.transformer.NormalizerTransformer ''

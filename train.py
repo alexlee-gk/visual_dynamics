@@ -13,8 +13,9 @@ import utils
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('predictor_fname', type=str)
-    parser.add_argument('transformers_fname', nargs='?', type=str)
-    parser.add_argument('solver_fname', nargs='?', type=str)
+    parser.add_argument('transformers_fname', type=str)
+    parser.add_argument('solver_fname', type=str)
+    parser.add_argument('data_fname', type=str)
     parser.add_argument('--no_train', action='store_true')
     parser.add_argument('--visualize', '-v', type=int, default=None)
     parser.add_argument('--record_file', '-r', type=str, default=None)
@@ -23,24 +24,28 @@ def main():
     with open(args.predictor_fname) as predictor_file:
         predictor_config = yaml.load(predictor_file)
 
-    # solver
-    if args.solver_fname:
-        with open(args.solver_fname) as solver_file:
-            solver_config = yaml.load(solver_file)
-    else:
-        try:
-            solver_config = predictor_config['solvers'][-1]
-            args.no_train = True
-        except IndexError:
-            raise ValueError('solver_fname was not specified but predictor does not have a solver')
+    with open(args.solver_fname) as solver_file:
+        solver_config = yaml.load(solver_file)
 
-    # extract info from solver
+    with open(args.data_fname) as data_file:
+        data_config = yaml.load(data_file)
+    if 'train_data_fnames' in data_config:
+        solver_config['train_data_fnames'] = data_config['train_data_fnames']
+    if 'val_data_fname' in data_config:
+        solver_config['val_data_fname'] = data_config['val_data_fname']
+
+    # data_names and input_names
+    data_names = solver_config['data_names']
+    input_names = predictor_config['input_names']
+    # if predictor_config['input_names'] != input_names:
+    #     raise ValueError('conflicting values for input_names')
+
+    # extract info from data
     data_fnames = list(solver_config['train_data_fnames'])
-    if solver_config['val_data_fname'] is not None:
+    if solver_config.get('val_data_fname') is not None:
         data_fnames.append(solver_config['val_data_fname'])
     with utils.container.MultiDataContainer(data_fnames) as data_container:
-        sensor_names = data_container.get_info('environment_config')['sensor_names']
-        data_names = solver_config.get('data_names', sensor_names + ['action'])
+        env_spec = utils.from_config(data_container.get_info('env_spec_config'))
         input_shapes = [data_container.get_datum_shape(name) for name in data_names]
 
     # input_shapes
@@ -51,43 +56,48 @@ def main():
         predictor_config['input_shapes'] = input_shapes
 
     # transformers
-    if args.transformers_fname:
-        with open(args.transformers_fname) as tranformers_file:
-            transformers = utils.from_yaml(tranformers_file)
-        action_space = utils.from_config(data_container.get_info('environment_config')['action_space'])
-        observation_space = utils.from_config(data_container.get_info('environment_config')['observation_space'])
-        data_spaces = dict(zip(sensor_names + ['action'], observation_space.spaces + [action_space]))
-
-        for data_name, transformer in transformers.items():
-            for nested_transformer in utils.transformer.get_all_transformers(transformer):
-                if isinstance(nested_transformer, (utils.transformer.NormalizerTransformer,
-                                                   utils.transformer.DepthImageTransformer)):
-                    if data_name in data_spaces:
-                        nested_transformer.space = data_spaces[data_name]
-
-        # TODO: better way to map data and input names
-        if 'input_names' not in predictor_config:
-            predictor_config['input_names'] = ['x', 'u']
-        data_to_input_name = dict(zip(data_names, predictor_config['input_names']))
-        transformers = utils.get_config({data_to_input_name[k]: v for k, v in transformers.items() if k in data_names})
-        if 'transformers' in predictor_config:
-            if transformers != predictor_config['transformers']:
-                raise ValueError('conflicting values for transformers')
+    with open(args.transformers_fname) as transformers_file:
+        transformers_config = yaml.load(transformers_file)
+    transformers = dict()
+    for data_name, transformer_config in transformers_config.items():
+        if data_name == 'action':
+            replace_config = {'space': env_spec.action_space}
+        elif data_name in env_spec.observation_space.spaces:
+            replace_config = {'space': env_spec.observation_space.spaces[data_name]}
         else:
-            predictor_config['transformers'] = transformers
+            replace_config = {}
+        transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
+
+    input_to_data_name = dict(zip(input_names, data_names))
+    transformers.update([(input_name, transformers[input_to_data_name[input_name]]) for input_name in input_names])
+    if 'transformers' in predictor_config:
+        if transformers != predictor_config['transformers']:
+            raise ValueError('conflicting values for transformers')
+    else:
+        predictor_config['transformers'] = transformers
 
     if 'name' not in predictor_config:
-        predictor_config['name'] = os.path.splitext(os.path.split(args.predictor_fname)[1])[0]
+        predictor_config['name'] = os.path.join(os.path.splitext(os.path.split(args.predictor_fname)[1])[0],
+                                                os.path.splitext(os.path.split(args.transformers_fname)[1])[0])
 
     feature_predictor = utils.config.from_config(predictor_config)
 
+    if 'snapshot_prefix' not in solver_config:
+        snapshot_prefix = os.path.join(os.path.splitext(os.path.split(args.solver_fname)[1])[0],
+                                                        os.path.splitext(os.path.split(args.data_fname)[1])[0])
+        solver_config['snapshot_prefix'] = feature_predictor.get_snapshot_prefix(snapshot_prefix)
+
     if not args.no_train:
-        feature_predictor.train(args.solver_fname)
+        solver = utils.from_config(solver_config)
+        feature_predictor.train(solver)
+    else:
+        solver = None
 
     if args.record_file and not args.visualize:
         args.visualize = 1
     if args.visualize:
-        solver = utils.from_config(solver_config)
+        if solver is None:
+            solver = utils.from_config(solver_config)
         data_to_input_name = dict(zip(solver.data_names, solver.input_names))
         transformers = {data_name: feature_predictor.transformers[data_to_input_name[data_name]] for data_name in solver.data_names}
         val_data_gen = utils.generator.DataGenerator(solver.val_data_fname,

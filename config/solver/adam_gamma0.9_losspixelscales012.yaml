@@ -1,0 +1,23 @@
+class: !!python/name:predictor.solver.TheanoNetSolver ''
+batch_size: 32
+test_iter: 10
+solver_type: ADAM
+test_interval: 1000
+base_lr: 0.001
+gamma: 0.9
+stepsize: 1000
+display: 20
+max_iter: 10000
+momentum: 0.9
+momentum2: 0.999
+weight_decay: 0.0005
+snapshot_interval: 1000
+average_loss: 10
+loss_interval: 200
+plot_interval: 200
+
+data_names: ['image', 'action']
+data_name_offset_pairs: [['image', 0], ['action', 0], ['image', 1]]
+input_names: ['x', 'u', 'x_next']
+output_names: [[y0_0_next_pred, [y0_0, 1]], [y0_1_next_pred, [y0_1, 1]], [y0_2_next_pred, [y0_2, 1]]]
+trainable_tags_list: [{encoding: false}]

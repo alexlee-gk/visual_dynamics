@@ -23,7 +23,8 @@ class BoxSpace(Space):
             self.high = np.asarray(high, dtype=dtype)
             assert self.low.shape == self.high.shape
         else:
-            assert np.isscalar(low) and np.isscalar(high)
+            assert (np.isscalar(low) or low.ndim == 0) and \
+                   (np.isscalar(high) or high.ndim == 0)
             self.low = np.asarray(low, dtype=dtype)
             self.high = np.asarray(high, dtype=dtype)
 

@@ -33,8 +33,11 @@ class Predictor(utils.ConfigObject):
     def jacobian(self, name, wrt_name, *inputs, **kwargs):
         raise NotImplementedError
 
-    def preprocess(self, *inputs):
-        batch_size = self.batch_size(*inputs)
+    def preprocess(self, *inputs, **kwargs):
+        kwargs = utils.python3.get_kwargs(dict(batch_size=None), kwargs)
+        batch_size = kwargs['batch_size']
+        if batch_size is None:
+            batch_size = self.batch_size(*inputs)
         if batch_size == 0:
             preprocessed_inputs = tuple([self.transformers[name].preprocess(input_)
                                          for (name, input_) in zip(self.input_names, inputs)])

@@ -41,4 +41,5 @@ class TupleSpace(Space):
 
     @staticmethod
     def create(other):
-        return TupleSpace(other.spaces)
+        spaces = tuple([Space.create(space) for space in other.spaces])
+        return TupleSpace(spaces)

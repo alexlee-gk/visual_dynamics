@@ -9,7 +9,7 @@ import lasagne
 import lasagne.layers as L
 import utils
 import bilinear
-from . import layers_theano
+from . import layers_theano as LT
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from gui.loss_plotter import LossPlotter
@@ -199,14 +199,12 @@ class TheanoNetSolver(utils.config.ConfigObject):
             print("    validation loss = {:.6f}".format(val_loss))
 
     def step(self, iters, net):
-        # TODO: data_name and input_name mismatch
-        data_to_input_name = dict(zip(self.data_names, self.input_names))
-        transformers = {data_name: net.transformers[data_to_input_name[data_name]] for data_name in self.data_names}
+        self.standarize(net)
 
         # training data
         train_data_gen = utils.generator.DataGenerator(self.train_data_fnames,
                                                        data_name_offset_pairs=self.data_name_offset_pairs,
-                                                       transformers=transformers,
+                                                       transformers=net.transformers,
                                                        batch_size=self.batch_size,
                                                        shuffle=True,
                                                        dtype=theano.config.floatX)
@@ -216,7 +214,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
             # validation data
             val_data_gen = utils.generator.DataGenerator(self.val_data_fname,
                                                          data_name_offset_pairs =self.data_name_offset_pairs ,
-                                                         transformers=transformers,
+                                                         transformers=net.transformers,
                                                          batch_size=self.batch_size,
                                                          shuffle=True,
                                                          dtype=theano.config.floatX)
@@ -277,6 +275,64 @@ class TheanoNetSolver(utils.config.ConfigObject):
             val_loss = None
         return train_loss, val_loss
 
+    def standarize(self, net, aggregating_batch_size=1000, check=False):
+        start_time = time.time()
+        print("Standarizing outputs...")
+
+        # training data (one pass)
+        train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
+                                                            data_name_offset_pairs=self.data_name_offset_pairs,
+                                                            transformers=net.transformers,
+                                                            once=True,
+                                                            batch_size=aggregating_batch_size,
+                                                            shuffle=False,
+                                                            dtype=theano.config.floatX)
+        train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=1)
+
+        standarize_layers = set()
+        for pred_layer in net.pred_layers.values():
+            for layer in L.get_all_layers(pred_layer):
+                if isinstance(layer, LT.StandarizeLayer):
+                    standarize_layers.add(layer)
+        standarize_layers = list(standarize_layers)
+        standarize_layer_names = [standarize_layer.name for standarize_layer in standarize_layers]
+        online_stats = [utils.OnlineStatistics(axis=standarize_layer.shared_axes) for standarize_layer in standarize_layers]
+
+        for batch_data in train_data_once_gen:
+            X = batch_data[0]
+            outputs = net.predict(standarize_layer_names, X, preprocessed=True)  # assume the only input is X
+            for output, online_stat in zip(outputs, online_stats):
+                online_stat.add_data(output)
+
+        for online_stat, standarize_layer in zip(online_stats, standarize_layers):
+            standarize_layer.offset.set_value(online_stat.mean.astype(theano.config.floatX))
+            standarize_layer.scale.set_value(online_stat.std.astype(theano.config.floatX))
+
+        print("... finished in %.2f s" % (time.time() - start_time))
+
+        if check:
+            train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
+                                                                data_name_offset_pairs=self.data_name_offset_pairs,
+                                                                transformers=net.transformers,
+                                                                once=True,
+                                                                batch_size=aggregating_batch_size,
+                                                                shuffle=False,
+                                                                dtype=theano.config.floatX)
+            train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=1)
+
+            check_online_stats = [utils.OnlineStatistics(axis=standarize_layer.shared_axes) for standarize_layer in standarize_layers]
+
+            for batch_data in train_data_once_gen:
+                X = batch_data[0]
+                outputs = net.predict(standarize_layer_names, X, preprocessed=True)  # assume the only input is X
+                for output, online_stat in zip(outputs, check_online_stats):
+                    online_stat.add_data(output)
+
+            # check that the standard deviation after standarization is actually 1
+            for online_stat in check_online_stats:
+                assert np.allclose(online_stat.mean, 0, atol=1e-5)
+                assert np.allclose(online_stat.std, 1)
+
     def _loss_visualization_init(self):
         fig = plt.figure(figsize=(18, 18), frameon=False, tight_layout=True)
         fig.canvas.set_window_title(self.snapshot_prefix)
@@ -284,7 +340,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
         plt.show(block=False)
 
         loss_labels = ['train', 'train', 'val']
-        loss_plotter = LossPlotter(fig, gs[0], loss_labels)
+        loss_plotter = LossPlotter(fig, gs[0], labels=loss_labels)
 
         output_labels = [str(output_name) for output_name_pair in self.output_names for output_name in output_name_pair]
         image_visualizer = GridImageVisualizer(fig, gs[1:], rows=len(self.output_names), cols=2, labels=output_labels)
@@ -381,7 +437,8 @@ class TheanoNetSolver(utils.config.ConfigObject):
 class BilinearSolver(TheanoNetSolver):
     def __init__(self, train_data_fnames, val_data_fname=None, data_names=None, data_name_offset_pairs=None,
                  input_names=None, output_names=None,
-                 loss_batch_size=32, aggregating_batch_size=1000, test_iter=10, max_iter=1, weight_decay=0.0005,
+                 loss_batch_size=32, aggregating_batch_size=1000, num_channel_groups=1,
+                 test_iter=10, max_iter=1, weight_decay=0.0005,
                  snapshot_prefix='', average_loss=10, iter_=0):
         self.train_data_fnames = train_data_fnames or []
         self.val_data_fname = val_data_fname
@@ -392,6 +449,7 @@ class BilinearSolver(TheanoNetSolver):
 
         self.loss_batch_size = loss_batch_size
         self.aggregating_batch_size = aggregating_batch_size
+        self.num_channel_groups = num_channel_groups
         self.test_iter = test_iter
         self.max_iter = max_iter
         self.weight_decay = weight_decay
@@ -416,14 +474,12 @@ class BilinearSolver(TheanoNetSolver):
             print("    validation loss = {:.6f}".format(val_loss))
 
     def step(self, iters, net):
-        # TODO: data_name and input_name mismatch
-        data_to_input_name = dict(zip(self.data_names, self.input_names))
-        transformers = {data_name: net.transformers[data_to_input_name[data_name]] for data_name in self.data_names}
+        self.standarize(net)
 
         # training data
         train_data_gen = utils.generator.DataGenerator(self.train_data_fnames,
                                                        data_name_offset_pairs=self.data_name_offset_pairs,
-                                                       transformers=transformers,
+                                                       transformers=net.transformers,
                                                        batch_size=self.loss_batch_size,
                                                        shuffle=True,
                                                        dtype=theano.config.floatX)
@@ -435,7 +491,7 @@ class BilinearSolver(TheanoNetSolver):
             # validation data
             val_data_gen = utils.generator.DataGenerator(self.val_data_fname,
                                                          data_name_offset_pairs=self.data_name_offset_pairs,
-                                                         transformers=transformers,
+                                                         transformers=net.transformers,
                                                          batch_size=self.loss_batch_size,
                                                          shuffle=True,
                                                          dtype=theano.config.floatX)
@@ -627,6 +683,7 @@ class BilinearSolver(TheanoNetSolver):
                        'output_names': self.output_names,
                        'loss_batch_size': self.loss_batch_size,
                        'aggregating_batch_size': self.aggregating_batch_size,
+                       'num_channel_groups': self.num_channel_groups,
                        'test_iter': self.test_iter,
                        'max_iter': self.max_iter,
                        'weight_decay': self.weight_decay,
@@ -634,123 +691,3 @@ class BilinearSolver(TheanoNetSolver):
                        'average_loss': self.average_loss,
                        'iter_': self.iter_})
         return config
-
-
-class StandarizeSolver(TheanoNetSolver):
-    def __init__(self, train_data_fnames, data_names=None, data_name_offset_pairs=None,
-                 input_names=None, feature_name=None, aggregating_batch_size=1000, max_iter=1,
-                 snapshot_prefix='', iter_=0, check=False):
-        self.train_data_fnames = train_data_fnames or []
-        self.data_names = data_names or ['image', 'action']
-        self.data_name_offset_pairs = data_name_offset_pairs or [('image', 0)]
-        self.input_names = input_names or ['x', 'u', 'x_next']
-        self.feature_name = feature_name or 'x5'
-        self.aggregating_batch_size = aggregating_batch_size
-        self.max_iter = max_iter
-        self.snapshot_prefix = snapshot_prefix
-        self.iter_ = iter_
-        self._last_snapshot_iter = None
-        self.check = check
-
-    def _get_config(self):
-        config = utils.ConfigObject._get_config(self)
-        config.update({'train_data_fnames': self.train_data_fnames,
-                       'data_names': self.data_names,
-                       'data_name_offset_pairs': self.data_name_offset_pairs,
-                       'feature_name': self.feature_name,
-                       'input_names': self.input_names,
-                       'aggregating_batch_size': self.aggregating_batch_size,
-                       'max_iter': self.max_iter,
-                       'snapshot_prefix': self.snapshot_prefix,
-                       'iter_': self.iter_,
-                       'check': self.check})
-        return config
-
-    def solve(self, net):
-        self.step(self.max_iter - self.iter_, net)
-        if self._last_snapshot_iter != self.iter_:
-            self.snapshot(net)
-
-    def step(self, iters, net):
-        data_to_input_name = dict(zip(self.data_names, self.input_names))
-        transformers = {data_name: net.transformers[data_to_input_name[data_name]] for data_name in self.data_names}
-
-        stop_iter = self.iter_ + iters
-        while self.iter_ < stop_iter:
-            # training data (one pass)
-            train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
-                                                                data_name_offset_pairs=self.data_name_offset_pairs,
-                                                                transformers=transformers,
-                                                                once=True,
-                                                                batch_size=self.aggregating_batch_size,
-                                                                shuffle=False,
-                                                                dtype=theano.config.floatX)
-            train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=1)
-
-            # traverse the model starting from feature_name all the way down to the input layer
-            pred_layer = net.pred_layers[self.feature_name]
-            last_pred_layer = None
-            prerelu_pred_layers = OrderedDict()
-            postrelu_pred_layers = OrderedDict()
-            while not isinstance(pred_layer, L.InputLayer):
-                if last_pred_layer is not None:
-                    assert isinstance(last_pred_layer.layers[0], L.Conv2DLayer)
-                    postrelu_pred_layers[pred_layer.name + '_postrelu'] = last_pred_layer.layers[0]
-                assert isinstance(pred_layer.layers[-1], L.NonlinearityLayer)
-                assert isinstance(pred_layer.layers[-2], L.Conv2DLayer)
-                prerelu_pred_layers[pred_layer.name + '_prerelu'] = pred_layer.layers[-2]
-                last_pred_layer = pred_layer
-                pred_layer = pred_layer.layers[0].input_layer
-            prerelu_pred_layers = OrderedDict(prerelu_pred_layers.items()[::-1])
-            postrelu_pred_layers = OrderedDict(postrelu_pred_layers.items()[::-1])
-            net.pred_layers.update(prerelu_pred_layers)
-            net.pred_layers.update(postrelu_pred_layers)
-
-            prerelu_feature_names = prerelu_pred_layers.keys()
-            online_stats = [utils.OnlineStatistics(axis=(0, 2, 3)) for _ in prerelu_feature_names]
-
-            for batch_data in train_data_once_gen:
-                X = batch_data[0]
-                features = net.predict(prerelu_feature_names, X, preprocessed=True)
-
-                for feature, online_stat in zip(features, online_stats):
-                    online_stat.add_data(feature)
-
-            for online_stat, prerelu_pred_layer, postrelu_pred_layer in \
-                    zip(online_stats, prerelu_pred_layers.values(), list(postrelu_pred_layers.values()) + [None]):
-                W, b = prerelu_pred_layer.W, prerelu_pred_layer.b
-                W.set_value((W.get_value() / online_stat.std[:, None, None, None]).astype(theano.config.floatX))
-                if b is not None:
-                    b.set_value((b.get_value() / online_stat.std[((slice(None),) + (None,) * (b.ndim - 1))]).astype(theano.config.floatX))
-                # there layer after the one of the feature_name is not modified
-                if postrelu_pred_layer is not None:
-                    W = postrelu_pred_layer.W
-                    W.set_value((W.get_value() * online_stat.std[None, :, None, None]).astype(theano.config.floatX))
-
-            if self.check:
-                check_online_stats = [utils.OnlineStatistics(axis=(0, 2, 3)) for _ in prerelu_feature_names]
-                train_data_once_gen = utils.generator.DataGenerator(self.train_data_fnames,
-                                                                    data_name_offset_pairs=self.data_name_offset_pairs,
-                                                                    transformers=transformers,
-                                                                    once=True,
-                                                                    batch_size=self.aggregating_batch_size,
-                                                                    shuffle=False,
-                                                                    dtype=theano.config.floatX)
-                train_data_once_gen = utils.generator.ParallelGenerator(train_data_once_gen, nb_worker=1)
-
-                for batch_data in train_data_once_gen:
-                    X = batch_data[0]
-                    check_features = net.predict(prerelu_feature_names, X, preprocessed=True)
-
-                    for feature, online_stat in zip(check_features, check_online_stats):
-                        online_stat.add_data(feature)
-
-                # check that the standard deviation after standarization is actually 1
-                for online_stat in check_online_stats:
-                    assert np.allclose(online_stat.std, 1)
-
-                # check that the features (without the last normalization) are the same as before
-                for online_stat, feature, check_feature in zip(online_stats, features, check_features):
-                    assert np.allclose(feature, check_feature * online_stat.std[None, :, None, None], atol=1e-7)
-
-            self.iter_ += 1

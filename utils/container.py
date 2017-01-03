@@ -176,7 +176,7 @@ class DataContainer(object):
     def _require_data_dir(self, data_dir, mode):
         if 'r' in mode:
             if not os.path.exists(data_dir):
-                raise FileNotFoundError('data directory %s not found' % data_dir)
+                raise IOError('data directory %s not found' % data_dir)
         elif 'a' in mode:
             if not os.path.exists(data_dir):
                 os.makedirs(data_dir)
@@ -241,7 +241,7 @@ class ImageDataContainer(DataContainer):
         for image_name in image_names:
             image_fname = self._get_image_fname(*(inds + (image_name,)))
             if not os.path.isfile(image_fname):
-                raise FileNotFoundError('image file %s does not exist' % image_fname)
+                raise IOError('image file %s does not exist' % image_fname)
             image = cv2.imread(image_fname)
             if not image_name.endswith('depth_image'):
                 if image.ndim == 3 and image.shape[2] == 3:

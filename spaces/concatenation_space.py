@@ -38,4 +38,5 @@ class ConcatenationSpace(Space):
 
     @staticmethod
     def create(other):
-        return ConcatenationSpace(other.spaces)
+        spaces = [Space.create(space) for space in other.spaces]
+        return ConcatenationSpace(spaces)

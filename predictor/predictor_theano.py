@@ -1,11 +1,13 @@
 import os
 import numpy as np
-import pickle
+import h5py
 from collections import OrderedDict
 import time
 import theano
 import theano.tensor as T
 import lasagne
+import lasagne.layers as L
+from . import layers_theano as LT
 import matplotlib.pyplot as plt
 from . import predictor
 import utils
@@ -22,7 +24,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             input_shapes: Iterable of shapes for the image and velocity inputs.
             transformers: Iterable of transformers for the image and velocity inputs.
             name: Name of this net predictor. Defaults to class name.
-            pretrained_fname: File name of pickle file with parameters to initialize the parameters of this net. The
+            pretrained_fname: File name of h5 file with parameters to initialize the parameters of this net. The
                 file name could also be an iteration number, in which case the file with the corresponding number
                 in the default snapshot directory is used.
             kwargs: Optional arguments that are passed to build_net.
@@ -34,7 +36,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         self.pred_layers = self.build_net(self.preprocessed_input_shapes, **kwargs)
         for pred_layer in list(self.pred_layers.values()):
             self.pred_layers.update((layer.name, layer) for layer in lasagne.layers.get_all_layers(pred_layer) if layer.name is not None)
-        self.input_vars = [self.pred_layers[input_name].input_var for input_name in self.input_names]
+        self.input_vars = [self.pred_layers[input_name].input_var for input_name in self.input_names if input_name in self.pred_layers]
         # layer_name_aliases = [('x0', 'x'), ('x', 'x0'), ('x0_next', 'x_next'), ('x_next', 'x0_next'), ('x0', 'image_curr'), ('x0_next', 'image_next'), ('x0_next_pred', 'image_next_pred')]
         # for name, name_alias  in layer_name_aliases:
         #     if name in self.pred_layers and name_alias not in self.pred_layers:
@@ -48,9 +50,9 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         if pretrained_fname is not None:
             try:
                 iter_ = int(pretrained_fname)
-                pretrained_fname = '%s_iter_%d_model.pkl' % (self.get_snapshot_prefix(), iter_)
+                pretrained_fname = '%s_iter_%d_model.h5' % (self.get_snapshot_prefix(), iter_)
             except ValueError:
-                pretrained_fname = pretrained_fname.replace('.yaml', '.pkl')
+                pretrained_fname = pretrained_fname.replace('.yaml', '.h5')
             self.copy_from(pretrained_fname)
         # draw net and save to file
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
@@ -61,12 +63,12 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         self.environment_config = environment_config
         self.policy_config = policy_config
 
-    def train(self, solver_fname):
-        with open(solver_fname) as solver_file:
-            solver = utils.config.from_yaml(solver_file)
-        if not solver.snapshot_prefix:
-            solver_file_base_name = os.path.splitext(os.path.split(solver_fname)[1])[0]
-            solver.snapshot_prefix = self.get_snapshot_prefix(solver_file_base_name)
+    def train(self, solver_or_fname):
+        if isinstance(solver_or_fname, str):
+            with open(solver_or_fname) as solver_file:
+                solver = utils.config.from_yaml(solver_file)
+        else:
+            solver = solver_or_fname
         self.solvers.append(solver)
         data_fnames = solver.train_data_fnames
         try:
@@ -84,7 +86,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         else:
             self.environment_config = environment_config
         if self.policy_config:
-            if self.policy_config!= policy_config:
+            if self.policy_config != policy_config:
                 raise ValueError('policy config mismatch across trainings:\n%r\n%r'
                                  % (self.policy_config, policy_config))
         else:
@@ -333,7 +335,8 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             try:
                 param = params_dict[name]
             except KeyError:
-                skipped_param_names.append(name)
+                if name not in inferred_param_values_dict:
+                    skipped_param_names.append(name)
                 continue
             if param.get_value().shape != value.shape:
                 raise ValueError('mismatch: parameter has shape %r but value to set has shape %r' %
@@ -345,44 +348,21 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             print('set parameters with names: %r' % set_param_names)
 
     def save_model(self, model_fname):
+        assert os.path.splitext(model_fname)[1] == '.h5'
         all_param_values = self.get_all_param_values()
-        try:
-            model_fname = model_fname.replace('.yaml', '.pkl')
-            print("Saving model parameters to file", model_fname)
-            with open(model_fname, 'wb') as model_file:
-                pickle.dump(all_param_values, model_file, protocol=pickle.HIGHEST_PROTOCOL)
-        except:
-            try:
-                print("Could not save model parameters to file", model_fname)
-                model_fname = model_fname.replace('.pkl', '.hdf5')
-                print("Saving model parameters to file", model_fname)
-                import h5py
-                with h5py.File(model_fname, 'w') as hdf5_file:
-                    for name, value in all_param_values.items():
-                        dset = hdf5_file.create_dataset(name, data=value)
-            except:
-                print("Could not save model parameters to file", model_fname)
-                import IPython as ipy; ipy.embed()
+        print("Saving model parameters to file", model_fname)
+        with h5py.File(model_fname, 'w') as h5_file:
+            for name, value in all_param_values.items():
+                h5_file.create_dataset(name, data=value)
         return model_fname
 
     def copy_from(self, model_fname):
+        assert os.path.splitext(model_fname)[1] == '.h5'
         print("Copying model parameters from file", model_fname)
-        try:
-            with open(model_fname, 'rb') as model_file:
-                param_values = pickle.load(model_file)
-        except:
-            try:
-                print("Could not copy model parameters from file", model_fname)
-                model_fname = model_fname.replace('.pkl', '.hdf5')
-                print("Copying model parameters from file", model_fname)
-                import h5py
-                with h5py.File(model_fname, 'r') as hdf5_file:
-                    param_values = dict()
-                    for name in hdf5_file.keys():
-                        param_values[name] = hdf5_file[name][:]
-            except:
-                print("Could not copy model parameters from file", model_fname)
-                import IPython as ipy; ipy.embed()
+        with h5py.File(model_fname, 'r') as h5_file:
+            param_values = dict()
+            for name in h5_file.keys():
+                param_values[name] = h5_file[name][:]
         param_values = OrderedDict([(name, value.astype(theano.config.floatX, copy=False)) for (name, value) in param_values.items()])
         self.set_all_param_values(param_values)
 

@@ -1,0 +1,2 @@
+train_data_fnames: ['/media/2tb/data/quadros_data_0', '/media/2tb/data/quadros_data_1']
+val_data_fname: '/media/2tb/data/quadros_data_0'

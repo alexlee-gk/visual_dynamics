@@ -6,7 +6,7 @@ import lasagne.layers as L
 import lasagne.nonlinearities as nl
 from lasagne.layers.dnn import dnn
 from lasagne import init
-from lasagne.utils import as_tuple
+from lasagne.utils import as_tuple, floatX
 from lasagne.layers.conv import conv_output_length
 
 
@@ -1564,22 +1564,47 @@ class CompositionLayer(L.Layer):
         return dict([(self.param_keys[param], param) for param in params])
 
 
+class StandarizeLayer(CompositionLayer):
+    def __init__(self, incoming, offset=init.Constant(0), scale=init.Constant(1), shared_axes='auto', name=None):
+        super(StandarizeLayer, self).__init__(incoming, name=name)
+
+        if shared_axes == 'auto':
+            # default: share biases over all but the second axis
+            shared_axes = (0,) + tuple(range(2, len(self.input_shape)))
+        elif isinstance(shared_axes, int):
+            shared_axes = (shared_axes,)
+        self.shared_axes = shared_axes
+
+        # create offset and scale parameter, ignoring all dimensions in shared_axes
+        shape = [size for axis, size in enumerate(self.input_shape)
+                 if axis not in self.shared_axes]
+        if any(size is None for size in shape):
+            raise ValueError("StandarizeLayer needs specified input sizes for "
+                             "all axes that offset and scale are not shared over.")
+
+        self.offset = self.add_param(offset, shape, 'offset', regularizable=False, trainable=False)
+        self.scale = self.add_param(scale, shape, 'scale', regularizable=False, trainable=False)
+
+        layer = self.l_bias = self.add_layer(L.BiasLayer(incoming, -self.offset, shared_axes, name='%s_offset' % name))
+        self.l_scale = self.add_layer(L.ScaleLayer(layer, floatX(1.) / self.scale, shared_axes, name='%s_scale' % name))
+
+
 class VggEncodingLayer(CompositionLayer):
-    def __init__(self, incoming, num_filters,
+    def __init__(self, incoming, num_filters, filter_size=3, dilation=(1, 1),
                  conv1_W=init.GlorotUniform(), conv1_b=init.Constant(0.),
                  bn1_beta=init.Constant(0.), bn1_gamma=init.Constant(1.),
                  bn1_mean=init.Constant(0.), bn1_inv_std=init.Constant(1.),
                  conv2_W=init.GlorotUniform(), conv2_b=init.Constant(0.),
                  bn2_beta=init.Constant(0.), bn2_gamma=init.Constant(1.),
                  bn2_mean=init.Constant(0.), bn2_inv_std=init.Constant(1.),
-                 batch_norm=False, name=None,
-                 **tags):
-        super(VggEncodingLayer, self).__init__(incoming, name=name)
+                 batch_norm=False, level=None, **tags):
+        level = '' if level is None else level
+        super(VggEncodingLayer, self).__init__(incoming, name='vgg_encoding%s' % level)
         layer = self.l_conv1 = self.add_layer(
-            L.Conv2DLayer(incoming, num_filters, filter_size=3, stride=1, pad=1, nonlinearity=None,
+            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, filter_dilation=dilation, stride=1, pad='same', nonlinearity=None,
                           W=conv1_W,
                           b=conv1_b,
-                          name='%s.%s' % (name, 'conv1') if name is not None else None))
+                          name='conv%s_1' % level))
         if batch_norm:
             layer = self.l_bn1 = self.add_layer(
                 L.BatchNormLayer(layer,
@@ -1587,271 +1612,18 @@ class VggEncodingLayer(CompositionLayer):
                                  gamma=bn1_gamma,
                                  mean=bn1_mean,
                                  inv_std=bn1_inv_std,
-                                 name='%s.%s' % (name, 'bn1') if name is not None else None))
+                                 name='bn%s_1' % level))
         else:
             self.l_bn1 = None
         layer = self.l_relu1 = self.add_layer(
             L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu1') if name is not None else None))
+                                name='relu%s_1' % level))
 
-        layer = self.l_conv2 = self.add_layer(
-            L.Conv2DLayer(layer, num_filters, filter_size=3, stride=1, pad=1, nonlinearity=None,
-                          W=conv2_W,
-                          b=conv2_b,
-                          name='%s.%s' % (name, 'conv2') if name is not None else None))
-        if batch_norm:
-            layer = self.l_bn2 = self.add_layer(
-                L.BatchNormLayer(layer,
-                                 beta=bn2_beta,
-                                 gamma=bn2_gamma,
-                                 mean=bn2_mean,
-                                 inv_std=bn2_inv_std,
-                                 name='%s.%s' % (name, 'bn2') if name is not None else None))
-        else:
-            self.l_bn2 = None
-        layer = self.l_relu2 = self.add_layer(
-            L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu2') if name is not None else None))
-
-        self.pool = self.add_layer(L.Pool2DLayer(layer, pool_size=2, stride=2, pad=0, mode='average_inc_pad',
-                                                 name='%s.%s' % (name, 'pool')))
-
-        for tag in tags.keys():
-            if not isinstance(tag, str):
-                raise ValueError("tag should be a string, %s given" % type(tag))
-        tags['encoding'] = tags.get('encoding', True)
-        set_layer_param_tags(self, **tags)
-
-        self.param_keys = dict()
-        for layer, base_name in [(self.l_conv1, 'conv1'), (self.l_conv2, 'conv2')]:
-            self.param_keys.update({
-                layer.W: '%s_W' % base_name,
-                layer.b: '%s_b' % base_name,
-            })
-        for layer, base_name in [(self.l_bn1, 'bn1'), (self.l_bn2, 'bn2')]:
-            if layer is not None:
-                self.param_keys.update({
-                    layer.beta: '%s_beta' % base_name,
-                    layer.gamma: '%s_gamma' % base_name,
-                    layer.mean: '%s_mean' % base_name,
-                    layer.inv_std: '%s_inv_std' % base_name
-                })
-
-class VggEncoding3Layer(CompositionLayer):
-    def __init__(self, incoming, num_filters,
-                 conv1_W=init.GlorotUniform(), conv1_b=init.Constant(0.),
-                 bn1_beta=init.Constant(0.), bn1_gamma=init.Constant(1.),
-                 bn1_mean=init.Constant(0.), bn1_inv_std=init.Constant(1.),
-                 conv2_W=init.GlorotUniform(), conv2_b=init.Constant(0.),
-                 bn2_beta=init.Constant(0.), bn2_gamma=init.Constant(1.),
-                 bn2_mean=init.Constant(0.), bn2_inv_std=init.Constant(1.),
-                 conv3_W=init.GlorotUniform(), conv3_b=init.Constant(0.),
-                 bn3_beta=init.Constant(0.), bn3_gamma=init.Constant(1.),
-                 bn3_mean=init.Constant(0.), bn3_inv_std=init.Constant(1.),
-                 batch_norm=False, name=None,
-                 **tags):
-        super(VggEncoding3Layer, self).__init__(incoming, name=name)
-        layer = self.l_conv1 = self.add_layer(
-            L.Conv2DLayer(incoming, num_filters, filter_size=3, stride=1, pad=1, nonlinearity=None,
-                          W=conv1_W,
-                          b=conv1_b,
-                          name='%s.%s' % (name, 'conv1') if name is not None else None))
-        if batch_norm:
-            layer = self.l_bn1 = self.add_layer(
-                L.BatchNormLayer(layer,
-                                 beta=bn1_beta,
-                                 gamma=bn1_gamma,
-                                 mean=bn1_mean,
-                                 inv_std=bn1_inv_std,
-                                 name='%s.%s' % (name, 'bn1') if name is not None else None))
-        else:
-            self.l_bn1 = None
-        layer = self.l_relu1 = self.add_layer(
-            L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu1') if name is not None else None))
-
-        layer = self.l_conv2 = self.add_layer(
-            L.Conv2DLayer(layer, num_filters, filter_size=3, stride=1, pad=1, nonlinearity=None,
-                          W=conv2_W,
-                          b=conv2_b,
-                          name='%s.%s' % (name, 'conv2') if name is not None else None))
-        if batch_norm:
-            layer = self.l_bn2 = self.add_layer(
-                L.BatchNormLayer(layer,
-                                 beta=bn2_beta,
-                                 gamma=bn2_gamma,
-                                 mean=bn2_mean,
-                                 inv_std=bn2_inv_std,
-                                 name='%s.%s' % (name, 'bn2') if name is not None else None))
-        else:
-            self.l_bn2 = None
-        layer = self.l_relu2 = self.add_layer(
-            L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu2') if name is not None else None))
-
-        layer = self.l_conv3 = self.add_layer(
-            L.Conv2DLayer(layer, num_filters, filter_size=3, stride=1, pad=1, nonlinearity=None,
-                          W=conv3_W,
-                          b=conv3_b,
-                          name='%s.%s' % (name, 'conv3') if name is not None else None))
-        if batch_norm:
-            layer = self.l_bn3 = self.add_layer(
-                L.BatchNormLayer(layer,
-                                 beta=bn3_beta,
-                                 gamma=bn3_gamma,
-                                 mean=bn3_mean,
-                                 inv_std=bn3_inv_std,
-                                 name='%s.%s' % (name, 'bn3') if name is not None else None))
-        else:
-            self.l_bn3 = None
-        layer = self.l_relu3 = self.add_layer(
-            L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu3') if name is not None else None))
-
-        self.pool = self.add_layer(L.Pool2DLayer(layer, pool_size=2, stride=2, pad=0, mode='average_inc_pad',
-                                                 name='%s.%s' % (name, 'pool')))
-
-        for tag in tags.keys():
-            if not isinstance(tag, str):
-                raise ValueError("tag should be a string, %s given" % type(tag))
-        tags['encoding'] = tags.get('encoding', True)
-        set_layer_param_tags(self, **tags)
-
-        self.param_keys = dict()
-        for layer, base_name in [(self.l_conv1, 'conv1'), (self.l_conv2, 'conv2'), (self.l_conv3, 'conv3')]:
-            self.param_keys.update({
-                layer.W: '%s_W' % base_name,
-                layer.b: '%s_b' % base_name,
-            })
-        for layer, base_name in [(self.l_bn1, 'bn1'), (self.l_bn2, 'bn2'), (self.l_bn3, 'bn3')]:
-            if layer is not None:
-                self.param_keys.update({
-                    layer.beta: '%s_beta' % base_name,
-                    layer.gamma: '%s_gamma' % base_name,
-                    layer.mean: '%s_mean' % base_name,
-                    layer.inv_std: '%s_inv_std' % base_name
-                })
-
-
-class VggDecodingLayer(CompositionLayer):
-    def __init__(self, incoming, num_filters,
-                 deconv2_W=init.GlorotUniform(), deconv2_b=init.Constant(0.),
-                 bn2_beta=init.Constant(0.), bn2_gamma=init.Constant(1.),
-                 bn2_mean=init.Constant(0.), bn2_inv_std=init.Constant(1.),
-                 deconv1_W=init.GlorotUniform(), deconv1_b=init.Constant(0.),
-                 bn1_beta=init.Constant(0.), bn1_gamma=init.Constant(1.),
-                 bn1_mean=init.Constant(0.), bn1_inv_std=init.Constant(1.),
-                 batch_norm=False, last_nonlinearity=None, name=None,
-                 **tags):
-        super(VggDecodingLayer, self).__init__(incoming, name=name)
-        layer = self.upscale = self.add_layer(
-            L.Upscale2DLayer(incoming, scale_factor=2,
-                             name='%s.%s' % (name, 'upscale') if name is not None else None))
-
-        incoming_num_filters = lasagne.layers.get_output_shape(incoming)[1]
-        layer = self.l_deconv2 = self.add_layer(
-            Deconv2DLayer(layer, incoming_num_filters, filter_size=3, stride=1, pad=1, nonlinearity=None,
-                          W=deconv2_W,
-                          b=deconv2_b,
-                          name='%s.%s' % (name, 'deconv2') if name is not None else None))
-        if batch_norm:
-            layer = self.l_bn2 = self.add_layer(
-                L.BatchNormLayer(layer,
-                                 beta=bn2_beta,
-                                 gamma=bn2_gamma,
-                                 mean=bn2_mean,
-                                 inv_std=bn2_inv_std,
-                                 name='%s.%s' % (name, 'bn2') if name is not None else None))
-        else:
-            self.l_bn2 = None
-        layer = self.l_relu2 = self.add_layer(
-            L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu2') if name is not None else None))
-
-        layer = self.l_deconv1 = self.add_layer(
-            Deconv2DLayer(layer, num_filters, filter_size=3, stride=1, pad=1, nonlinearity=None,
-                          W=deconv1_W,
-                          b=deconv1_b,
-                          name='%s.%s' % (name, 'deconv1') if name is not None else None))
-        if batch_norm:
-            layer = self.l_bn1 = self.add_layer(
-                L.BatchNormLayer(layer,
-                                 beta=bn1_beta,
-                                 gamma=bn1_gamma,
-                                 mean=bn1_mean,
-                                 inv_std=bn1_inv_std,
-                                 name='%s.%s' % (name, 'bn1') if name is not None else None))
-        else:
-            self.l_bn1 = None
-        if last_nonlinearity is not None:
-            self.l_nl1 = self.add_layer(
-                L.NonlinearityLayer(layer, nonlinearity=last_nonlinearity,
-                                    name='%s.%s' % (name, 'relu1') if name is not None else None))
-
-        for tag in tags.keys():
-            if not isinstance(tag, str):
-                raise ValueError("tag should be a string, %s given" % type(tag))
-        tags['decoding'] = tags.get('decoding', True)
-        set_layer_param_tags(self, **tags)
-
-        self.param_keys = dict()
-        for layer, base_name in [(self.l_deconv1, 'deconv1'), (self.l_deconv2, 'deconv2')]:
-            self.param_keys.update({
-                layer.W: '%s_W' % base_name,
-                layer.b: '%s_b' % base_name,
-            })
-        for layer, base_name in [(self.l_bn1, 'bn1'), (self.l_bn2, 'bn2')]:
-            if layer is not None:
-                self.param_keys.update({
-                    layer.beta: '%s_beta' % base_name,
-                    layer.gamma: '%s_gamma' % base_name,
-                    layer.mean: '%s_mean' % base_name,
-                    layer.inv_std: '%s_inv_std' % base_name
-                })
-
-
-class DilatedVggEncodingLayer(CompositionLayer):
-    def __init__(self, incoming, num_filters, filter_size=3, dilation=(2, 2),
-                 conv1_W=init.GlorotUniform(), conv1_b=init.Constant(0.),
-                 bn1_beta=init.Constant(0.), bn1_gamma=init.Constant(1.),
-                 bn1_mean=init.Constant(0.), bn1_inv_std=init.Constant(1.),
-                 conv2_W=init.GlorotUniform(), conv2_b=init.Constant(0.),
-                 bn2_beta=init.Constant(0.), bn2_gamma=init.Constant(1.),
-                 bn2_mean=init.Constant(0.), bn2_inv_std=init.Constant(1.),
-                 batch_norm=False, name=None,
-                 **tags):
-        super(DilatedVggEncodingLayer, self).__init__(incoming, name=name)
-        layer = self.l_conv1 = self.add_layer(
-            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, stride=1, pad='same', nonlinearity=None,
-                          W=conv1_W,
-                          b=conv1_b,
-                          name='%s.%s' % (name, 'conv1') if name is not None else None))
-        if batch_norm:
-            layer = self.l_bn1 = self.add_layer(
-                L.BatchNormLayer(layer,
-                                 beta=bn1_beta,
-                                 gamma=bn1_gamma,
-                                 mean=bn1_mean,
-                                 inv_std=bn1_inv_std,
-                                 name='%s.%s' % (name, 'bn1') if name is not None else None))
-        else:
-            self.l_bn1 = None
-        layer = self.l_relu1 = self.add_layer(
-            L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu1') if name is not None else None))
-
-        # layer = self.l_pad2 = self.add_layer(
-        #     L.PadLayer(layer, (filter_size - 1) * dilation // 2))  # 'same' padding
-        # layer = self.l_conv2 = self.add_layer(
-        #     L.DilatedConv2DLayer(layer, num_filters, filter_size=filter_size, dilation=dilation, nonlinearity=None,
-        #                          W=conv2_W,
-        #                          b=conv2_b,
-        #                          name='%s.%s' % (name, 'conv2') if name is not None else None))
         layer = self.l_conv2 = self.add_layer(
             L.Conv2DLayer(layer, num_filters, filter_size=filter_size, filter_dilation=dilation, pad='same', nonlinearity=None,
                           W=conv2_W,
                           b=conv2_b,
-                          name='%s.%s' % (name, 'conv2') if name is not None else None))
+                          name='conv%s_2' % level))
         if batch_norm:
             layer = self.l_bn2 = self.add_layer(
                 L.BatchNormLayer(layer,
@@ -1859,12 +1631,12 @@ class DilatedVggEncodingLayer(CompositionLayer):
                                  gamma=bn2_gamma,
                                  mean=bn2_mean,
                                  inv_std=bn2_inv_std,
-                                 name='%s.%s' % (name, 'bn2') if name is not None else None))
+                                 name='bn%s_2' % level))
         else:
             self.l_bn2 = None
         self.l_relu2 = self.add_layer(
             L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu2') if name is not None else None))
+                                name='relu%s_2' % level))
 
         for tag in tags.keys():
             if not isinstance(tag, str):
@@ -1888,8 +1660,8 @@ class DilatedVggEncodingLayer(CompositionLayer):
                 })
 
 
-class DilatedVggEncoding3Layer(CompositionLayer):
-    def __init__(self, incoming, num_filters, filter_size=3, dilation=(2, 2),
+class VggEncoding3Layer(CompositionLayer):
+    def __init__(self, incoming, num_filters, filter_size=3, dilation=(1, 1),
                  conv1_W=init.GlorotUniform(), conv1_b=init.Constant(0.),
                  bn1_beta=init.Constant(0.), bn1_gamma=init.Constant(1.),
                  bn1_mean=init.Constant(0.), bn1_inv_std=init.Constant(1.),
@@ -1899,14 +1671,14 @@ class DilatedVggEncoding3Layer(CompositionLayer):
                  conv3_W=init.GlorotUniform(), conv3_b=init.Constant(0.),
                  bn3_beta=init.Constant(0.), bn3_gamma=init.Constant(1.),
                  bn3_mean=init.Constant(0.), bn3_inv_std=init.Constant(1.),
-                 batch_norm=False, name=None,
-                 **tags):
-        super(DilatedVggEncoding3Layer, self).__init__(incoming, name=name)
+                 batch_norm=False, level=None, **tags):
+        level = '' if level is None else level
+        super(VggEncoding3Layer, self).__init__(incoming, name='vgg_encoding%s' % level)
         layer = self.l_conv1 = self.add_layer(
-            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, stride=1, pad='same', nonlinearity=None,
+            L.Conv2DLayer(incoming, num_filters, filter_size=filter_size, filter_dilation=dilation, stride=1, pad='same', nonlinearity=None,
                           W=conv1_W,
                           b=conv1_b,
-                          name='%s.%s' % (name, 'conv1') if name is not None else None))
+                          name='conv%s_1' % level))
         if batch_norm:
             layer = self.l_bn1 = self.add_layer(
                 L.BatchNormLayer(layer,
@@ -1914,18 +1686,18 @@ class DilatedVggEncoding3Layer(CompositionLayer):
                                  gamma=bn1_gamma,
                                  mean=bn1_mean,
                                  inv_std=bn1_inv_std,
-                                 name='%s.%s' % (name, 'bn1') if name is not None else None))
+                                 name='bn%s_1' % level))
         else:
             self.l_bn1 = None
         layer = self.l_relu1 = self.add_layer(
             L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu1') if name is not None else None))
+                                name='relu%s_1' % level))
 
         layer = self.l_conv2 = self.add_layer(
-            L.Conv2DLayer(layer, num_filters, filter_size=filter_size, stride=1, pad='same', nonlinearity=None,
+            L.Conv2DLayer(layer, num_filters, filter_size=filter_size, filter_dilation=dilation, stride=1, pad='same', nonlinearity=None,
                           W=conv2_W,
                           b=conv2_b,
-                          name='%s.%s' % (name, 'conv2') if name is not None else None))
+                          name='conv%s_2' % level))
         if batch_norm:
             layer = self.l_bn2 = self.add_layer(
                 L.BatchNormLayer(layer,
@@ -1933,25 +1705,18 @@ class DilatedVggEncoding3Layer(CompositionLayer):
                                  gamma=bn2_gamma,
                                  mean=bn2_mean,
                                  inv_std=bn2_inv_std,
-                                 name='%s.%s' % (name, 'bn2') if name is not None else None))
+                                 name='bn%s_2' % level))
         else:
             self.l_bn2 = None
         layer = self.l_relu2 = self.add_layer(
             L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu2') if name is not None else None))
+                                name='relu%s_2' % level))
 
-        # layer = self.l_pad3 = self.add_layer(
-        #     L.PadLayer(layer, (filter_size - 1) * dilation // 2))  # 'same' padding
-        # layer = self.l_conv3 = self.add_layer(
-        #     L.DilatedConv2DLayer(layer, num_filters, filter_size=filter_size, dilation=dilation, nonlinearity=None,
-        #                          W=conv3_W,
-        #                          b=conv3_b,
-        #                          name='%s.%s' % (name, 'conv3') if name is not None else None))
         layer = self.l_conv3 = self.add_layer(
             L.Conv2DLayer(layer, num_filters, filter_size=filter_size, filter_dilation=dilation, pad='same', nonlinearity=None,
                           W=conv3_W,
                           b=conv3_b,
-                          name='%s.%s' % (name, 'conv3') if name is not None else None))
+                          name='conv%s_3' % level))
         if batch_norm:
             layer = self.l_bn3 = self.add_layer(
                 L.BatchNormLayer(layer,
@@ -1959,12 +1724,12 @@ class DilatedVggEncoding3Layer(CompositionLayer):
                                  gamma=bn3_gamma,
                                  mean=bn3_mean,
                                  inv_std=bn3_inv_std,
-                                 name='%s.%s' % (name, 'bn3') if name is not None else None))
+                                 name='bn%s_3' % level))
         else:
             self.l_bn3 = None
         self.l_relu3 = self.add_layer(
             L.NonlinearityLayer(layer, nonlinearity=nl.rectify,
-                                name='%s.%s' % (name, 'relu3') if name is not None else None))
+                                name='relu%s_3' % level))
 
         for tag in tags.keys():
             if not isinstance(tag, str):
@@ -2128,7 +1893,7 @@ class BilinearLayer(L.MergeLayer):
         self.axis = axis
 
         self.y_shape, self.u_shape = [input_shape[1:] for input_shape in self.input_shapes]
-        self.y_dim = int(np.prod(self.y_shape[self.axis-1:]))
+        self.y_dim = int(np.prvod(self.y_shape[self.axis-1:]))
         self.u_dim,  = self.u_shape
 
         self.Q = self.add_param(Q, (self.y_dim, self.y_dim, self.u_dim), name='Q')
@@ -2267,11 +2032,24 @@ def create_bilinear_layer(l_xlevel, l_u, level, bilinear_type='share', name=None
                 l_xlevel_gconv = GroupConv2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
                                                  untie_biases=True, groups=l_x_shape[1], nonlinearity=None,
                                                  name='%s_gconv%d' % (name, i))
+                set_layer_param_tags(l_xlevel_gconv, transformation=True, **dict([('level%d' % level, True)]))
                 l_xlevel_gconvs.append(l_xlevel_gconv)
             l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_gconvs + [l_u], name=name)
             # l_xlevel_u_outer = OuterProductLayer([l_xlevel, l_u], name='x%d_u_outer' % level)
             # l_xlevel_diff_pred = GroupConv2DLayer(l_xlevel_u_outer, l_x_shape[1], filter_size=5, stride=1, pad='same',
             #                                       untie_biases=True, groups=l_x_shape[1], nonlinearity=None, name=name)
+            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d' % level, True)]))
+        elif bilinear_type == 'channelwise_local':
+            l_x_shape = L.get_output_shape(l_xlevel)
+            _, u_dim = L.get_output_shape(l_u)
+            l_xlevel_convs = []
+            for i in range(u_dim + 1):
+                l_xlevel_conv = LocallyConnected2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
+                                                        untie_biases=True, channelwise=True, nonlinearity=None,
+                                                        name='%s_conv%d' % (name, i))
+                set_layer_param_tags(l_xlevel_conv, transformation=True, **dict([('level%d' % level, True)]))
+                l_xlevel_convs.append(l_xlevel_conv)
+            l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_convs + [l_u], name=name)
             set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d' % level, True)]))
         elif bilinear_type == 'full':
             l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=1, name=name)
