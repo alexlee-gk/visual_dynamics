@@ -2,7 +2,6 @@ from __future__ import division, print_function
 import time
 import numpy as np
 import yaml
-from collections import OrderedDict
 import theano
 import theano.tensor as T
 import lasagne
@@ -147,6 +146,9 @@ class TheanoNetSolver(utils.config.ConfigObject):
         # params = list(net.get_all_params(trainable=True).values())
         trainable_params_dict = dict()
         for trainable_tags in self.trainable_tags_list:
+            # assume trainable=True unless there is an explicit tag of trainable=False
+            trainable_tags = dict(trainable_tags)
+            trainable_tags.setdefault('trainable', True)
             trainable_params_dict.update(net.get_all_params(**trainable_tags))
         params = list(trainable_params_dict.values())
         nontrainable_params = list(set(net.get_all_params().values()) - set(params))
@@ -229,7 +231,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
             val_fn = self.compile_val_fn(net)
 
         if self.plot_interval:
-            loss_plotter, image_visualizer = self._loss_visualization_init()
+            fig, loss_plotter, image_visualizer = self._loss_visualization_init()
 
         print("Starting training...")
         stop_iter = self.iter_ + iters
@@ -344,7 +346,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
         output_labels = [str(output_name) for output_name_pair in self.output_names for output_name in output_name_pair]
         image_visualizer = GridImageVisualizer(fig, gs[1:], rows=len(self.output_names), cols=2, labels=output_labels)
-        return loss_plotter, image_visualizer
+        return fig, loss_plotter, image_visualizer
 
     def _loss_visualization_update(self, loss_plotter, image_visualizer, outputs, net=None):
         # outputs of single non-batched datum
@@ -354,19 +356,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
         vis_outputs = []
         for output_pair in outputs:
-            # data_min = data_max = None
             for output in output_pair:
-                if output.ndim == 3 and output.shape[0] == 3:  # TODO: better way of identifying RGB images
-                    if net is not None:
-                        output = net.transformers['x'].deprocess(output)
-                # elif output.ndim == 3:
-                #     if data_min is None or data_max is None:
-                #         output_pair_arr = np.array(output_pair)
-                #         if data_min is None:
-                #             data_min = output_pair_arr.min(axis=(0, 2, 3))[:, None, None]
-                #         if data_max is None:
-                #             data_max = output_pair_arr.max(axis=(0, 2, 3))[:, None, None]
-                #     output = utils.vis_square(output, data_min=data_min, data_max=data_max)
                 vis_outputs.append(output)
         image_visualizer.update(vis_outputs)
 
@@ -384,12 +374,6 @@ class TheanoNetSolver(utils.config.ConfigObject):
         print("Saving solver to file", solver_fname)
         with open(solver_fname, 'w') as solver_file:
             self.to_yaml(solver_file)
-        # try:
-        #     if self.loss_interval:
-        #         loss_fig_fname = self.get_snapshot_fname('_loss.pdf')
-        #         plt.savefig(loss_fig_fname)
-        # except AttributeError:
-        #     pass
         self._last_snapshot_iter = self.iter_
 
     def _get_config(self):

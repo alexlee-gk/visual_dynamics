@@ -1564,9 +1564,9 @@ class CompositionLayer(L.Layer):
         return dict([(self.param_keys[param], param) for param in params])
 
 
-class StandarizeLayer(CompositionLayer):
-    def __init__(self, incoming, offset=init.Constant(0), scale=init.Constant(1), shared_axes='auto', name=None):
-        super(StandarizeLayer, self).__init__(incoming, name=name)
+class StandarizeLayer(L.Layer):
+    def __init__(self, incoming, offset=init.Constant(0), scale=init.Constant(1), shared_axes='auto', **kwargs):
+        super(StandarizeLayer, self).__init__(incoming, **kwargs)
 
         if shared_axes == 'auto':
             # default: share biases over all but the second axis
@@ -1585,8 +1585,14 @@ class StandarizeLayer(CompositionLayer):
         self.offset = self.add_param(offset, shape, 'offset', regularizable=False, trainable=False)
         self.scale = self.add_param(scale, shape, 'scale', regularizable=False, trainable=False)
 
-        layer = self.l_bias = self.add_layer(L.BiasLayer(incoming, -self.offset, shared_axes, name='%s_offset' % name))
-        self.l_scale = self.add_layer(L.ScaleLayer(layer, floatX(1.) / self.scale, shared_axes, name='%s_scale' % name))
+    def get_output_for(self, input, **kwargs):
+        offset_axes = iter(range(self.offset.ndim))
+        offset_pattern = ['x' if input_axis in self.shared_axes
+                          else next(offset_axes) for input_axis in range(input.ndim)]
+        scale_axes = iter(range(self.scale.ndim))
+        scale_pattern = ['x' if input_axis in self.shared_axes
+                         else next(scale_axes) for input_axis in range(input.ndim)]
+        return (input - self.offset.dimshuffle(*offset_pattern)) / self.scale.dimshuffle(*scale_pattern)
 
 
 class VggEncodingLayer(CompositionLayer):

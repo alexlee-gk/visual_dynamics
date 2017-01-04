@@ -18,6 +18,6 @@ plot_interval: 200
 
 data_names: ['image', 'action']
 data_name_offset_pairs: [['image', 0], ['action', 0], ['image', 1]]
-
+input_names: ['x', 'u', 'x_next']
 output_names: [[y1_0_next_pred, [y1_0, 1]], [y1_1_next_pred, [y1_1, 1]], [y1_2_next_pred, [y1_2, 1]]]
 trainable_tags_list: [{encoding: false}]
