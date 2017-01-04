@@ -31,8 +31,8 @@ def main():
         data_config = yaml.load(data_file)
     if 'train_data_fnames' in data_config:
         solver_config['train_data_fnames'] = data_config['train_data_fnames']
-    if 'val_data_fname' in data_config:
-        solver_config['val_data_fname'] = data_config['val_data_fname']
+    if 'val_data_fnames' in data_config:
+        solver_config['val_data_fnames'] = data_config['val_data_fnames']
 
     # data_names and input_names
     data_names = solver_config['data_names']
@@ -41,9 +41,7 @@ def main():
     #     raise ValueError('conflicting values for input_names')
 
     # extract info from data
-    data_fnames = list(solver_config['train_data_fnames'])
-    if solver_config.get('val_data_fname') is not None:
-        data_fnames.append(solver_config['val_data_fname'])
+    data_fnames = solver_config.get('train_data_fnames', []) + solver_config.get('val_data_fnames', [])
     with utils.container.MultiDataContainer(data_fnames) as data_container:
         env_spec = utils.from_config(data_container.get_info('env_spec_config'))
         input_shapes = [data_container.get_datum_shape(name) for name in data_names]
@@ -99,17 +97,17 @@ def main():
     if args.visualize:
         if solver is None:
             solver = utils.from_config(solver_config)
-        data_to_input_name = dict(zip(solver.data_names, solver.input_names))
-        transformers = {data_name: feature_predictor.transformers[data_to_input_name[data_name]] for data_name in solver.data_names}
-        val_data_gen = utils.generator.DataGenerator(solver.val_data_fname,
-                                                     data_name_offset_pairs=solver.data_name_offset_pairs,
-                                                     transformers=transformers,
-                                                     once=True,
-                                                     batch_size=0,
-                                                     shuffle=False,
-                                                     dtype=theano.config.floatX)
+
+        data_gen = utils.generator.DataGenerator(solver.val_data_fnames if solver.val_data_fnames else solver.train_data_fnames,
+                                                 data_name_offset_pairs=solver.data_name_offset_pairs,
+                                                 transformers=transformers,
+                                                 once=True,
+                                                 batch_size=0,
+                                                 shuffle=False,
+                                                 dtype=theano.config.floatX)
 
         fig = plt.figure(figsize=(12, 12), frameon=False, tight_layout=True)
+        fig.canvas.set_window_title(solver.snapshot_prefix)
         gs = gridspec.GridSpec(1, 1)
         plt.show(block=False)
 
@@ -135,15 +133,13 @@ def main():
         image_visualizer = GridImageVisualizer(fig, gs[0], rows=len(solver.output_names), cols=3, labels=output_labels)
 
         done = False
-        for data in val_data_gen:
+        for data in data_gen:
             outputs = solver.get_outputs(feature_predictor, *data, preprocessed=True)
             other_outputs = feature_predictor.predict(other_output_names, data[0], preprocessed=True)
             vis_outputs = []
             assert len(other_outputs) == len(outputs)
             for other_output, output_pair in zip(other_outputs, outputs):
                 for output in (other_output,) + output_pair:
-                    if output.ndim == 3 and output.shape[0] == 3:  # TODO: better way of identifying RGB images
-                        output = feature_predictor.transformers['x'].deprocess(output)
                     vis_outputs.append(output)
             try:
                 image_visualizer.update(vis_outputs)

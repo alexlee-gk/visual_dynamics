@@ -16,7 +16,7 @@ from gui.grid_image_visualizer import GridImageVisualizer
 
 
 class TheanoNetSolver(utils.config.ConfigObject):
-    def __init__(self, train_data_fnames, val_data_fname=None, data_names=None, data_name_offset_pairs=None,
+    def __init__(self, train_data_fnames, val_data_fnames=None, data_names=None, data_name_offset_pairs=None,
                  input_names=None, output_names=None,
                  trainable_tags_list=None, batch_size=32, test_iter=10, solver_type='ADAM', test_interval=1000,
                  base_lr=0.001, gamma=1.0, stepsize=1000, display=20, max_iter=10000, momentum=0.9, momentum2=0.999,
@@ -32,7 +32,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
                 be trained.
         """
         self.train_data_fnames = train_data_fnames or []
-        self.val_data_fname = val_data_fname
+        self.val_data_fnames = val_data_fnames or []
         self.data_names = data_names or ['image', 'action']
         self.data_name_offset_pairs = data_name_offset_pairs or [('image', 0), ('action', 0), ('image', 1)]
         self.input_names = input_names or ['x', 'u', 'x_next']
@@ -211,10 +211,10 @@ class TheanoNetSolver(utils.config.ConfigObject):
                                                        shuffle=True,
                                                        dtype=theano.config.floatX)
         train_data_gen = utils.generator.ParallelGenerator(train_data_gen, nb_worker=4)
-        validate = self.test_interval and self.val_data_fname is not None
+        validate = self.test_interval and self.val_data_fnames
         if validate:
             # validation data
-            val_data_gen = utils.generator.DataGenerator(self.val_data_fname,
+            val_data_gen = utils.generator.DataGenerator(self.val_data_fnames,
                                                          data_name_offset_pairs =self.data_name_offset_pairs ,
                                                          transformers=net.transformers,
                                                          batch_size=self.batch_size,
@@ -231,7 +231,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
             val_fn = self.compile_val_fn(net)
 
         if self.plot_interval:
-            fig, loss_plotter, image_visualizer = self._loss_visualization_init()
+            fig, loss_plotter, image_visualizer = self.loss_visualization_init(validate=validate)
 
         print("Starting training...")
         stop_iter = self.iter_ + iters
@@ -242,7 +242,8 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
             current_step = self.iter_ // self.stepsize
             learning_rate = self.base_lr * self.gamma ** current_step
-            loss = float(train_fn(*(tuple(next(train_data_gen)) + (learning_rate,))))
+            train_batch_data = tuple(next(train_data_gen))
+            loss = float(train_fn(*(train_batch_data + (learning_rate,))))
             self.losses.append(loss)
 
             if self.display and self.iter_ % self.display == 0:
@@ -261,8 +262,9 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
             # plot visualization using first datum in batch
             if self.plot_interval and self.iter_ % self.plot_interval == 0:
-                outputs = self.get_outputs(net, *[datum[0] for datum in next(val_data_gen)], preprocessed=True)
-                self._loss_visualization_update(loss_plotter, image_visualizer, outputs, net)
+                batch_data = next(val_data_gen) if validate else train_batch_data
+                outputs = self.get_outputs(net, *[datum[0] for datum in batch_data], preprocessed=True)
+                self.loss_visualization_update(loss_plotter, image_visualizer, outputs, validate=validate)
                 loss_fig_fname = self.get_snapshot_fname('_loss.pdf')
                 fig.savefig(loss_fig_fname)
 
@@ -337,23 +339,28 @@ class TheanoNetSolver(utils.config.ConfigObject):
                 assert np.allclose(online_stat.mean, 0, atol=1e-5)
                 assert np.allclose(online_stat.std, 1)
 
-    def _loss_visualization_init(self):
+    def loss_visualization_init(self, validate=True):
         fig = plt.figure(figsize=(18, 18), frameon=False, tight_layout=True)
         fig.canvas.set_window_title(self.snapshot_prefix)
         gs = gridspec.GridSpec(1, 3)
         plt.show(block=False)
 
-        loss_labels = ['train', 'train', 'val']
+        loss_labels = ['train', 'train']
+        if validate:
+            loss_labels += ['val']
         loss_plotter = LossPlotter(fig, gs[0], labels=loss_labels)
 
         output_labels = [str(output_name) for output_name_pair in self.output_names for output_name in output_name_pair]
         image_visualizer = GridImageVisualizer(fig, gs[1:], rows=len(self.output_names), cols=2, labels=output_labels)
         return fig, loss_plotter, image_visualizer
 
-    def _loss_visualization_update(self, loss_plotter, image_visualizer, outputs, net=None):
+    def loss_visualization_update(self, loss_plotter, image_visualizer, outputs, validate=True):
         # outputs of single non-batched datum
-        all_loss_iters = [None, self.loss_iters, self.loss_iters]
-        all_losses = [self.losses, self.train_losses, self.val_losses]
+        all_loss_iters = [None, self.loss_iters]
+        all_losses = [self.losses, self.train_losses]
+        if validate:
+            all_loss_iters += [self.loss_iters]
+            all_losses += [self.val_losses]
         loss_plotter.update(all_losses, all_loss_iters)
 
         vis_outputs = []
@@ -381,7 +388,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
     def _get_config(self):
         config = super(TheanoNetSolver, self)._get_config()
         config.update({'train_data_fnames': self.train_data_fnames,
-                       'val_data_fname': self.val_data_fname,
+                       'val_data_fnames': self.val_data_fnames,
                        'data_names': self.data_names,
                        'data_name_offset_pairs': self.data_name_offset_pairs,
                        'input_names': self.input_names,
@@ -421,13 +428,13 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
 
 class BilinearSolver(TheanoNetSolver):
-    def __init__(self, train_data_fnames, val_data_fname=None, data_names=None, data_name_offset_pairs=None,
+    def __init__(self, train_data_fnames, val_data_fnames=None, data_names=None, data_name_offset_pairs=None,
                  input_names=None, output_names=None,
                  loss_batch_size=32, aggregating_batch_size=1000, num_channel_groups=1,
                  test_iter=10, max_iter=1, weight_decay=0.0005,
                  snapshot_prefix='', average_loss=10, iter_=0):
         self.train_data_fnames = train_data_fnames or []
-        self.val_data_fname = val_data_fname
+        self.val_data_fnames = val_data_fnames or []
         self.data_names = data_names or ['image', 'action']
         self.data_name_offset_pairs = data_name_offset_pairs or [('image', 0), ('action', 0), ('image', 1)]
         self.input_names = input_names or ['x', 'u', 'x_next']
@@ -472,10 +479,10 @@ class BilinearSolver(TheanoNetSolver):
         train_data_gen = utils.generator.ParallelGenerator(train_data_gen,
                                                            max_q_size=self.average_loss,
                                                            nb_worker=4)
-        validate = self.val_data_fname is not None
+        validate = bool(self.val_data_fnames)
         if validate:
             # validation data
-            val_data_gen = utils.generator.DataGenerator(self.val_data_fname,
+            val_data_gen = utils.generator.DataGenerator(self.val_data_fnames,
                                                          data_name_offset_pairs=self.data_name_offset_pairs,
                                                          transformers=net.transformers,
                                                          batch_size=self.loss_batch_size,
@@ -662,7 +669,7 @@ class BilinearSolver(TheanoNetSolver):
     def _get_config(self):
         config = utils.ConfigObject._get_config(self)
         config.update({'train_data_fnames': self.train_data_fnames,
-                       'val_data_fname': self.val_data_fname,
+                       'val_data_fnames': self.val_data_fnames,
                        'data_names': self.data_names,
                        'data_name_offset_pairs': self.data_name_offset_pairs,
                        'input_names': self.input_names,
