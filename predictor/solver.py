@@ -263,6 +263,8 @@ class TheanoNetSolver(utils.config.ConfigObject):
             if self.plot_interval and self.iter_ % self.plot_interval == 0:
                 outputs = self.get_outputs(net, *[datum[0] for datum in next(val_data_gen)], preprocessed=True)
                 self._loss_visualization_update(loss_plotter, image_visualizer, outputs, net)
+                loss_fig_fname = self.get_snapshot_fname('_loss.pdf')
+                fig.savefig(loss_fig_fname)
 
             self.iter_ += 1
 

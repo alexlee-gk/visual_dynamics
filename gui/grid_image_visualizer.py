@@ -1,10 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import matplotlib
 import utils
 
 
-class GridImageVisualizer:
+matplotlib.rcParams['image.cmap'] = 'viridis'
+
+
+class GridImageVisualizer(object):
 
     def __init__(self, fig, gs, num_plots=None, rows=None, cols=None, labels=None, vs_grid_shape=None, vs_padsize=1):
         """
@@ -23,6 +27,8 @@ class GridImageVisualizer:
         if rows is None:
             rows = int(np.ceil(float(num_plots) / cols))
         assert num_plots <= rows * cols, 'Too many plots to put into gridspec.'
+        self._rows = rows
+        self._cols = cols
 
         self._fig = fig
         self._gs_image_axis = gs
@@ -73,10 +79,27 @@ class GridImageVisualizer:
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend
 
+    @property
+    def rows(self):
+        return self._rows
+
+    @property
+    def cols(self):
+        return self._cols
+
     def update(self, images):
         self._images = images
         if images is None:
             return
+
+        image_min = None
+        image_max = None
+        for image in images:
+            if image.ndim == 3 and image.shape[2] != 3:
+                if image_min is None or image.min() < image_min:
+                    image_min = image.min()
+                if image_max is None or image.max() > image_max:
+                    image_max = image.max()
         for i, (ax_image, plot, image) in enumerate(zip(self._axarr_image, self._plots, images)):
             if image is None:
                 if ax_image in self._fig.axes:
@@ -85,8 +108,12 @@ class GridImageVisualizer:
                 if ax_image not in self._fig.axes:
                     self._fig.add_axes(ax_image)
                 if image.ndim == 3 and image.shape[2] != 3:
-                    if image.shape[0] > 3:
-                        image = utils.vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize)
+                    if image.shape[0] == 3:
+                        image = (image - image_min) / (image_max - image_min)
+                        image = image.transpose((1, 2, 0))
+                    elif image.shape[0] > 1:
+                        image = utils.vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize,
+                                                 data_min=image_min, data_max=image_max)
                     elif image.shape[0] == 1:
                         image = np.squeeze(image, axis=0)
                     elif image.shape[-1] == 1:
@@ -99,10 +126,10 @@ class GridImageVisualizer:
         self.draw(num_plots=len(images))  # update the minimum number of necessary axes
 
     def draw(self, num_plots=None):
-        for ax_image, plot in zip(self._axarr_image[:num_plots], self._plots[:num_plots]):
-            if ax_image not in self._fig.axes or plot is None:
-                continue
-            ax_image.draw_artist(ax_image.patch)
-            ax_image.draw_artist(plot)
+        # for ax_image, plot in zip(self._axarr_image[:num_plots], self._plots[:num_plots]):
+        #     if ax_image not in self._fig.axes or plot is None:
+        #         continue
+        #     ax_image.draw_artist(ax_image.patch)
+        #     ax_image.draw_artist(plot)
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()   # Fixes bug with Qt4Agg backend
