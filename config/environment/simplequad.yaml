@@ -7,6 +7,6 @@ action_space:
   dtype: float64
 sensor_names: ['image']
 car_env_class: !!python/name:envs.car_panda3d_env.GeometricCarPanda3dEnv ''
-car_model_name: ['camaro2', 'mazda6', 'sport', 'kia_rio_blue', 'kia_rio_red', 'kia_rio_white']
-#car_model_name: ['kia_rio_silver', 'kia_rio_yellow', 'mitsubishi_lancer_evo']
+car_model_names: ['camaro2', 'mazda6', 'sport', 'kia_rio_blue', 'kia_rio_red', 'kia_rio_white']
+#car_model_names: ['kia_rio_silver', 'kia_rio_yellow', 'mitsubishi_lancer_evo']
 dt: 0.1
