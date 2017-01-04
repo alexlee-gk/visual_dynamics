@@ -70,11 +70,12 @@ def main():
 
     input_to_data_name = dict(zip(input_names, data_names))
     transformers.update([(input_name, transformers[input_to_data_name[input_name]]) for input_name in input_names])
+    transformers_config = utils.get_config(transformers)
     if 'transformers' in predictor_config:
-        if transformers != predictor_config['transformers']:
+        if transformers_config != predictor_config['transformers']:
             raise ValueError('conflicting values for transformers')
     else:
-        predictor_config['transformers'] = transformers
+        predictor_config['transformers'] = transformers_config
 
     if 'name' not in predictor_config:
         predictor_config['name'] = os.path.join(os.path.splitext(os.path.split(args.predictor_fname)[1])[0],
