@@ -6,4 +6,5 @@ scales: [0, 1, 2]
 bilinear_type: channelwise_local
 feature_name: [y5_0, y5_1, y5_2]
 next_feature_name: [y5_0_next_pred, y5_1_next_pred, y5_2_next_pred]
+feature_jacobian_name: [y5_0_next_pred_jac, y5_1_next_pred_jac, y5_2_next_pred_jac]
 pretrained_fname: models/theano/vgg16_model.h5

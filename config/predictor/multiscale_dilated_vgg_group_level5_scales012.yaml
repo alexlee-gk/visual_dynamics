@@ -1,8 +1,0 @@
-class: !!python/name:predictor.predictor_theano.TheanoNetFeaturePredictor ''
-build_net: !!python/name:predictor.net_theano.build_multiscale_dilated_vgg_action_cond_encoder_net ''
-num_encoding_levels: 5
-scales: [0, 1, 2]
-bilinear_type: group_convolution
-feature_name: [x5_0, x5_1, x5_2]
-next_feature_name: [x5_0_next_pred, x5_1_next_pred, x5_2_next_pred]
-name: multiscale_dilated_vgg_group_level5_scales012
