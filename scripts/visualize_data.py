@@ -58,7 +58,7 @@ def main():
     done = False
     for data in data_gen:
         outputs = solver.get_outputs(feature_predictor, *data, preprocessed=True)
-        other_outputs = feature_predictor.predict(other_output_names, data[0], preprocessed=True)
+        other_outputs = feature_predictor.predict(other_output_names, [data[0]], preprocessed=True)
         vis_outputs = []
         assert len(other_outputs) == len(outputs)
         for other_output, output_pair in zip(other_outputs, outputs):

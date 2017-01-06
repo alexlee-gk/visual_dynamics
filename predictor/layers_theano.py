@@ -2023,49 +2023,60 @@ class BatchwiseSumLayer(L.ElemwiseMergeLayer):
 
 
 def create_bilinear_layer(l_xlevel, l_u, level, bilinear_type='share', name=None):
-        if bilinear_type == 'convolution':
-            l_x_shape = L.get_output_shape(l_xlevel)
-            l_xlevel_u_outer = OuterProductLayer([l_xlevel, l_u], name='x%d_u_outer' % level)
-            l_xlevel_diff_pred = L.Conv2DLayer(l_xlevel_u_outer, l_x_shape[1], filter_size=5, stride=1, pad='same',
-                                               untie_biases=True, nonlinearity=None, name=name)
-            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d' % level, True)]))
-            # TODO: param_tags?
-        elif bilinear_type == 'group_convolution':
-            l_x_shape = L.get_output_shape(l_xlevel)
-            _, u_dim = L.get_output_shape(l_u)
-            l_xlevel_gconvs = []
-            for i in range(u_dim + 1):
-                l_xlevel_gconv = GroupConv2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
-                                                 untie_biases=True, groups=l_x_shape[1], nonlinearity=None,
-                                                 name='%s_gconv%d' % (name, i))
-                set_layer_param_tags(l_xlevel_gconv, transformation=True, **dict([('level%d' % level, True)]))
-                l_xlevel_gconvs.append(l_xlevel_gconv)
-            l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_gconvs + [l_u], name=name)
-            # l_xlevel_u_outer = OuterProductLayer([l_xlevel, l_u], name='x%d_u_outer' % level)
-            # l_xlevel_diff_pred = GroupConv2DLayer(l_xlevel_u_outer, l_x_shape[1], filter_size=5, stride=1, pad='same',
-            #                                       untie_biases=True, groups=l_x_shape[1], nonlinearity=None, name=name)
-            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d' % level, True)]))
-        elif bilinear_type == 'channelwise_local':
-            l_x_shape = L.get_output_shape(l_xlevel)
-            _, u_dim = L.get_output_shape(l_u)
-            l_xlevel_convs = []
-            for i in range(u_dim + 1):
-                l_xlevel_conv = LocallyConnected2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
-                                                        untie_biases=True, channelwise=True, nonlinearity=None,
-                                                        name='%s_conv%d' % (name, i))
-                set_layer_param_tags(l_xlevel_conv, transformation=True, **dict([('level%d' % level, True)]))
-                l_xlevel_convs.append(l_xlevel_conv)
-            l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_convs + [l_u], name=name)
-            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d' % level, True)]))
-        elif bilinear_type == 'full':
-            l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=1, name=name)
-            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d'%level, True)]))
-        elif bilinear_type == 'share':
-            l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=2, name=name)
-            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d'%level, True)]))
-        elif bilinear_type == 'channelwise':
-            l_xlevel_diff_pred = BilinearChannelwiseLayer([l_xlevel, l_u], name=name)
-            set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **dict([('level%d'%level, True)]))
+    l_xlevel_diff_pred_jac = None
+    if bilinear_type == 'convolution':
+        l_x_shape = L.get_output_shape(l_xlevel)
+        l_xlevel_u_outer = OuterProductLayer([l_xlevel, l_u], name='x%d_u_outer' % level)
+        l_xlevel_diff_pred = L.Conv2DLayer(l_xlevel_u_outer, l_x_shape[1], filter_size=5, stride=1, pad='same',
+                                           untie_biases=True, nonlinearity=None, name=name)
+        set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
+        # TODO: param_tags?
+    elif bilinear_type == 'group_convolution':
+        l_x_shape = L.get_output_shape(l_xlevel)
+        _, u_dim = L.get_output_shape(l_u)
+        l_xlevel_gconvs = []
+        for i in range(u_dim + 1):
+            l_xlevel_gconv = GroupConv2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
+                                             untie_biases=True, groups=l_x_shape[1], nonlinearity=None,
+                                             name='%s_gconv%d' % (name, i))
+            set_layer_param_tags(l_xlevel_gconv, transformation=True, **{'level%d' % level: True})
+            l_xlevel_gconvs.append(l_xlevel_gconv)
+        l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_gconvs + [l_u], name=name)
+        # l_xlevel_u_outer = OuterProductLayer([l_xlevel, l_u], name='x%d_u_outer' % level)
+        # l_xlevel_diff_pred = GroupConv2DLayer(l_xlevel_u_outer, l_x_shape[1], filter_size=5, stride=1, pad='same',
+        #                                       untie_biases=True, groups=l_x_shape[1], nonlinearity=None, name=name)
+        set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
+
+        l_linear_outputs = l_xlevel_gconvs[:-1]
+        l_xlevel_diff_pred_jac = L.concat([L.dimshuffle(L.flatten(l_linear_output, outdim=2), (0, 1, 'x'))
+                                           for l_linear_output in l_linear_outputs], axis=-1)
+        set_layer_param_tags(l_xlevel_diff_pred_jac, transformation=True, **{'level%d' % level: True})
+    elif bilinear_type == 'channelwise_local':
+        l_x_shape = L.get_output_shape(l_xlevel)
+        _, u_dim = L.get_output_shape(l_u)
+        l_xlevel_convs = []
+        for i in range(u_dim + 1):
+            l_xlevel_conv = LocallyConnected2DLayer(l_xlevel, l_x_shape[1], filter_size=5, stride=1, pad='same',
+                                                    untie_biases=True, channelwise=True, nonlinearity=None,
+                                                    name='%s_conv%d' % (name, i))
+            set_layer_param_tags(l_xlevel_conv, transformation=True, **{'level%d' % level: True})
+            l_xlevel_convs.append(l_xlevel_conv)
+        l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_convs + [l_u], name=name)
+        set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
+
+        l_linear_outputs = l_xlevel_convs[:-1]
+        l_xlevel_diff_pred_jac = L.concat([L.dimshuffle(L.flatten(l_linear_output, outdim=2), (0, 1, 'x'))
+                                           for l_linear_output in l_linear_outputs], axis=-1)
+        set_layer_param_tags(l_xlevel_diff_pred_jac, transformation=True, **{'level%d' % level: True})
+    elif bilinear_type == 'full':
+        l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=1, name=name)
+        set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
+    elif bilinear_type == 'share':
+        l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=2, name=name)
+        set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
+    elif bilinear_type == 'channelwise':
+        l_xlevel_diff_pred = BilinearChannelwiseLayer([l_xlevel, l_u], name=name)
+        set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
 #             l_xlevel_shape = lasagne.layers.get_output_shape(l_xlevel)
 #             l_xlevel_diff_pred_channels = []
 #             for channel in range(l_xlevel_shape[1]):
@@ -2073,22 +2084,22 @@ def create_bilinear_layer(l_xlevel, l_u, level, bilinear_type='share', name=None
 #                 l_xlevel_diff_pred_channel = BilinearLayer([l_xlevel_channel, l_u], name='x%d_diff_pred_%d'%(level, channel))
 #                 l_xlevel_diff_pred_channels.append(l_xlevel_diff_pred_channel)
 #             l_xlevel_diff_pred = L.ConcatLayer(l_xlevel_diff_pred_channels, axis=1)
-        elif bilinear_type == 'factor':
-            l_xlevel_shape = lasagne.layers.get_output_shape(l_xlevel)
+    elif bilinear_type == 'factor':
+        l_xlevel_shape = lasagne.layers.get_output_shape(l_xlevel)
 #             3 * 32**2 = 3072
 #             64 * 16**2 = 16384
 #             128 * 8**2 = 8192
 #             256 * 4**2 = 4096
 #             num_factor_weights = 2048
-            num_factor_weights = min(np.prod(l_xlevel_shape[1:]) / 4, 4096)
-            l_ud = L.DenseLayer(l_u, num_factor_weights, W=init.Uniform(0.1), nonlinearity=None)
-            set_layer_param_tags(l_ud, transformation=True, **dict([('level%d'%level, True)]))
-            l_xleveld = L.DenseLayer(l_xlevel, num_factor_weights, W=init.Uniform(1.0), nonlinearity=None)
-            set_layer_param_tags(l_xleveld, transformation=True, **dict([('level%d'%level, True)]))
-            l_xleveld_diff_pred = L.ElemwiseMergeLayer([l_xleveld, l_ud], T.mul)
-            l_xlevel_diff_pred_flat = L.DenseLayer(l_xleveld_diff_pred, np.prod(l_xlevel_shape[1:]), W=init.Uniform(1.0), nonlinearity=None)
-            set_layer_param_tags(l_xlevel_diff_pred_flat, transformation=True, **dict([('level%d'%level, True)]))
-            l_xlevel_diff_pred = L.ReshapeLayer(l_xlevel_diff_pred_flat, ([0],) + l_xlevel_shape[1:], name=name)
-        else:
-            raise ValueError('bilinear_type should be either convolution, full, share channelwise or factor, given %s'%bilinear_type)
-        return l_xlevel_diff_pred
+        num_factor_weights = min(np.prod(l_xlevel_shape[1:]) / 4, 4096)
+        l_ud = L.DenseLayer(l_u, num_factor_weights, W=init.Uniform(0.1), nonlinearity=None)
+        set_layer_param_tags(l_ud, transformation=True, **{'level%d' % level: True})
+        l_xleveld = L.DenseLayer(l_xlevel, num_factor_weights, W=init.Uniform(1.0), nonlinearity=None)
+        set_layer_param_tags(l_xleveld, transformation=True, **{'level%d' % level: True})
+        l_xleveld_diff_pred = L.ElemwiseMergeLayer([l_xleveld, l_ud], T.mul)
+        l_xlevel_diff_pred_flat = L.DenseLayer(l_xleveld_diff_pred, np.prod(l_xlevel_shape[1:]), W=init.Uniform(1.0), nonlinearity=None)
+        set_layer_param_tags(l_xlevel_diff_pred_flat, transformation=True, **{'level%d' % level: True})
+        l_xlevel_diff_pred = L.ReshapeLayer(l_xlevel_diff_pred_flat, ([0],) + l_xlevel_shape[1:], name=name)
+    else:
+        raise ValueError('bilinear_type should be either convolution, full, share channelwise or factor, given %s'%bilinear_type)
+    return l_xlevel_diff_pred, l_xlevel_diff_pred_jac

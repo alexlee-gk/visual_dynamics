@@ -365,17 +365,21 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
 
     # bilinear
     l_ylevels_scales_next_pred = OrderedDict()
+    l_ylevels_scales_next_pred_jac = OrderedDict()
     for level in encoding_levels:
         l_ylevels_scales_next_pred[level] = OrderedDict()
+        l_ylevels_scales_next_pred_jac[level] = OrderedDict()
         for scale in scales:
             l_ylevel_scale = l_ylevels_scales[level][scale]
-            l_ylevel_scale_diff_pred = LT.create_bilinear_layer(l_ylevel_scale,
-                                                                l_u,
-                                                                scale,
-                                                                bilinear_type=bilinear_type,
-                                                                name='y%d_%d_diff_pred' % (level, scale))
+            l_ylevel_scale_diff_pred, l_ylevel_diff_pred_jac = \
+                LT.create_bilinear_layer(l_ylevel_scale,
+                                         l_u,
+                                         scale,
+                                         bilinear_type=bilinear_type,
+                                         name='y%d_%d_diff_pred' % (level, scale))
             l_ylevels_scales_next_pred[level][scale] = L.ElemwiseSumLayer([l_ylevel_scale, l_ylevel_scale_diff_pred],
                                                                           name='y%d_%d_next_pred' % (level, scale))
+            l_ylevels_scales_next_pred_jac[level][scale] = l_ylevel_diff_pred_jac
 
     pred_layers = OrderedDict([('x', l_x),
                                ('x_next', l_x_next),
@@ -386,6 +390,9 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
     pred_layers.update([('y%d_%d_next_pred' % (level, scale), l_ylevels_scales_next_pred[level][scale])
                         for level in l_ylevels_scales_next_pred.keys()
                         for scale in l_ylevels_scales_next_pred[level].keys()])
+    pred_layers.update([('y%d_%d_next_pred_jac' % (level, scale), l_ylevels_scales_next_pred_jac[level][scale])
+                        for level in l_ylevels_scales_next_pred_jac.keys()
+                        for scale in l_ylevels_scales_next_pred_jac[level].keys()])
     return pred_layers
 
 

@@ -6,8 +6,6 @@ import time
 import theano
 import theano.tensor as T
 import lasagne
-import lasagne.layers as L
-from . import layers_theano as LT
 import matplotlib.pyplot as plt
 from . import predictor
 import utils
@@ -70,12 +68,7 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         else:
             solver = solver_or_fname
         self.solvers.append(solver)
-        data_fnames = solver.train_data_fnames
-        try:
-            if solver.val_data_fname:
-                data_fnames += [solver.val_data_fname]
-        except AttributeError:
-            pass
+        data_fnames = solver.train_data_fnames + solver.val_data_fnames
         with utils.container.MultiDataContainer(data_fnames) as data_container:
             environment_config = data_container.get_info('environment_config')
             policy_config = data_container.get_info('policy_config')
@@ -93,55 +86,40 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
             self.policy_config = policy_config
         solver.solve(self)
 
-    def _compile_pred_fn(self, name_or_names):
-        if isinstance(name_or_names, str):
-            output_layer_or_layers = self.pred_layers[name_or_names]
-        else:
-            output_layer_or_layers = [self.pred_layers[name] for name in name_or_names]
-        pred_var_or_vars = lasagne.layers.get_output(output_layer_or_layers, deterministic=True)
+    def _compile_pred_fn(self, names):
+        output_layers = [self.pred_layers[name] for name in names]
+        pred_vars = lasagne.layers.get_output(output_layers, deterministic=True)
         input_vars = [input_var for input_var in self.input_vars if input_var in
-                      theano.gof.graph.inputs(pred_var_or_vars if isinstance(pred_var_or_vars, list) else [pred_var_or_vars])]
+                      theano.gof.graph.inputs(pred_vars)]
         start_time = time.time()
         print("Compiling prediction function...")
-        pred_fn = theano.function(input_vars, pred_var_or_vars)
+        pred_fn = theano.function(input_vars, pred_vars)
         print("... finished in %.2f s" % (time.time() - start_time))
         return pred_fn
 
-    def predict(self, name_or_names, *inputs, **kwargs):
-        kwargs = utils.python3.get_kwargs(dict(preprocessed=False), kwargs)
-        preprocessed = kwargs['preprocessed']
-        if not isinstance(name_or_names, str):
-            name_or_names = tuple(name_or_names)
-        batch_size = self.batch_size(*inputs, preprocessed=preprocessed)
+    def predict(self, name_or_names, inputs, preprocessed=False):
+        names = tuple(utils.flatten_tree(name_or_names))
+        batch_size = self.batch_size(inputs, preprocessed=preprocessed)
         if not preprocessed:
-            inputs = self.preprocess(*inputs)
+            inputs = self.preprocess(inputs)
         inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
         if batch_size == 0:
             inputs = [input_[None, ...] for input_ in inputs]
-        pred_fn = self.pred_fns.get(name_or_names) or self.pred_fns.setdefault(name_or_names, self._compile_pred_fn(name_or_names))
-        pred_or_preds = pred_fn(*inputs)
+        pred_fn = self.pred_fns.get(names) or self.pred_fns.setdefault(names, self._compile_pred_fn(names))
+        preds = pred_fn(*inputs)
         if batch_size == 0:
-            if isinstance(name_or_names, str):
-                pred_or_preds = np.squeeze(pred_or_preds, 0)
-            else:
-                pred_or_preds = [np.squeeze(pred, 0) for pred in pred_or_preds]
-        return pred_or_preds
+            preds = [np.squeeze(pred, 0) for pred in preds]
+        return utils.unflatten_tree(name_or_names, preds)
 
-    def _get_jacobian_var(self, name_or_names, wrt_name, mode=None):
+    def _get_jacobian_var(self, names, wrt_name, mode=None):
         """
         Returns the jacobian expressions and the respective outputs for a single
         data point. Assumes that the inputs being passed have a single leading
         dimension (i.e. batch_size=1).
         """
-        if isinstance(name_or_names, str):
-            names = [name_or_names]
-        else:
-            names = name_or_names
-        output_wrt_vars = lasagne.layers.get_output([self.pred_layers[name] for name in names] +
-                                                    [self.pred_layers[wrt_name]], deterministic=True)
+        output_wrt_vars = lasagne.layers.get_output([self.pred_layers[name] for name in (names + (wrt_name,))], deterministic=True)
         output_vars, wrt_var = output_wrt_vars[:-1], output_wrt_vars[-1]
-        output_wrt_shapes = lasagne.layers.get_output_shape([self.pred_layers[name] for name in names] +
-                                                            [self.pred_layers[wrt_name]])
+        output_wrt_shapes = lasagne.layers.get_output_shape([self.pred_layers[name] for name in (names + (wrt_name,))])
         output_shapes, wrt_shape = output_wrt_shapes[:-1], output_wrt_shapes[-1]
         output_dim = sum([np.prod(output_shape[1:]) for output_shape in output_shapes])
         if len(wrt_shape) != 2 or wrt_shape[0] not in (1, None):
@@ -188,102 +166,54 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
                 rep_dict[wrt_var] = np.r_[np.zeros((1, wrt_dim)), np.eye(wrt_dim)].astype(theano.config.floatX)
                 rep_output_var = theano.clone(output_var, replace=rep_dict)
                 jac_var = rep_output_var[1:] - rep_output_var[0]
-                jac_var = jac_var.reshape((wrt_dim, -1)).T
+                jac_var = jac_var.reshape((wrt_dim, -1, 1)).T
                 jac_vars.append(jac_var)
         else:
             raise ValueError('mode can only be fwd, forward, rev, reverse, batched or linear, but %r was given' % mode)
-        if isinstance(name_or_names, str):
-            if mode == 'linear':
-                jac_var, = jac_vars
-            output_var, = output_vars
-            return jac_var, output_var
-        else:
-            if mode != 'linear':
-                split_inds = np.r_[0, np.cumsum([np.prod(output_shape[1:]) for output_shape in output_shapes])]
-                jac_vars = [jac_var[start_ind:end_ind] for (start_ind, end_ind) in zip(split_inds[:-1], split_inds[1:])]
-            return jac_vars, output_vars
+        if mode != 'linear':
+            split_inds = np.r_[0, np.cumsum([np.prod(output_shape[1:]) for output_shape in output_shapes])]
+            jac_vars = [jac_var[start_ind:end_ind].reshape((1, -1, wrt_dim)) for (start_ind, end_ind) in zip(split_inds[:-1], split_inds[1:])]
+        return jac_vars, output_vars
 
-    def _compile_jacobian_fn(self, name_or_names, wrt_name, ret_outputs=False, mode=None):
-        jac_var_or_vars, output_var_or_vars = self._get_jacobian_var(name_or_names, wrt_name, mode=mode)
+    def _compile_jacobian_fn(self, names, wrt_name, ret_outputs=False, mode=None):
+        jac_vars, output_vars = self._get_jacobian_var(names, wrt_name, mode=mode)
         if ret_outputs:
-            if isinstance(name_or_names, str):
-                all_vars = [jac_var_or_vars] + [output_var_or_vars]
-            else:
-                all_vars = jac_var_or_vars + output_var_or_vars
+            all_vars = jac_vars + output_vars
         else:
-            all_vars = jac_var_or_vars
-        input_vars = [input_var for input_var in self.input_vars
-                      if input_var in theano.gof.graph.inputs(all_vars if isinstance(all_vars, list) else [all_vars])]
+            all_vars = jac_vars
+        input_vars = [input_var for input_var in self.input_vars if input_var in theano.gof.graph.inputs(all_vars)]
         start_time = time.time()
         print("Compiling jacobian function...")
         jac_fn = theano.function(input_vars, all_vars, on_unused_input='warn')
         print("... finished in %.2f s" % (time.time() - start_time))
         return jac_fn
 
-    def jacobian(self, name_or_names, wrt_name, *inputs, **kwargs):
-        kwargs = utils.python3.get_kwargs(dict(preprocessed=False,
-                                               ret_outputs=False,
-                                               mode=None),
-                                          kwargs)
-        preprocessed, ret_outputs, mode = [kwargs[key] for key in ['preprocessed', 'ret_outputs', 'mode']]
-        batch_size = self.batch_size(*inputs, preprocessed=preprocessed)
+    def jacobian(self, name_or_names, wrt_name, inputs, preprocessed=False, ret_outputs=False, mode=None):
+        names = tuple(utils.flatten_tree(name_or_names))
+        batch_size = self.batch_size(inputs, preprocessed=preprocessed)
         if not preprocessed:
-            inputs = self.preprocess(*inputs)
+            inputs = self.preprocess(inputs)
         inputs = [input_.astype(theano.config.floatX, copy=False) for input_ in inputs]
         if batch_size in (0, 1):
             if batch_size == 0:
                 inputs = [input_[None, :] for input_ in inputs]
-            jac_fn_key = tuple([name_or_names] if isinstance(name_or_names, str) else name_or_names) + \
-                         (wrt_name, ret_outputs, mode)
-            jac_fn = self.jac_fns.get(jac_fn_key) or \
-                     self.jac_fns.setdefault(jac_fn_key,
-                                             self._compile_jacobian_fn(name_or_names, wrt_name, ret_outputs=ret_outputs, mode=mode))
-            outputs = jac_fn(*inputs)
-            if ret_outputs:
-                if isinstance(name_or_names, str):
-                    jac_or_jacs, output_or_outputs = outputs
-                else:
-                    jac_or_jacs = outputs[:len(outputs) // 2]
-                    output_or_outputs = outputs[len(outputs) // 2:]
-            else:
-                jac_or_jacs = outputs
-            if batch_size != 0:
-                if isinstance(jac_or_jacs, list):
-                    jacs = jac_or_jacs
-                    jac_or_jacs = [jac.reshape((1,) + jac.shape) for jac in jacs]
-                else:
-                    jac = jac_or_jacs
-                    jac_or_jacs = jac.reshape((1,) + jac.shape)
-            if batch_size == 0 and ret_outputs:
-                if isinstance(output_or_outputs, list):
-                    outputs = output_or_outputs
-                    output_or_outputs = [np.squeeze(output, 0) for output in outputs]
-                else:
-                    output = output_or_outputs
-                    output_or_outputs = np.squeeze(output, 0)
-            if ret_outputs:
-                return jac_or_jacs, output_or_outputs
-            else:
-                return jac_or_jacs
+            jac_fn_args = (names, wrt_name, ret_outputs, mode)
+            jac_fn = self.jac_fns.get(jac_fn_args) or \
+                self.jac_fns.setdefault(jac_fn_args, self._compile_jacobian_fn(*jac_fn_args))
+            preds = jac_fn(*inputs)
+            if batch_size == 0:
+                preds = [np.squeeze(pred, 0) for pred in preds]
         else:
-            preds = [self.jacobian(name_or_names, wrt_name, *single_inputs,
-                                   preprocessed=True, ret_outputs=ret_outputs,
-                                   mode=mode) for single_inputs in zip(*inputs)]
+            batched_preds = [self.jacobian(names, wrt_name, single_inputs,
+                                           preprocessed=True, ret_outputs=ret_outputs,
+                                           mode=mode) for single_inputs in zip(*inputs)]
             if ret_outputs:
-                if isinstance(name_or_names, str):
-                    jac, output = zip(*preds)
-                    return np.asarray(jac), np.asarray(output)
-                else:
-                    jacs, outputs = zip(*preds)
-                    jacs, outputs = zip(*jacs), zip(*outputs)
-                    return [np.asarray(jac) for jac in jacs], [np.asarray(output) for output in outputs]
-            else:
-                if isinstance(name_or_names, str):
-                    jac = preds
-                    return np.asarray(jac)
-                else:
-                    jacs = zip(*preds)
-                    return [np.asarray(jac) for jac in jacs]
+                batched_preds = [sum(preds, []) for preds in batched_preds]
+            preds = [np.array(pred) for pred in zip(*batched_preds)]
+        if ret_outputs:
+            return utils.unflatten_tree([name_or_names, name_or_names], preds)
+        else:
+            return utils.unflatten_tree(name_or_names, preds)
 
     def get_all_layers(self):
         layers = []
@@ -308,35 +238,11 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
         set_param_names = []
         skipped_param_names = []
 
-        # special-case rule to convert parameters of the old bilinear group convolution to the new one
-        inferred_param_values_dict = dict()
-        for name, value in param_values_dict.items():
-            try:
-                base_name, var_name = name.split('.')
-            except ValueError:
-                continue
-            if base_name.endswith('diff_pred'):
-                try:
-                    u_dim_p1 = param_values_dict['%s.%s' % (base_name, 'W')].shape[1]
-                except KeyError:
-                    continue
-                if var_name == 'W':
-                    for i in range(u_dim_p1):
-                        gconv_name = '%s_gconv%d.%s' % (base_name, i, var_name)
-                        if gconv_name not in param_values_dict:
-                            inferred_param_values_dict[gconv_name] = value[:, i:i+1]
-                elif var_name == 'b':
-                    gconv_name = '%s_gconv%d.%s' % (base_name, u_dim_p1 - 1, var_name)
-                    if gconv_name not in param_values_dict:
-                        inferred_param_values_dict[gconv_name] = value
-        param_values_dict.update(inferred_param_values_dict)
-
         for name, value in param_values_dict.items():
             try:
                 param = params_dict[name]
             except KeyError:
-                if name not in inferred_param_values_dict:
-                    skipped_param_names.append(name)
+                skipped_param_names.append(name)
                 continue
             if param.get_value().shape != value.shape:
                 raise ValueError('mismatch: parameter has shape %r but value to set has shape %r' %
@@ -392,20 +298,28 @@ class TheanoNetPredictor(predictor.NetPredictor, utils.config.ConfigObject):
 
 
 class TheanoNetFeaturePredictor(TheanoNetPredictor, predictor.FeaturePredictor):
-    def __init__(self, build_net, input_names, input_shapes, transformers=None, name=None, pretrained_fname=None,
-                 feature_name=None, next_feature_name=None, control_name=None, **kwargs):
+    def __init__(self, build_net, input_names, input_shapes, feature_name,
+                 next_feature_name, control_name, feature_jacobian_name=None,
+                 transformers=None, name=None, pretrained_fname=None, **kwargs):
         TheanoNetPredictor.__init__(
-            self, build_net, input_names, input_shapes, transformers=transformers, name=name,
+            self, build_net, input_names, input_shapes,
+            transformers=transformers, name=name,
             pretrained_fname=pretrained_fname, **kwargs)
         predictor.FeaturePredictor.__init__(
-            self, input_names, input_shapes, transformers=transformers, name=name,
-            feature_name=feature_name, next_feature_name=next_feature_name, control_name=control_name)
+            self, input_names, input_shapes, feature_name, next_feature_name,
+            control_name, feature_jacobian_name=feature_jacobian_name,
+            transformers=transformers, name=name)
 
-    def feature_jacobian(self, X, U, preprocessed=False, mode=None):
-        jac, next_feature = self.jacobian(self.next_feature_name, self.control_name,
-                                          X, U, preprocessed=preprocessed,
-                                          ret_outputs=True,
-                                          mode=mode)
+    def feature_jacobian(self, inputs, preprocessed=False, mode=None):
+        assert len(inputs) == 2
+        if self.feature_jacobian_name:
+            jac, next_feature = \
+                self.predict([self.feature_jacobian_name, self.next_feature_name],
+                             inputs, preprocessed=preprocessed)
+        else:
+            jac, next_feature = self.jacobian(self.next_feature_name, self.control_name,
+                                              inputs, preprocessed=preprocessed,
+                                              ret_outputs=True, mode=mode)
         return jac, next_feature
 
     def _get_config(self):

@@ -85,9 +85,9 @@ class TheanoNetSolver(utils.config.ConfigObject):
         for t, inames in time_inames_dict.items():
             inds, names = zip(*inames)
             if t == 0:
-                outs = net.predict(names, X, U, preprocessed=preprocessed)
+                outs = net.predict(names, [X, U], preprocessed=preprocessed)
             elif t == 1:
-                outs = net.predict(names, X_next, preprocessed=preprocessed)
+                outs = net.predict(names, [X_next], preprocessed=preprocessed)
             else:
                 raise NotImplementedError("output name with time %d" % t)
             iouts.extend(zip(inds, outs))
@@ -306,7 +306,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
         for batch_data in train_data_once_gen:
             X = batch_data[0]
-            outputs = net.predict(standarize_layer_names, X, preprocessed=True)  # assume the only input is X
+            outputs = net.predict(standarize_layer_names, [X], preprocessed=True)  # assume the only input is X
             for output, online_stat in zip(outputs, online_stats):
                 online_stat.add_data(output)
 
@@ -330,7 +330,7 @@ class TheanoNetSolver(utils.config.ConfigObject):
 
             for batch_data in train_data_once_gen:
                 X = batch_data[0]
-                outputs = net.predict(standarize_layer_names, X, preprocessed=True)  # assume the only input is X
+                outputs = net.predict(standarize_layer_names, [X], preprocessed=True)  # assume the only input is X
                 for output, online_stat in zip(outputs, check_online_stats):
                     online_stat.add_data(output)
 
@@ -533,8 +533,8 @@ class BilinearSolver(TheanoNetSolver):
                     next_pred_layer = net.pred_layers[next_pred_name]
                     curr_layer, bilinear_layer = next_pred_layer.input_layers
                     if curr_layer != net.pred_layers[curr_name] or not isinstance(bilinear_layer,
-                                                                                  (layers_theano.BilinearLayer,
-                                                                                   layers_theano.BilinearChannelwiseLayer)):
+                                                                                  (LT.BilinearLayer,
+                                                                                   LT.BilinearChannelwiseLayer)):
                         raise Exception
                     curr_names.append(curr_name)
                     bilinear_layers.append(bilinear_layer)
@@ -654,7 +654,7 @@ class BilinearSolver(TheanoNetSolver):
 
             self.iter_ += 1
 
-        # X_next_pred = net.predict('x_next_pred', X, U, preprocessed=True)
+        # X_next_pred = net.predict('x_next_pred', [X, U], preprocessed=True)
         # fig, axarr = utils.draw_images_callback(list(zip(*[[*X[:10]], [*X_next_pred[:10]], [*X_next[:10]]])),
         #                                         image_transformer=net.transformers['x'].transformers[-1],
         #                                         num=11)

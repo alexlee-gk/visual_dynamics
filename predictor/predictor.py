@@ -20,39 +20,50 @@ class Predictor(utils.ConfigObject):
                                           for (input_name, input_shape) in zip(self.input_names, self.input_shapes)]
         self.name = name or self.__class__.__name__
 
-    def train(self, *train_data_fnames, **kwargs):
-        kwargs = utils.python3.get_kwargs(dict(val_data_fname=None,
-                                               data_names=None,
-                                               output_names=None),
-                                          kwargs)
+    def predict(self, name_or_names, inputs, **kwargs):
+        """
+        Returns the output(s) corresponding to name_or_names
+
+        Args:
+            name_or_names: string or (possibly nested) list of strings.
+            inputs: list of numpy arrays.
+
+        Returns:
+            the numpy array output(s) corresponding to the given name(s). The
+            (possibly nested) structure of the returned output(s) matches the
+            structure of name_or_names.
+        """
         raise NotImplementedError
 
-    def predict(self, name_or_names, *inputs, **kwargs):
+    def jacobian(self, name_or_names, wrt_name, inputs, **kwargs):
+        """
+        Returns the Jacobian(s) with respect to the variable wrt_name
+
+        Args:
+            name_or_names: string or (possibly nested) list of strings.
+            wrt_name: string of the with-respect-to variable.
+            inputs: list of numpy arrays.
+
+        Returns:
+            the numpy array Jacobian(s) corresponding to the given name(s). The
+            (possibly nested) structure of the returned output(s) matches the
+            structure of name_or_names.
+        """
         raise NotImplementedError
 
-    def jacobian(self, name, wrt_name, *inputs, **kwargs):
-        raise NotImplementedError
-
-    def preprocess(self, *inputs, **kwargs):
-        kwargs = utils.python3.get_kwargs(dict(batch_size=None), kwargs)
-        batch_size = kwargs['batch_size']
+    def preprocess(self, inputs, batch_size=None):
         if batch_size is None:
-            batch_size = self.batch_size(*inputs)
+            batch_size = self.batch_size(inputs)
         if batch_size == 0:
-            preprocessed_inputs = tuple([self.transformers[name].preprocess(input_)
-                                         for (name, input_) in zip(self.input_names, inputs)])
+            preprocessed_inputs = [self.transformers[name].preprocess(input_)
+                                   for (name, input_) in zip(self.input_names, inputs)]
         else:
             batched_inputs = inputs
-            preprocessed_inputs = zip(*[self.preprocess(*inputs) for inputs in zip(*batched_inputs)])
-            preprocessed_inputs = tuple(np.asarray(preprocessed_input) for preprocessed_input in preprocessed_inputs)
-        # TODO
-        # if len(inputs) == 1:
-        #     preprocessed_inputs, = preprocessed_inputs
+            preprocessed_inputs = zip(*[self.preprocess(inputs) for inputs in zip(*batched_inputs)])
+            preprocessed_inputs = [np.array(preprocessed_input) for preprocessed_input in preprocessed_inputs]
         return preprocessed_inputs
 
-    def batch_size(self, *inputs, **kwargs):
-        kwargs = utils.python3.get_kwargs(dict(preprocessed=False), kwargs)
-        preprocessed = kwargs['preprocessed']
+    def batch_size(self, inputs, preprocessed=False):
         if preprocessed:
             input_shapes = self.preprocessed_input_shapes
         else:
@@ -88,38 +99,50 @@ class Predictor(utils.ConfigObject):
 
 
 class FeaturePredictor(Predictor):
-    def __init__(self, input_names, input_shapes, transformers=None, name=None,
-                 feature_name=None, next_feature_name=None, feature_jacobian_name=None, control_name=None):
+    def __init__(self, input_names, input_shapes, feature_name,
+                 next_feature_name, control_name, feature_jacobian_name=None,
+                 transformers=None, name=None):
         """
         feature_name and next_feature_name may each be a tensor name or a list
         of names, in which case the corresponding prediction functions return a
         list of tensors.
         """
         Predictor.__init__(self, input_names, input_shapes, transformers=transformers, name=name)
-        self.feature_name = feature_name or 'y'
-        self.next_feature_name = next_feature_name or 'y_next_pred'
-        self.control_name = control_name or 'u'
+        self.feature_name = feature_name
+        self.next_feature_name = next_feature_name
+        self.control_name = control_name
+        self.feature_jacobian_name = feature_jacobian_name
 
-    def feature(self, X, preprocessed=False):
-        return self.predict(self.feature_name, X, preprocessed=preprocessed)
+    def feature(self, inputs, preprocessed=False):
+        assert len(inputs) == 1
+        return self.predict(self.feature_name, inputs, preprocessed=preprocessed)
 
-    def next_feature(self, X, U, preprocessed=False):
-        return self.predict(self.next_feature_name, X, U, preprocessed=preprocessed)
+    def next_feature(self, inputs, preprocessed=False):
+        assert len(inputs) == 2
+        return self.predict(self.next_feature_name, inputs, preprocessed=preprocessed)
 
-    def feature_jacobian(self, X, U, preprocessed=False):
-        jac = self.jacobian(self.next_feature_name, self.control_name, X, U, preprocessed=preprocessed)
-        next_feature = self.next_feature(X, U, preprocessed=preprocessed)
+    def feature_jacobian(self, inputs, preprocessed=False):
+        """
+        Returns the Jacobian of the next feature with respect to the control
+        and the next feature.
+        """
+        assert len(inputs) == 2
+        if self.feature_jacobian_name:
+            jac, next_feature = \
+                self.predict([self.feature_jacobian_name, self.next_feature_name],
+                             inputs, preprocessed=preprocessed)
+        else:
+            jac = self.jacobian(self.next_feature_name, self.control_name,
+                                inputs, preprocessed=preprocessed)
+            next_feature = self.next_feature(inputs, preprocessed=preprocessed)
         return jac, next_feature
-
-    def plot(self, X, U, preprocessed=False):
-        # TODO
-        raise NotImplementedError
 
     def _get_config(self):
         config = super(FeaturePredictor, self)._get_config()
         config.update({'feature_name': self.feature_name,
                        'next_feature_name': self.next_feature_name,
-                       'control_name': self.control_name})
+                       'control_name': self.control_name,
+                       'feature_jacobian_name': self.feature_jacobian_name})
         return config
 
 
