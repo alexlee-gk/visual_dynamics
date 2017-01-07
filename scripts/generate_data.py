@@ -1,4 +1,5 @@
 import argparse
+import time
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -55,7 +56,6 @@ def main():
             writer = FFMpegWriter(fps=1.0 / env.dt)
             writer.setup(fig, args.record_file, fig.dpi)
 
-    import time
     start_time = time.time()
     done = False
     for traj_iter in range(args.num_trajs):
@@ -88,8 +88,8 @@ def main():
                             writer.grab_frame()
                     except:
                         done = True
-                    if done:
-                        break
+                if done:
+                    break
             if done:
                 break
         except KeyboardInterrupt:
