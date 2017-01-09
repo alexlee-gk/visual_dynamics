@@ -2,7 +2,11 @@ from __future__ import division, print_function
 import os
 import contextlib
 import threading
-import queue
+import sys
+try:
+    import queue
+except ImportError:
+    import Queue as queue
 import time
 import numpy as np
 import utils
