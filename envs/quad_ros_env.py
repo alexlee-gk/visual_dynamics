@@ -9,6 +9,9 @@ except ImportError:
     pass
 from envs import RosEnv
 from spaces import TranslationAxisAngleSpace
+from policy import Policy, PositionBasedServoingPolicy
+from policy.quad_target_policy import xyz_to_hra, hra_to_xyz
+from utils import transformations
 
 
 class QuadRosEnv(RosEnv):
@@ -85,11 +88,10 @@ class QuadRosEnv(RosEnv):
         return obs
 
     def get_state(self):
-        from utils import transformations as tf
         while self.quad_pos is None or self.quad_rot is None:
             rospy.sleep(.1)
         quad_pos, quad_rot = self.quad_pos, self.quad_rot
-        quad_aa = tf.axis_angle_from_quaternion(np.r_[quad_rot[3], quad_rot[:3]])
+        quad_aa = transformations.axis_angle_from_quaternion(np.r_[quad_rot[3], quad_rot[:3]])
         up = np.array([0, 0, 1])
         return np.r_[quad_pos, quad_aa.dot(up)]
 
@@ -117,8 +119,6 @@ class QuadRosEnv(RosEnv):
         return config
 
 
-from policy import Policy, PositionBasedServoingPolicy
-from policy.quad_target_policy import xyz_to_hra, hra_to_xyz
 class QuadTargetPolicy(Policy):
     def __init__(self, lambda_, height_limits, angle_limits, radius_limits=None, straight_trajectory=True, tightness=0.1):
         self.height_limits = list(height_limits)
@@ -130,10 +130,9 @@ class QuadTargetPolicy(Policy):
 
     def act(self, obs):
         quad_to_obj_pos, quad_to_obj_rot = obs[:2]
-        from utils import transformations as tf
-        quad_to_obj_T = tf.quaternion_matrix(np.r_[quad_to_obj_rot[3], quad_to_obj_rot[:3]])
+        quad_to_obj_T = transformations.quaternion_matrix(np.r_[quad_to_obj_rot[3], quad_to_obj_rot[:3]])
         quad_to_obj_T[:3, 3] = quad_to_obj_pos
-        obj_to_quad_T = tf.inverse_matrix(quad_to_obj_T)
+        obj_to_quad_T = transformations.inverse_matrix(quad_to_obj_T)
 
         if self.tightness == 1.0:
             des_offset_hra = self.target_hra
@@ -144,9 +143,9 @@ class QuadTargetPolicy(Policy):
             offset_hra[-1], target_hra[-1] = np.unwrap([offset_hra[-1], target_hra[-1]])
             des_offset_hra = (1 - self.tightness) * offset_hra + self.tightness * target_hra
         des_offset = hra_to_xyz(des_offset_hra)
-        des_obj_to_quad_T = tf.rotation_matrix(des_offset_hra[2], np.array([0, 0, 1]))
+        des_obj_to_quad_T = transformations.rotation_matrix(des_offset_hra[2], np.array([0, 0, 1]))
         des_obj_to_quad_T[:3, 3] = des_offset
-        self.pbvs_pol.target_to_obj_T = tf.inverse_matrix(des_obj_to_quad_T)
+        self.pbvs_pol.target_to_obj_T = transformations.inverse_matrix(des_obj_to_quad_T)
         return self.pbvs_pol.act(obs)
 
     def reset(self):
