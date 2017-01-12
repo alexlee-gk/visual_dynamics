@@ -379,7 +379,8 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
                                          name='y%d_%d_diff_pred' % (level, scale))
             l_ylevels_scales_next_pred[level][scale] = L.ElemwiseSumLayer([l_ylevel_scale, l_ylevel_scale_diff_pred],
                                                                           name='y%d_%d_next_pred' % (level, scale))
-            l_ylevels_scales_next_pred_jac[level][scale] = l_ylevel_diff_pred_jac
+            if l_ylevel_diff_pred_jac is not None:
+                l_ylevels_scales_next_pred_jac[level][scale] = l_ylevel_diff_pred_jac
 
     pred_layers = OrderedDict([('x', l_x),
                                ('x_next', l_x_next),

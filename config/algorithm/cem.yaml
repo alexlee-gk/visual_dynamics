@@ -1,0 +1,2 @@
+class: !!python/name:algorithms.cem.ServoingCrossEntropyMethodAlgorithm ''
+sampling_iters: 10

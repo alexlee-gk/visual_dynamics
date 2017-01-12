@@ -14,3 +14,4 @@ from .visualization_theano import *
 from .python3 import *
 from .time_util import *
 from .iter_util import *
+from .rl_util import *

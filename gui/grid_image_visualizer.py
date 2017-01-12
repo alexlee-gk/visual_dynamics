@@ -95,7 +95,7 @@ class GridImageVisualizer(object):
         image_min = None
         image_max = None
         for image in images:
-            if image.ndim == 3 and image.shape[2] != 3:
+            if image is not None and image.ndim == 3 and image.shape[2] != 3:
                 if image_min is None or image.min() < image_min:
                     image_min = image.min()
                 if image_max is None or image.max() > image_max:

@@ -1,25 +1,27 @@
 from __future__ import division, print_function
 
+import os
+
 import argparse
-from citysim3d.envs import ServoingEnv
+import yaml
 
 import envs
 import policy
 import utils
+from envs import ServoingEnv
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('predictor_fname', type=str)
+    parser.add_argument('algorithm_fname', nargs='?', type=str)
     parser.add_argument('--output_dir', '-o', type=str, default=None)
-    parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
-    parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
     parser.add_argument('--visualize', '-v', type=int, default=None)
     parser.add_argument('--record_file', '-r', type=str, default=None)
-    parser.add_argument('--target_distance', '-d', type=int, default=0)
-    parser.add_argument('--feature_inds', '-i', type=str, help='inds of subset of features to use')
+    parser.add_argument('--feature_inds', '-i', type=int, nargs='+', help='inds of subset of features to use')
     parser.add_argument('--w_init', type=float, default=10.0)
     parser.add_argument('--lambda_init', type=float, default=1.0)
+
     args = parser.parse_args()
 
     with open(args.predictor_fname) as predictor_file:
@@ -31,7 +33,7 @@ def main():
 
     if issubclass(predictor.environment_config['class'], envs.RosEnv):
         import rospy
-        rospy.init_node("visual_servoing")
+        rospy.init_node("learn_visual_servoing")
     # TODO: temporary to handle change in the constructor's signature
     try:
         predictor.environment_config['car_model_names'] = predictor.environment_config.pop('car_model_name')
@@ -39,21 +41,37 @@ def main():
         pass
     env = utils.from_config(predictor.environment_config)
     if not isinstance(env, ServoingEnv):
-        env = ServoingEnv(env, max_time_steps=args.num_steps)
+        env = ServoingEnv(env)
 
-    pol = policy.ServoingPolicy(predictor, alpha=1.0, lambda_=args.lambda_init, w=args.w_init)
+    servoing_pol = policy.TheanoServoingPolicy(predictor, alpha=1.0, lambda_=args.lambda_init, w=args.w_init)
+
+    with open(args.algorithm_fname) as algorithm_file:
+        algorithm_config = yaml.load(algorithm_file)
+    algorithm_config['env'] = env
+    algorithm_config['servoing_pol'] = servoing_pol
+
+    if 'snapshot_prefix' not in algorithm_config:
+        snapshot_prefix = os.path.join(os.path.split(args.predictor_fname)[0],
+                                       os.path.splitext(os.path.split(args.algorithm_fname)[1])[0],
+                                       '')
+        algorithm_config['snapshot_prefix'] = snapshot_prefix
+
+    alg = utils.from_config(algorithm_config)
+    env.max_time_steps = alg.num_steps
+
+    alg.run()
 
     if args.record_file and not args.visualize:
         args.visualize = 1
     if args.visualize:
         image_visualizer = utils.FeaturePredictorServoingImageVisualizer(predictor, visualize=args.visualize)
-        utils.do_rollouts(env, pol, args.num_trajs, args.num_steps,
-                          target_distance=args.target_distance,
+        utils.do_rollouts(env, servoing_pol, alg.num_trajs, alg.num_steps,
                           output_dir=args.output_dir,
                           image_visualizer=image_visualizer,
                           record_file=args.record_file,
-                          verbose=True)
+                          verbose=True,
+                          gamma=alg.gamma)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

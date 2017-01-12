@@ -46,7 +46,10 @@ class LossPlotter:
 
         ylim = self._ax.get_ylim()
         # ylim = (min(0, ylim[0]), min(2 * np.median(np.concatenate(all_losses)), ylim[1]))
-        ylim = (min(int(self._ax.get_yscale() == 'log'), ylim[0]), np.max(np.concatenate(all_losses)))
+        if self._ax.get_yscale() == 'log':
+            ylim = (min(1, ylim[0]), np.max(np.concatenate(all_losses)))
+        else:
+            ylim = (np.min(np.concatenate(all_losses)), np.max(np.concatenate(all_losses)))
         self._ax.set_ylim(ylim)
         xlim = self._ax.get_xlim()
         xlim = (min(0, xlim[0]), np.max(np.concatenate(all_loss_iters_)))
