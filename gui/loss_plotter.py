@@ -45,14 +45,12 @@ class LossPlotter:
                 plot.set_data(loss_iters, losses)
 
         ylim = self._ax.get_ylim()
-        # ylim = (min(0, ylim[0]), min(2 * np.median(np.concatenate(all_losses)), ylim[1]))
         if self._ax.get_yscale() == 'log':
             ylim = (min(1, ylim[0]), np.max(np.concatenate(all_losses)))
         else:
             ylim = (np.min(np.concatenate(all_losses)), np.max(np.concatenate(all_losses)))
         self._ax.set_ylim(ylim)
-        xlim = self._ax.get_xlim()
-        xlim = (min(0, xlim[0]), np.max(np.concatenate(all_loss_iters_)))
+        xlim = (np.min(np.concatenate(all_loss_iters_)), np.max(np.concatenate(all_loss_iters_)))
         self._ax.set_xlim(xlim)
         self._ax.legend(loc='upper right', bbox_to_anchor=(1, 1))
         self.draw(num_plots=data_len)
