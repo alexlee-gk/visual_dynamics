@@ -1,0 +1,11 @@
+class: !!python/name:predictor.predictor_theano.TheanoNetFeaturePredictor ''
+build_net: !!python/name:predictor.net_theano.build_multiscale_dilated_vgg_action_cond_encoder_net ''
+input_names: ['x', 'u']
+num_encoding_levels: 4
+scales: [0, 1, 2]
+bilinear_type: group_convolution
+feature_name: [y4_0, y4_1, y4_2]
+next_feature_name: [y4_0_next_pred, y4_1_next_pred, y4_2_next_pred]
+control_name: 'u'
+feature_jacobian_name: [y4_0_next_pred_jac, y4_1_next_pred_jac, y4_2_next_pred_jac]
+pretrained_fname: models/theano/vgg16_model.h5
