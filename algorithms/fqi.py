@@ -168,40 +168,44 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
                 theta_var = cvxpy.Variable(self.theta.shape[0])
                 bias_var = cvxpy.Variable(1)
                 assert len(phi) == batch_size
-                if self.opt_fit_bias:
-                    objective = cvxpy.Minimize(
-                        (1 / 2.) * cvxpy.sum_squares((phi / np.sqrt(batch_size)) * theta_var + bias_var / np.sqrt(batch_size) -
-                                                     ((Q_sample + (bias_var - self.bias) * self.gamma) / np.sqrt(batch_size))) +
-                        (self.l2_reg / 2.) * cvxpy.sum_squares(theta_var))  # no regularization on bias
-                else:
-                    objective = cvxpy.Minimize(
-                        (1 / 2.) * cvxpy.sum_squares((phi / np.sqrt(batch_size)) * theta_var + bias_var / np.sqrt(batch_size) -
-                                                     (Q_sample / np.sqrt(batch_size))) +
-                        (self.l2_reg / 2.) * cvxpy.sum_squares(theta_var))  # no regularization on bias
-                constraints = [0 <= theta_var]  # no constraint on bias
-
-                if self.eps is not None:
-                    constraints.append(cvxpy.sum_squares(theta_var - self.theta) <= (len(self.theta) * self.eps))
-
-                prob = cvxpy.Problem(objective, constraints)
+                scale = 1.0
                 solved = False
-                for solver in [None, cvxpy.GUROBI, cvxpy.CVXOPT]:
-                    try:
-                        prob.solve(solver=solver)
-                    except cvxpy.error.SolverError:
-                        continue
-                    if theta_var.value is None:
-                        continue
-                    solved = True
-                    break
-                if not solved:
-                    import IPython as ipy;
-                    ipy.embed()
+                while not solved:
+                    if self.opt_fit_bias:
+                        objective = cvxpy.Minimize(
+                            (1 / 2.) * cvxpy.sum_squares((phi * np.sqrt(scale / batch_size)) * theta_var + bias_var * np.sqrt(scale / batch_size) -
+                                                         ((Q_sample + (bias_var - self.bias) * self.gamma) * np.sqrt(scale / batch_size))) +
+                            (self.l2_reg / 2.) * scale * cvxpy.sum_squares(theta_var))  # no regularization on bias
+                    else:
+                        objective = cvxpy.Minimize(
+                            (1 / 2.) * cvxpy.sum_squares((phi * np.sqrt(scale / batch_size)) * theta_var + bias_var * np.sqrt(scale / batch_size) -
+                                                         (Q_sample * np.sqrt(scale / batch_size))) +
+                            (self.l2_reg / 2.) * scale * cvxpy.sum_squares(theta_var))  # no regularization on bias
+                    constraints = [0 <= theta_var]  # no constraint on bias
+
+                    if self.eps is not None:
+                        constraints.append(cvxpy.sum_squares(theta_var - self.theta) <= (len(self.theta) * self.eps))
+
+                    prob = cvxpy.Problem(objective, constraints)
+                    for solver in [None, cvxpy.GUROBI, cvxpy.CVXOPT]:
+                        try:
+                            prob.solve(solver=solver)
+                        except cvxpy.error.SolverError:
+                            continue
+                        if theta_var.value is None:
+                            continue
+                        solved = True
+                        break
+
+                    if not solved:
+                        scale *= 0.1
+                        print("Unable to solve FQI optimization. Reformulating objective with a scale of %f." % scale)
+
                 self.theta = np.squeeze(np.array(theta_var.value), axis=1)
                 self.bias = bias_var.value
-                objective_increased = objective.value > objective_value
-                print(u"\t                  {} {:.6f}".format(u"\u2191" if objective_increased else u"\u2193", objective.value))
-                proxy_bellman_errors.append(objective.value)
+                objective_increased = (objective.value / scale) > objective_value
+                print(u"\t                  {} {:.6f}".format(u"\u2191" if objective_increased else u"\u2193", objective.value / scale))
+                proxy_bellman_errors.append(objective.value / scale)
                 toc("\tcvxpy")
 
             iter_ += 1
