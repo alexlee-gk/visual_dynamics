@@ -310,9 +310,13 @@ class ServoingPolicy(Policy):
                 import IPython as ipy; ipy.embed()
             u = np.squeeze(np.array(x.value), axis=1)
         else:
-            u = np.linalg.solve(WJ.T.dot(J) + np.diag(self.lambda_),
-                                WJ.T.dot(y_target - y_next_pred +
-                                         J.dot(self.action_transformer.preprocess(action_lin))))  # preprocessed units
+            try:
+                u = np.linalg.solve(WJ.T.dot(J) + np.diag(self.lambda_),
+                                    WJ.T.dot(y_target - y_next_pred +
+                                             J.dot(self.action_transformer.preprocess(action_lin))))  # preprocessed units
+            except np.linalg.LinAlgError as e:
+                print("Got linear algebra error. Returning zero action")
+                u = np.zeros(self.action_space.shape)
 
         action = self.action_transformer.deprocess(u)
         if self.use_constrained_opt:

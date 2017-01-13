@@ -194,11 +194,11 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
                         continue
                     solved = True
                     break
-                if not solved:
-                    import IPython as ipy;
-                    ipy.embed()
-                self.theta = np.squeeze(np.array(theta_var.value), axis=1)
-                self.bias = bias_var.value
+                if solved:
+                    self.theta = np.squeeze(np.array(theta_var.value), axis=1)
+                    self.bias = bias_var.value
+                else:
+                    objective.value = objective_value
                 objective_increased = objective.value > objective_value
                 print(u"\t                  {} {:.6f}".format(u"\u2191" if objective_increased else u"\u2193", objective.value))
                 proxy_bellman_errors.append(objective.value)
