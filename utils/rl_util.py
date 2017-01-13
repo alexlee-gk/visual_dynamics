@@ -10,7 +10,6 @@ import numpy as np
 
 import envs
 import utils
-from gui.grid_image_visualizer import GridImageVisualizer
 
 
 def split_observations(observations):
@@ -51,6 +50,7 @@ class FeaturePredictorServoingImageVisualizer(object):
                     window_title = predictor.name
             fig.canvas.set_window_title(window_title)
             gs = gridspec.GridSpec(1, 1)
+            from gui.grid_image_visualizer import GridImageVisualizer
             self.image_visualizer = GridImageVisualizer(fig, gs[0], rows * cols, rows=rows, cols=cols, labels=labels)
             plt.show(block=False)
         else:
