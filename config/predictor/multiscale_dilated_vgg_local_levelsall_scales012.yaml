@@ -10,6 +10,9 @@ next_feature_name: [y0_0_next_pred, y0_1_next_pred, y0_2_next_pred, y1_0_next_pr
 control_name: 'u'
 feature_jacobian_name: [y0_0_next_pred_jac, y0_1_next_pred_jac, y0_2_next_pred_jac, y1_0_next_pred_jac, y1_1_next_pred_jac, y1_2_next_pred_jac, y2_0_next_pred_jac, y2_1_next_pred_jac, y2_2_next_pred_jac, y3_0_next_pred_jac, y3_1_next_pred_jac, y3_2_next_pred_jac, y4_0_next_pred_jac, y4_1_next_pred_jac, y4_2_next_pred_jac, y5_0_next_pred_jac, y5_1_next_pred_jac, y5_2_next_pred_jac]
 pretrained_fname: models/theano/vgg16_levelsall_model.h5
+input_shapes:
+- !!python/tuple [480, 640, 3]
+- !!python/tuple [4]
 environment_config:
   __class__: &id001 !!python/name:__builtin__.dict ''
   action_space:
