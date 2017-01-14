@@ -2068,6 +2068,23 @@ def create_bilinear_layer(l_xlevel, l_u, level, bilinear_type='share', name=None
         l_xlevel_diff_pred_jac = L.concat([L.dimshuffle(L.flatten(l_linear_output, outdim=2), (0, 1, 'x'))
                                            for l_linear_output in l_linear_outputs], axis=-1)
         set_layer_param_tags(l_xlevel_diff_pred_jac, transformation=True, **{'level%d' % level: True})
+    elif bilinear_type == 'channelwise_full':
+        l_x_shape = L.get_output_shape(l_xlevel)
+        _, u_dim = L.get_output_shape(l_u)
+        l_xlevel_fcs = []
+        for i in range(u_dim + 1):
+            l_xlevel_fc = L.DenseLayer(l_xlevel, num_units=np.prod(l_x_shape[2:]), nonlinearity=None, num_leading_axes=2,
+                                       name='%s_fc%d' % (name, i))
+            l_xlevel_fc = L.ReshapeLayer(l_xlevel_fc, ([0],) + l_x_shape[1:])
+            set_layer_param_tags(l_xlevel_fc, transformation=True, **{'level%d' % level: True})
+            l_xlevel_fcs.append(l_xlevel_fc)
+        l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_fcs + [l_u], name=name)
+        set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
+
+        l_linear_outputs = l_xlevel_fcs[:-1]
+        l_xlevel_diff_pred_jac = L.concat([L.dimshuffle(L.flatten(l_linear_output, outdim=2), (0, 1, 'x'))
+                                           for l_linear_output in l_linear_outputs], axis=-1)
+        set_layer_param_tags(l_xlevel_diff_pred_jac, transformation=True, **{'level%d' % level: True})
     elif bilinear_type == 'full':
         l_xlevel_diff_pred = BilinearLayer([l_xlevel, l_u], axis=1, name=name)
         set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
