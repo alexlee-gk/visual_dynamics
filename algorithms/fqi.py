@@ -17,7 +17,7 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
                  iter_=0, thetas=None, mean_discounted_returns=None,
                  learning_values=None, snapshot_prefix='', plot=True,
                  l2_reg=0.0, max_batch_size=1000, max_memory_size=0,
-                 eps=None, fit_alpha_bias=True, opt_fit_bias=True):
+                 eps=None, fit_alpha_bias=True, opt_fit_bias=False):
         super(ServoingFittedQIterationAlgorithm, self).__init__(env, servoing_pol, sampling_iters,
                                                                 num_trajs=num_trajs, num_steps=num_steps,
                                                                 gamma=gamma, act_std=act_std,
