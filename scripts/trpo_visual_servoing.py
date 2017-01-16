@@ -67,8 +67,8 @@ class SiameseQuadraticErrorNetwork(object):
                     conv_pads,
             ):
                 if ihid > 0:
-                    conv_kwargs = dict(W_init=l_hids[0].W,
-                                       b_init=l_hids[0].b)
+                    conv_kwargs = dict(W=l_hids[0].W,
+                                       b=l_hids[0].b)
                 else:
                     conv_kwargs = dict()
                 l_hids[ihid] = L.Conv2DLayer(
