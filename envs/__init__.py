@@ -13,3 +13,7 @@ try:
     from .quad_ros_env import *
 except ImportError:
     pass
+try:
+    from .rllab_env import *
+except ImportError:
+    pass
