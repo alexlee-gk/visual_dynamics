@@ -14,7 +14,7 @@ from envs import ServoingEnv
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('predictor_fname', type=str)
-    parser.add_argument('algorithm_fname', nargs='?', type=str)
+    parser.add_argument('algorithm_fname', type=str)
     parser.add_argument('--output_dir', '-o', type=str, default=None)
     parser.add_argument('--visualize', '-v', type=int, default=None)
     parser.add_argument('--record_file', '-r', type=str, default=None)
@@ -57,8 +57,6 @@ def main():
         algorithm_config['snapshot_prefix'] = snapshot_prefix
 
     alg = utils.from_config(algorithm_config)
-    env.max_time_steps = alg.num_steps
-
     alg.run()
 
     if args.record_file and not args.visualize:

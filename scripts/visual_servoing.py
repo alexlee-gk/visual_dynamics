@@ -14,6 +14,7 @@ def main():
     parser.add_argument('--output_dir', '-o', type=str, default=None)
     parser.add_argument('--num_trajs', '-n', type=int, default=10, metavar='N', help='total number of data points is N*T')
     parser.add_argument('--num_steps', '-t', type=int, default=10, metavar='T', help='number of time steps per trajectory')
+    parser.add_argument('--gamma', type=float, default=0.9)
     parser.add_argument('--visualize', '-v', type=int, default=None)
     parser.add_argument('--record_file', '-r', type=str, default=None)
     parser.add_argument('--target_distance', '-d', type=int, default=0)
@@ -52,6 +53,7 @@ def main():
                           output_dir=args.output_dir,
                           image_visualizer=image_visualizer,
                           record_file=args.record_file,
+                          gamma=args.gamma,
                           verbose=True)
 
 
