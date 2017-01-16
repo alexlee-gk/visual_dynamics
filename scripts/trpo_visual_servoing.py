@@ -1,17 +1,4 @@
 import argparse
-import numpy as np
-import yaml
-from rllab.algos.trpo import TRPO
-from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
-from rllab.envs.normalized_env import normalize
-from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
-from rllab.core.network import ConvNetwork
-
-import envs
-import utils
-from envs import ServoingEnv, RllabEnv
-
-import argparse
 import lasagne.init as LI
 import lasagne.layers as L
 import lasagne.nonlinearities as LN
@@ -19,6 +6,8 @@ import numpy as np
 import yaml
 from rllab.algos.trpo import TRPO
 from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
+from rllab.core.network import ConvNetwork
+from rllab.core.network import wrapped_conv
 from rllab.envs.normalized_env import normalize
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
 
@@ -26,7 +15,6 @@ import envs
 import utils
 from envs import ServoingEnv, RllabEnv
 
-from rllab.core.network import wrapped_conv
 
 class SiameseQuadraticErrorNetwork(object):
     def __init__(self, input_shape, output_dim, hidden_sizes,
@@ -58,14 +46,14 @@ class SiameseQuadraticErrorNetwork(object):
         l_hid1 = L.SliceLayer(l_hid, slice(input_shape[0] // 2, None), axis=1)
         l_hids = [l_hid0, l_hid1]
 
-        for ihid in range(len(l_hids)):
-            for idx, conv_filter, filter_size, stride, pad in zip(
-                    range(len(conv_filters)),
-                    conv_filters,
-                    conv_filter_sizes,
-                    conv_strides,
-                    conv_pads,
-            ):
+        for idx, conv_filter, filter_size, stride, pad in zip(
+                range(len(conv_filters)),
+                conv_filters,
+                conv_filter_sizes,
+                conv_strides,
+                conv_pads,
+        ):
+            for ihid in range(len(l_hids)):
                 if ihid > 0:
                     conv_kwargs = dict(W=l_hids[0].W,
                                        b=l_hids[0].b)
