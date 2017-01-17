@@ -2,6 +2,8 @@ import argparse
 import lasagne.layers as L
 import numpy as np
 import theano
+import theano.tensor as T
+
 import yaml
 from rllab.algos.trpo import TRPO
 from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
@@ -63,12 +65,11 @@ class TheanoServoingPolicyLayer(L.Layer):
         self.w_var = self.add_param(servoing_pol.w.astype(theano.config.floatX), servoing_pol.w.shape, name='w')
         self.lambda_var = self.add_param(servoing_pol.lambda_.astype(theano.config.floatX), servoing_pol.lambda_.shape, name='lambda')
 
-        self.X_var, U_var, self.X_target_var, U_lin_var, alpha_var = servoing_pol.input_vars
+        self.X_var, U_var, self.X_target_var, self.U_lin_var, alpha_var = servoing_pol.input_vars
         w_var, lambda_var = servoing_pol.param_vars
         pi_var = servoing_pol._get_pi_var()
         self.pi_var = theano.clone(pi_var, replace={w_var: self.w_var,
                                                     lambda_var: self.lambda_var,
-                                                    U_lin_var: np.zeros((1,) + self.action_space.shape, dtype=theano.config.floatX),
                                                     alpha_var: np.array(servoing_pol.alpha, dtype=theano.config.floatX)})
 
     def get_output_shape_for(self, input_shape):
@@ -76,7 +77,8 @@ class TheanoServoingPolicyLayer(L.Layer):
 
     def get_output_for(self, input, **kwargs):
         return theano.clone(self.pi_var, replace={self.X_var: input[:, :3, :, :],
-                                                  self.X_target_var: input[:, 3:, :, :]})
+                                                  self.X_target_var: input[:, 3:, :, :],
+                                                  self.U_lin_var: T.zeros((input.shape[0],) + self.action_space.shape)})
 
 
 def main():
