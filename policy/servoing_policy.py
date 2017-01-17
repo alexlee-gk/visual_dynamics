@@ -20,7 +20,7 @@ class ServoingPolicy(Policy):
         self.alpha = alpha
         lambda_ = np.asarray(lambda_)
         if np.isscalar(lambda_) or lambda_.ndim == 0:
-            lambda_ *= np.ones(self.action_space.shape)
+            lambda_ = lambda_ * np.ones(self.action_space.shape)  # numpy fails with augmented assigment
         assert lambda_.shape == self.action_space.shape
         self._lambda_ = lambda_
         feature_names = utils.flatten_tree(self.predictor.feature_name)
@@ -30,7 +30,7 @@ class ServoingPolicy(Policy):
             self.repeats.extend([np.prod(feature_shape[2:])] * feature_shape[1])
         w = np.asarray(w)
         if np.isscalar(w) or w.ndim == 0:
-            w *= np.ones(len(self.repeats))
+            w = w * np.ones(len(self.repeats))  # numpy fails with augmented assigment
         assert w.shape == (len(self.repeats),)
         self._w = w
         self._theta = np.append(self._w, self._lambda_)
