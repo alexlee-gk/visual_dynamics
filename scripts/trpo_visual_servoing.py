@@ -133,23 +133,21 @@ def main():
         env.car_env.speed_offset_space.low = \
         env.car_env.speed_offset_space.high = np.array([0.0, 4.0])
 
-    if not isinstance(env, ServoingEnv):
-        env = ServoingEnv(env)
+    env = ServoingEnv(env)
 
-    if not isinstance(env, RllabEnv):
-        # transformers
-        with open(args.transformers_fname) as transformers_file:
-            transformers_config = yaml.load(transformers_file)
-        transformers = dict()
-        for data_name, transformer_config in transformers_config.items():
-            if data_name == 'action':
-                replace_config = {'space': env.action_space}
-            elif data_name in env.observation_space.spaces:
-                replace_config = {'space': env.observation_space.spaces[data_name]}
-            else:
-                replace_config = {}
-            transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
-        env = RllabEnv(env, transformers=transformers)
+    # transformers
+    with open(args.transformers_fname) as transformers_file:
+        transformers_config = yaml.load(transformers_file)
+    transformers = dict()
+    for data_name, transformer_config in transformers_config.items():
+        if data_name == 'action':
+            replace_config = {'space': env.action_space}
+        elif data_name in env.observation_space.spaces:
+            replace_config = {'space': env.observation_space.spaces[data_name]}
+        else:
+            replace_config = {}
+        transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
+    env = RllabEnv(env, transformers=transformers)
 
     env = normalize(env)
 
