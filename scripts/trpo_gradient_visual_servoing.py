@@ -2,6 +2,7 @@ import argparse
 import lasagne.layers as L
 import numpy as np
 import theano
+import yaml
 from rllab.algos.trpo import TRPO
 from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
 from rllab.envs.normalized_env import normalize
@@ -81,6 +82,7 @@ class TheanoServoingPolicyLayer(L.Layer):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('predictor_fname', type=str)
+    parser.add_argument('algorithm_fname', nargs='?', type=str)
     parser.add_argument('--conv_filters', nargs='*', type=int, default=[16, 32])
     parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[16])
     parser.add_argument('--init_std', type=float, default=1.0)
@@ -111,6 +113,13 @@ def main():
     env = normalize(env)
 
     servoing_pol = TheanoServoingPolicy(predictor)
+
+    if args.algorithm_fname:
+        with open(args.algorithm_fname) as algorithm_file:
+            algorithm_config = yaml.load(algorithm_file)
+        best_iter = np.argmax(algorithm_config['mean_discounted_returns'])
+        best_theta = np.asarray(algorithm_config['thetas'][best_iter])
+        servoing_pol.theta = best_theta
 
     mean_network = ServoingPolicyNetwork(env.observation_space.shape, env.action_space.flat_dim, servoing_pol)
 
