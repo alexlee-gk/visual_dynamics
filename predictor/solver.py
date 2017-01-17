@@ -7,7 +7,6 @@ import theano.tensor as T
 import lasagne
 import lasagne.layers as L
 import utils
-import bilinear
 from . import layers_theano as LT
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec

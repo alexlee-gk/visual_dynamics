@@ -4,7 +4,6 @@ import theano.tensor as T
 import lasagne
 import lasagne.layers as L
 import lasagne.nonlinearities as nl
-from lasagne.layers.dnn import dnn
 from lasagne import init
 from lasagne.utils import as_tuple, floatX
 from lasagne.layers.conv import conv_output_length
@@ -1845,6 +1844,7 @@ class Deconv2DLayer(L.Layer):
         # by default we assume 'cross', consistent with corrmm.
         conv_mode = 'conv' if self.flip_filters else 'cross'
 
+        from lasagne.layers.dnn import dnn
         image = T.alloc(0., input.shape[0], *self.output_shape[1:])
         conved = dnn.dnn_conv(img=image,
                               kerns=self.W,
