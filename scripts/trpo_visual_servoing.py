@@ -116,6 +116,7 @@ def main():
     parser.add_argument('--conv_filters', nargs='*', type=int, default=[16, 32])
     parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[16])
     parser.add_argument('--init_std', type=float, default=1.0)
+    parser.add_argument('--n_itr', type=int, default=100)
     parser.add_argument('--step_size', type=float, default=0.01)
     parser.add_argument('--batch_size', type=int, default=10000)
     parser.add_argument('--use_static_car', action='store_true')
@@ -202,7 +203,7 @@ def main():
         baseline=baseline,
         batch_size=args.batch_size,
         max_path_length=100,
-        n_itr=50,
+        n_itr=args.n_itr,
         discount=0.9,
         step_size=args.step_size,
     )

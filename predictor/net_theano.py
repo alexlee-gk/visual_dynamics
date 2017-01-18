@@ -291,7 +291,8 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
                                                          encoding_levels=None,
                                                          num_encoding_levels=5,
                                                          scales=None,
-                                                         bilinear_type=None):
+                                                         bilinear_type=None,
+                                                         xd_dim=32):
     x_shape, u_shape = input_shapes
     assert len(x_shape) == 3
     assert len(u_shape) == 1
@@ -317,8 +318,6 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
     for level in range(num_encoding_levels+1):
         if level == 0:
             l_xlevel = l_x
-            l_xdlevel = LT.Downscale2DLayer(l_xlevel, scale_factor=4,
-                                            name='x%dd' % level)
         elif level < 3:
             l_xlevelm1 = l_xlevels[level - 1]
             if level == 1:
@@ -335,16 +334,24 @@ def build_multiscale_dilated_vgg_action_cond_encoder_net(input_shapes,
                 l_xlevelm1.params[l_xlevelm1.W].remove('trainable')
                 l_xlevelm1.b.name = 'x0.b'
                 l_xlevelm1.params[l_xlevelm1.b].remove('trainable')
-            l_xlevel = LT.VggEncodingLayer(l_xlevelm1, xlevels_c_dim[level],
-                                           level=str(level))
-            l_xdlevel = LT.Downscale2DLayer(l_xlevel, scale_factor=2 ** (3 - level),
-                                            name='x%dd' % level)
-            l_xlevel = L.MaxPool2DLayer(l_xlevel, pool_size=2, stride=2, pad=0,
-                                        name='pool%d' % level)
+            l_xlevel = LT.VggEncodingLayer(l_xlevelm1, xlevels_c_dim[level], level=str(level))
         else:
             l_xlevel = LT.VggEncoding3Layer(l_xlevels[level-1], xlevels_c_dim[level],
                                             dilation=(2 ** (level - 3),) * 2, level=str(level))
+        # downsample to servoing resolution
+        xlevel_shape = L.get_output_shape(l_xlevel)
+        xlevel_dim = xlevel_shape[-1]
+        assert xlevel_shape[-2] == xlevel_dim
+        scale_factor = xlevel_dim // xd_dim
+        if scale_factor > 1:
+            l_xdlevel = LT.Downscale2DLayer(l_xlevel, scale_factor=scale_factor, name='x%dd' % level)
+        elif scale_factor == 1:
             l_xdlevel = l_xlevel
+        else:
+            raise NotImplementedError
+        if 0 < level < 3:
+            l_xlevel = L.MaxPool2DLayer(l_xlevel, pool_size=2, stride=2, pad=0,
+                                        name='pool%d' % level)
         l_xlevels[level] = l_xlevel
         l_xdlevels[level] = l_xdlevel
 

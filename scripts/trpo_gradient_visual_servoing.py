@@ -3,7 +3,6 @@ import lasagne.layers as L
 import numpy as np
 import theano
 import theano.tensor as T
-
 import yaml
 from rllab.algos.trpo import TRPO
 from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
@@ -84,10 +83,12 @@ class TheanoServoingPolicyLayer(L.Layer):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('predictor_fname', type=str)
-    parser.add_argument('algorithm_fname', nargs='?', type=str)
+    parser.add_argument('--transformers_fname', type=str)
+    parser.add_argument('--algorithm_fname', type=str)
     parser.add_argument('--conv_filters', nargs='*', type=int, default=[16, 32])
     parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[16])
     parser.add_argument('--init_std', type=float, default=1.0)
+    parser.add_argument('--n_itr', type=int, default=100)
     parser.add_argument('--step_size', type=float, default=0.01)
     parser.add_argument('--batch_size', type=int, default=10000)
     parser.add_argument('--use_static_car', action='store_true')
@@ -111,7 +112,24 @@ def main():
         env.car_env.speed_offset_space.high = np.array([0.0, 4.0])
 
     env = ServoingEnv(env)
-    env = RllabEnv(env, transformers=predictor.transformers)
+
+    # transformers
+    if args.transformers_fname:
+        with open(args.transformers_fname) as transformers_file:
+            transformers_config = yaml.load(transformers_file)
+        transformers = dict()
+        for data_name, transformer_config in transformers_config.items():
+            if data_name == 'action':
+                replace_config = {'space': env.action_space}
+            elif data_name in env.observation_space.spaces:
+                replace_config = {'space': env.observation_space.spaces[data_name]}
+            else:
+                replace_config = {}
+            transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
+    else:
+        transformers = predictor.transformers
+
+    env = RllabEnv(env, transformers=transformers)
     env = normalize(env)
 
     servoing_pol = TheanoServoingPolicy(predictor)
@@ -142,7 +160,7 @@ def main():
             conv_filter_sizes=[3] * len(args.conv_filters),
             conv_strides=[2] * len(args.conv_filters),
             conv_pads=[0] * len(args.conv_filters),
-            batchsize=args.batch_size * 10,
+            batchsize=32,
         )
     )
 
@@ -152,7 +170,7 @@ def main():
         baseline=baseline,
         batch_size=args.batch_size,
         max_path_length=100,
-        n_itr=50,
+        n_itr=args.n_itr,
         discount=0.9,
         step_size=args.step_size,
     )
