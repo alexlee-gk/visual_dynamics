@@ -94,24 +94,24 @@ def main():
     parser.add_argument('--use_static_car', action='store_true')
     args = parser.parse_args()
 
+    # instantiate predictor later since the transformers might need to be updated
     with open(args.predictor_fname) as predictor_file:
-        predictor = utils.from_yaml(predictor_file)
+        predictor_config = yaml.load(predictor_file)
 
-    if issubclass(predictor.environment_config['class'], envs.RosEnv):
+    environment_config = utils.from_config(predictor_config['environment_config'])
+    if issubclass(environment_config['class'], envs.RosEnv):
         import rospy
         rospy.init_node("learn_visual_servoing")
     # TODO: temporary to handle change in the constructor's signature
     try:
-        predictor.environment_config['car_model_names'] = predictor.environment_config.pop('car_model_name')
+        environment_config['car_model_names'] = environment_config.pop('car_model_name')
     except KeyError:
         pass
-    env = utils.from_config(predictor.environment_config)
+    env = utils.from_config(environment_config)
 
     if args.use_static_car:
         env.car_env.speed_offset_space.low = \
         env.car_env.speed_offset_space.high = np.array([0.0, 4.0])
-
-    env = ServoingEnv(env)
 
     # transformers
     if args.transformers_fname:
@@ -126,10 +126,14 @@ def main():
             else:
                 replace_config = {}
             transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
-    else:
-        transformers = predictor.transformers
+        transformers['x'] = transformers['image']
+        transformers['u'] = transformers['action']
+        predictor_config['transformers'] = transformers
 
-    env = RllabEnv(env, transformers=transformers)
+    predictor = utils.from_config(predictor_config)
+
+    env = ServoingEnv(env)
+    env = RllabEnv(env, transformers=predictor.transformers)
     env = normalize(env)
 
     servoing_pol = TheanoServoingPolicy(predictor)
@@ -160,7 +164,7 @@ def main():
             conv_filter_sizes=[3] * len(args.conv_filters),
             conv_strides=[2] * len(args.conv_filters),
             conv_pads=[0] * len(args.conv_filters),
-            batchsize=32,
+            batchsize=args.batch_size * 10,
         )
     )
 

@@ -20,7 +20,7 @@ class RllabEnv(Env, rllab.envs.base.Env):
         assert isinstance(env, ServoingEnv)
         self._wrapped_env = env
         self._observation_name = observation_name or 'image'
-        self._transformers = transformers or {'points': utils.Transformer(),
+        self._transformers = transformers or {self._observation_name: utils.Transformer(),
                                               'action': utils.NormalizerTransformer(env.action_space)}
 
     def _apply_transform_obs(self, obs):

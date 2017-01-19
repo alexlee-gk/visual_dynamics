@@ -134,8 +134,6 @@ def main():
         env.car_env.speed_offset_space.low = \
         env.car_env.speed_offset_space.high = np.array([0.0, 4.0])
 
-    env = ServoingEnv(env)
-
     # transformers
     with open(args.transformers_fname) as transformers_file:
         transformers_config = yaml.load(transformers_file)
@@ -148,8 +146,9 @@ def main():
         else:
             replace_config = {}
         transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
-    env = RllabEnv(env, transformers=transformers)
 
+    env = ServoingEnv(env)
+    env = RllabEnv(env, transformers=transformers)
     env = normalize(env)
 
     network_kwargs = dict(
