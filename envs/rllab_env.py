@@ -29,8 +29,8 @@ class RllabEnv(Env, rllab.envs.base.Env):
                                                                          obs['target_' + self._observation_name]]]
         return np.concatenate(transformed_obs)
 
-    def reset(self):
-        obs = self._wrapped_env.reset()
+    def reset(self, state=None):
+        obs = self._wrapped_env.reset(state=state)
         return self._apply_transform_obs(obs)
 
     @property
