@@ -29,7 +29,6 @@ class QuadRosEnv(RosEnv):
         self.image = None
         self.quad_pos = None
         self.quad_rot = None
-        self.focal_length = None
 
         self.camera_control_pub = rospy.Publisher("/bebop/camera_control", geometry_msgs.Twist, queue_size=1, latch=True)
         self.cmd_vel_pub = rospy.Publisher("/vservo/cmd_vel", geometry_msgs.Twist, queue_size=1)
@@ -43,7 +42,6 @@ class QuadRosEnv(RosEnv):
 
         self.listener = tf.TransformListener()
         self.image_sub = rospy.Subscriber("/bebop/image_raw", sensor_msgs.Image, callback=self._image_callback)
-        self.camera_info_sub = rospy.Subscriber("/bebop/camera_info", sensor_msgs.CameraInfo, callback=self._camera_info_callback)
         self.cv_bridge = cv_bridge.CvBridge()
 
         self._action_space = TranslationAxisAngleSpace(-np.ones(4), np.ones(4), axis=np.array([0, 0, 1]))
@@ -59,11 +57,6 @@ class QuadRosEnv(RosEnv):
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             return
         self.image = self.cv_bridge.imgmsg_to_cv2(image_msg)
-
-    def _camera_info_callback(self, camera_info_msg):
-        if self.focal_length is None:
-            self.focal_length = (camera_info_msg.P[0] + camera_info_msg.P[5]) / 2.0
-        self.camera_info_sub.unregister()
 
     def step(self, action):
         twist_msg = geometry_msgs.Twist(
@@ -103,11 +96,6 @@ class QuadRosEnv(RosEnv):
         while self.quad_to_obj_pos is None:
             rospy.sleep(.1)
         return self.quad_to_obj_pos
-
-    def get_focal_length(self):
-        while self.focal_length is None:
-            rospy.sleep(.1)
-        return self.focal_length
 
     def is_in_view(self):
         # TODO
