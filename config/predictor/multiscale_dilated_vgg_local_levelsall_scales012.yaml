@@ -30,7 +30,7 @@ environment_config:
     low: [0.0, 0.0]
     shape: null
   car_env_class: &id004 !!python/name:envs.car_panda3d_env.GeometricCarPanda3dEnv ''
-  car_model_name: [camaro2, mazda6, sport, kia_rio_blue, kia_rio_red, kia_rio_white]
+  car_model_names: [camaro2, mazda6, sport, kia_rio_blue, kia_rio_red, kia_rio_white]
   class: &id005 !!python/name:envs.quad_panda3d_env.SimpleQuadPanda3dEnv ''
   dt: 0.1
   offset: [0.0, -25.98076211353316, 15.0]

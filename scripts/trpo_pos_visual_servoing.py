@@ -1,4 +1,5 @@
 import argparse
+import citysim3d.utils.panda3d_util as putil
 import numpy as np
 from citysim3d.envs import SimpleQuadPanda3dEnv
 from rllab.algos.trpo import TRPO
@@ -35,8 +36,9 @@ def main():
     action_space = TranslationAxisAngleSpace(low=[-20, -10, -10, -np.pi/2],
                                              high=[20, 10, 10, np.pi/2],
                                              axis=[0, 0, 1])
-    env = Point3dSimpleQuadPanda3dEnv(action_space, car_model_names=['camaro2', 'mazda6', 'sport', 'kia_rio_blue', 'kia_rio_red', 'kia_rio_white'])
-
+    camera_size, camera_hfov = putil.scale_crop_camera_parameters((640, 480), 60.0, scale_size=0.125, crop_size=(32, 32))
+    env = Point3dSimpleQuadPanda3dEnv(action_space, camera_size=camera_size, camera_hfov=camera_hfov,
+                                      car_model_names=['camaro2', 'mazda6', 'sport', 'kia_rio_blue', 'kia_rio_red', 'kia_rio_white'])
     env = ServoingEnv(env, max_time_steps=100)
     env = RllabEnv(env, observation_name='pos')
     env = normalize(env, normalize_obs=args.normalize_obs, normalize_reward=args.normalize_reward)

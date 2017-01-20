@@ -83,7 +83,7 @@ class TheanoServoingPolicyLayer(L.Layer):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('predictor_fname', type=str)
-    parser.add_argument('--transformers_fname', type=str)
+    parser.add_argument('--image_transformer_fname', type=str)
     parser.add_argument('--algorithm_fname', type=str)
     parser.add_argument('--conv_filters', nargs='*', type=int, default=[16, 32])
     parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[16])
@@ -98,46 +98,32 @@ def main():
     with open(args.predictor_fname) as predictor_file:
         predictor_config = yaml.load(predictor_file)
 
-    environment_config = utils.from_config(predictor_config['environment_config'])
-    if issubclass(environment_config['class'], envs.RosEnv):
+    # apply transformations from predictor to environment
+    if args.image_transformer_fname:
+        with open(args.image_transformer_fname) as image_transformer_file:
+            image_transformer = utils.from_yaml(image_transformer_file)
+    else:
+        image_transformer = None
+    if issubclass(predictor_config['environment_config']['class'], envs.Panda3dEnv):
+        utils.transfer_image_transformer(predictor_config, image_transformer)
+
+    # predictor
+    predictor = utils.from_config(predictor_config)
+
+    # environment
+    if issubclass(predictor.environment_config['class'], envs.RosEnv):
         import rospy
         rospy.init_node("learn_visual_servoing")
-    # TODO: temporary to handle change in the constructor's signature
-    try:
-        environment_config['car_model_names'] = environment_config.pop('car_model_name')
-    except KeyError:
-        pass
-    env = utils.from_config(environment_config)
-
+    env = utils.from_config(predictor.environment_config)
     if args.use_static_car:
         env.car_env.speed_offset_space.low = \
         env.car_env.speed_offset_space.high = np.array([0.0, 4.0])
-
-    # transformers
-    if args.transformers_fname:
-        with open(args.transformers_fname) as transformers_file:
-            transformers_config = yaml.load(transformers_file)
-        transformers = dict()
-        for data_name, transformer_config in transformers_config.items():
-            if data_name == 'action':
-                replace_config = {'space': env.action_space}
-            elif data_name in env.observation_space.spaces:
-                replace_config = {'space': env.observation_space.spaces[data_name]}
-            else:
-                replace_config = {}
-            transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
-        transformers['x'] = transformers['image']
-        transformers['u'] = transformers['action']
-        predictor_config['transformers'] = transformers
-
-    predictor = utils.from_config(predictor_config)
-
     env = ServoingEnv(env)
     env = RllabEnv(env, transformers=predictor.transformers)
     env = normalize(env)
 
+    # policy
     servoing_pol = TheanoServoingPolicy(predictor)
-
     if args.algorithm_fname:
         with open(args.algorithm_fname) as algorithm_file:
             algorithm_config = yaml.load(algorithm_file)

@@ -235,6 +235,68 @@ def get_all_transformers(transformer):
     return transformers
 
 
+def split_first_transformer(transformer):
+    if isinstance(transformer, CompositionTransformer):
+        first_transformer = transformer.transformers[0]
+        remaining_transformers = transformer.transformers[1:]
+        if len(remaining_transformers) == 0:
+            transformer = Transformer()
+        elif len(remaining_transformers) == 1:
+            transformer, = remaining_transformers
+        else:
+            transformer = CompositionTransformer(remaining_transformers)
+    else:
+        first_transformer = transformer
+        transformer = Transformer()
+    return first_transformer, transformer
+
+
+def extract_image_transformer(transformers):
+    image_transformer = None
+    for name, transformer in transformers.items():
+        if name.endswith('image') or name == 'x':
+            image_transformer_, transformer = split_first_transformer(transformer)
+            transformers[name] = transformer
+            if image_transformer:
+                assert utils.get_config(image_transformer) == utils.get_config(image_transformer_)
+            else:
+                assert isinstance(image_transformer_, utils.ImageTransformer)
+                image_transformer = image_transformer_
+    return image_transformer
+
+
+def transfer_image_transformer(predictor_config, image_transformer=None):
+    import citysim3d.utils.panda3d_util as putil
+    import envs
+
+    transformers = utils.from_config(predictor_config['transformers'])
+    image_transformer_ = utils.extract_image_transformer(transformers)
+    if image_transformer is None:
+        image_transformer = image_transformer_
+    predictor_config['transformers'] = utils.get_config(transformers)
+
+    environment_config = utils.from_config(predictor_config['environment_config'])
+    assert issubclass(environment_config['class'], envs.Panda3dEnv)
+    input_names = predictor_config['input_names']
+    input_shapes = predictor_config['input_shapes']
+    orig_input_shape = None
+    for i, (input_name, input_shape) in enumerate(zip(input_names, input_shapes)):
+        if input_name.endswith('image') or input_name == 'x':
+            if orig_input_shape:
+                assert orig_input_shape == input_shape
+            else:
+                orig_input_shape = input_shape
+            input_shapes[i] = image_transformer.preprocess_shape(input_shape)
+
+    assert image_transformer.crop_offset is None or np.all(image_transformer.crop_offset == 0)
+    camera_size, camera_hfov = putil.scale_crop_camera_parameters(orig_input_shape[:2][::-1], 60.0,
+                                                                  scale_size=image_transformer.scale_size,
+                                                                  crop_size=image_transformer.crop_size)
+    environment_config['camera_size'] = camera_size
+    environment_config['camera_hfov'] = camera_hfov
+    predictor_config['environment_config'] = utils.get_config(environment_config)
+
+
 def main():
     transformers = []
     transformers.append(OpsTransformer(scale=2.0/255.0, offset=-1.0, transpose=(2, 0, 1)))

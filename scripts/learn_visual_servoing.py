@@ -25,7 +25,12 @@ def main():
     args = parser.parse_args()
 
     with open(args.predictor_fname) as predictor_file:
-        predictor = utils.from_yaml(predictor_file)
+        predictor_config = yaml.load(predictor_file)
+
+    if issubclass(predictor_config['environment_config']['class'], envs.Panda3dEnv):
+        utils.transfer_image_transformer(predictor_config)
+
+    predictor = utils.from_config(predictor_config)
     if args.feature_inds:
         args.feature_inds = [int(ind) for ind in args.feature_inds]
         predictor.feature_name = [predictor.feature_name[ind] for ind in args.feature_inds]
@@ -34,11 +39,6 @@ def main():
     if issubclass(predictor.environment_config['class'], envs.RosEnv):
         import rospy
         rospy.init_node("learn_visual_servoing")
-    # TODO: temporary to handle change in the constructor's signature
-    try:
-        predictor.environment_config['car_model_names'] = predictor.environment_config.pop('car_model_name')
-    except KeyError:
-        pass
     env = utils.from_config(predictor.environment_config)
     if not isinstance(env, ServoingEnv):
         env = ServoingEnv(env)
