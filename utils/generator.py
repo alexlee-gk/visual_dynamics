@@ -244,6 +244,35 @@ class DataGenerator(object):
         return self._num_steps_per_traj_cs[-1]
 
 
+def iterate_minibatches_generic(data, once=False, batch_size=0, shuffle=False):
+    if batch_size == 0:
+        non_zero_batch_size = 1
+        squeeze = True
+    else:
+        non_zero_batch_size = batch_size
+        squeeze = False
+    size = len(data[0])
+    assert all(len(datum) == size for datum in data)
+    indices = []
+    continue_extending = True
+    while indices or continue_extending:
+        if len(indices) < non_zero_batch_size and continue_extending:
+            if shuffle:
+                new_indices = np.random.permutation(size)
+            else:
+                new_indices = np.arange(size)
+            indices.extend(new_indices)
+            if once:
+                continue_extending = False
+        excerpt = np.asarray(indices[0:non_zero_batch_size])
+        del indices[0:non_zero_batch_size]
+        batch_data = [(datum[excerpt] if isinstance(datum, np.ndarray)
+                       else [datum[ind] for ind in excerpt]) for datum in data]
+        if squeeze:
+            batch_data = [np.squeeze(batch_datum, axis=0) for batch_datum in batch_data]
+        yield batch_data
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
