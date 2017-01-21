@@ -1,0 +1,5 @@
+class: !!python/name:algorithms.fqi.ServoingSgdFittedQIterationAlgorithm ''
+sampling_iters: 10
+algorithm_iters: 10
+sgd_iters: 1000
+learning_rate: 0.001
