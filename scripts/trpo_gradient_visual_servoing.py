@@ -61,10 +61,10 @@ class TheanoServoingPolicyLayer(L.Layer):
         assert len(self.input_shape) == 4 and self.input_shape[1] == 6
         self.action_space = servoing_pol.action_space
 
-        self.w_presoftplus_var = self.add_param(np.log(np.exp(servoing_pol.w) - 1).astype(theano.config.floatX), servoing_pol.w.shape, name='w')
-        self.lambda_presoftplus_var = self.add_param(np.log(np.exp(servoing_pol.lambda_) - 1).astype(theano.config.floatX), servoing_pol.lambda_.shape, name='lambda')
-        self.w_var = T.log(1 + T.exp(self.w_presoftplus_var))
-        self.lambda_var = T.log(1 + T.exp(self.lambda_presoftplus_var))
+        self.sqrt_w_var = self.add_param(np.sqrt(servoing_pol.w).astype(theano.config.floatX), servoing_pol.w.shape, name='sqrt_w')
+        self.sqrt_lambda_var = self.add_param(np.sqrt(servoing_pol.lambda_).astype(theano.config.floatX), servoing_pol.lambda_.shape, name='sqrt_lambda')
+        self.w_var = self.sqrt_w_var ** 2
+        self.lambda_var = self.sqrt_lambda_var ** 2
 
         self.X_var, U_var, self.X_target_var, self.U_lin_var, alpha_var = servoing_pol.input_vars
         w_var, lambda_var = servoing_pol.param_vars
