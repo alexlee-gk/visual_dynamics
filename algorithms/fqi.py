@@ -163,7 +163,7 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
             print("\t    bellman error = {:.6f}".format(objective_value))
             bellman_errors.append(objective_value)
 
-            if iter_ < self.sampling_iters:
+            if iter_ < self.algorithm_iters:
                 import cvxpy
                 theta_var = cvxpy.Variable(self.theta.shape[0])
                 bias_var = cvxpy.Variable(1)
