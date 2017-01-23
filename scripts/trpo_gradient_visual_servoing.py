@@ -94,6 +94,7 @@ def main():
     parser.add_argument('--step_size', type=float, default=0.01)
     parser.add_argument('--batch_size', type=int, default=10000)
     parser.add_argument('--use_static_car', action='store_true')
+    parser.add_argument('--use_convnet', action='store_true')
     args = parser.parse_args()
 
     # instantiate predictor later since the transformers might need to be updated
@@ -124,16 +125,32 @@ def main():
     env = RllabEnv(env, transformers=predictor.transformers)
     env = normalize(env)
 
-    # policy
-    servoing_pol = TheanoServoingPolicy(predictor)
-    if args.algorithm_fname:
-        with open(args.algorithm_fname) as algorithm_file:
-            algorithm_config = yaml.load(algorithm_file)
-        best_iter = np.argmax(algorithm_config['mean_discounted_returns'])
-        best_theta = np.asarray(algorithm_config['thetas'][best_iter])
-        servoing_pol.theta = best_theta
-
-    mean_network = ServoingPolicyNetwork(env.observation_space.shape, env.action_space.flat_dim, servoing_pol)
+    if args.use_convnet:
+        import lasagne.nonlinearities as LN
+        from rllab.core.network import ConvNetwork
+        network_kwargs = dict(
+            input_shape=env.observation_space.shape,
+            output_dim=env.action_space.flat_dim,
+            conv_filters=args.conv_filters,
+            conv_filter_sizes=[3] * len(args.conv_filters),
+            conv_strides=[2] * len(args.conv_filters),
+            conv_pads=[0] * len(args.conv_filters),
+            hidden_sizes=args.hidden_sizes,
+            hidden_nonlinearity=LN.rectify,
+            output_nonlinearity=None,
+            name="mean_network",
+        )
+        mean_network = ConvNetwork(**network_kwargs)
+    else:
+        # policy
+        servoing_pol = TheanoServoingPolicy(predictor, w=10.0, lambda_=1.0)
+        if args.algorithm_fname:
+            with open(args.algorithm_fname) as algorithm_file:
+                algorithm_config = yaml.load(algorithm_file)
+            best_iter = np.argmax(algorithm_config['mean_discounted_returns'])
+            best_theta = np.asarray(algorithm_config['thetas'][best_iter])
+            servoing_pol.theta = best_theta
+        mean_network = ServoingPolicyNetwork(env.observation_space.shape, env.action_space.flat_dim, servoing_pol)
 
     policy = GaussianConvPolicy(
         env_spec=env.spec,
