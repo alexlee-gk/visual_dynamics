@@ -430,3 +430,16 @@ class ServoingSgdFittedQIterationAlgorithm(ServoingFittedQIterationAlgorithm):
                                        on_unused_input='warn', allow_input_downcast=True)
         print("... finished in %.2f s" % (time.time() - start_time))
         return sgd_train_fn
+
+    def _get_config(self):
+        config = ServoingOptimizationAlgorithm._get_config(self)
+        config.update({'algorithm_iters': self.algorithm_iters,
+                       'l2_reg': self.l2_reg,
+                       'max_batch_size': self.max_batch_size,
+                       'max_memory_size': self.max_memory_size,
+                       'fit_alpha_bias': self.fit_alpha_bias,
+                       'opt_fit_theta_bias': self.opt_fit_theta_bias,
+                       'sgd_iters': self.sgd_iters,
+                       'batch_size': self.batch_size,
+                       'learning_rate': self.learning_rate})
+        return config
