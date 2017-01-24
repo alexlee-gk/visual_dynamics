@@ -9,8 +9,10 @@ import matplotlib.pyplot as plt
 import theano
 import yaml
 
-from visual_dynamics import utils
 from visual_dynamics.gui.grid_image_visualizer import GridImageVisualizer
+from visual_dynamics.utils.config import from_config, get_config
+from visual_dynamics.utils.container import MultiDataContainer
+from visual_dynamics.utils.generator import DataGenerator
 
 
 def main():
@@ -45,8 +47,8 @@ def main():
 
     # extract info from data
     data_fnames = solver_config.get('train_data_fnames', []) + solver_config.get('val_data_fnames', [])
-    with utils.container.MultiDataContainer(data_fnames) as data_container:
-        env_spec = utils.from_config(data_container.get_info('env_spec_config'))
+    with MultiDataContainer(data_fnames) as data_container:
+        env_spec = from_config(data_container.get_info('env_spec_config'))
         input_shapes = [data_container.get_datum_shape(name) for name in data_names]
 
     # input_shapes
@@ -67,11 +69,11 @@ def main():
             replace_config = {'space': env_spec.observation_space.spaces[data_name]}
         else:
             replace_config = {}
-        transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
+        transformers[data_name] = from_config(transformers_config[data_name], replace_config=replace_config)
 
     input_to_data_name = dict(zip(input_names, data_names))
     transformers.update([(input_name, transformers[input_to_data_name[input_name]]) for input_name in input_names])
-    transformers_config = utils.get_config(transformers)
+    transformers_config = get_config(transformers)
     if 'transformers' in predictor_config:
         if transformers_config != predictor_config['transformers']:
             raise ValueError('conflicting values for transformers')
@@ -82,7 +84,7 @@ def main():
         predictor_config['name'] = os.path.join(os.path.splitext(os.path.split(args.predictor_fname)[1])[0],
                                                 os.path.splitext(os.path.split(args.transformers_fname)[1])[0])
 
-    feature_predictor = utils.config.from_config(predictor_config)
+    feature_predictor = from_config(predictor_config)
 
     if 'snapshot_prefix' not in solver_config:
         snapshot_prefix = os.path.join(os.path.splitext(os.path.split(args.solver_fname)[1])[0],
@@ -90,7 +92,7 @@ def main():
         solver_config['snapshot_prefix'] = feature_predictor.get_snapshot_prefix(snapshot_prefix)
 
     if not args.no_train:
-        solver = utils.from_config(solver_config)
+        solver = from_config(solver_config)
         feature_predictor.train(solver)
     else:
         solver = None
@@ -99,15 +101,15 @@ def main():
         args.visualize = 1
     if args.visualize:
         if solver is None:
-            solver = utils.from_config(solver_config)
+            solver = from_config(solver_config)
 
-        data_gen = utils.generator.DataGenerator(solver.val_data_fnames if solver.val_data_fnames else solver.train_data_fnames,
-                                                 data_name_offset_pairs=solver.data_name_offset_pairs,
-                                                 transformers=transformers,
-                                                 once=True,
-                                                 batch_size=0,
-                                                 shuffle=False,
-                                                 dtype=theano.config.floatX)
+        data_gen = DataGenerator(solver.val_data_fnames if solver.val_data_fnames else solver.train_data_fnames,
+                                 data_name_offset_pairs=solver.data_name_offset_pairs,
+                                 transformers=transformers,
+                                 once=True,
+                                 batch_size=0,
+                                 shuffle=False,
+                                 dtype=theano.config.floatX)
 
         fig = plt.figure(figsize=(12, 12), frameon=False, tight_layout=True)
         fig.canvas.set_window_title(solver.snapshot_prefix)

@@ -3,7 +3,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
-from visual_dynamics import utils
+from visual_dynamics.utils.visualization import vis_square
 
 matplotlib.rcParams['image.cmap'] = 'viridis'
 
@@ -55,7 +55,7 @@ class GridImageVisualizer(object):
                         if image.ndim == 3 and image.shape[2] != 3 and image.shape[0] > 3:
                             vis_image = plot.get_array()
                             if vis_image.shape == image.shape[1:]:
-                                vis_image = utils.vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize)
+                                vis_image = vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize)
                             else:
                                 x, y = event.mouseevent.inaxes.transData.inverted().transform((event.mouseevent.x, event.mouseevent.y))
                                 h, w = image.shape[1:]
@@ -112,8 +112,8 @@ class GridImageVisualizer(object):
                         image = (image - image_min) / (image_max - image_min)
                         image = image.transpose((1, 2, 0))
                     elif image.shape[0] > 1:
-                        image = utils.vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize,
-                                                 data_min=image_min, data_max=image_max)
+                        image = vis_square(image, grid_shape=self._vs_grid_shape, padsize=self._vs_padsize,
+                                           data_min=image_min, data_max=image_max)
                     elif image.shape[0] == 1:
                         image = np.squeeze(image, axis=0)
                     elif image.shape[-1] == 1:

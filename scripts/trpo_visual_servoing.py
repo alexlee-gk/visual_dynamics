@@ -12,8 +12,8 @@ from rllab.envs.normalized_env import normalize
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
 
 from visual_dynamics import envs
-from visual_dynamics import utils
 from visual_dynamics.envs import ServoingEnv, RllabEnv
+from visual_dynamics.utils.config import from_config
 
 
 class SiameseQuadraticErrorNetwork(object):
@@ -128,7 +128,7 @@ def main():
         if issubclass(env_config['class'], envs.RosEnv):
             import rospy
             rospy.init_node("generate_data")
-        env = utils.from_config(env_config)
+        env = from_config(env_config)
 
     if args.use_static_car:
         env.car_env.speed_offset_space.low = \
@@ -145,7 +145,7 @@ def main():
             replace_config = {'space': env.observation_space.spaces[data_name]}
         else:
             replace_config = {}
-        transformers[data_name] = utils.from_config(transformers_config[data_name], replace_config=replace_config)
+        transformers[data_name] = from_config(transformers_config[data_name], replace_config=replace_config)
 
     env = ServoingEnv(env)
     env = RllabEnv(env, transformers=transformers)

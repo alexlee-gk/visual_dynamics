@@ -3,16 +3,18 @@ from __future__ import division, print_function
 import contextlib
 import os
 import threading
+import time
 
+if not hasattr(contextlib, 'ExitStack'):
+    import contextlib2 as contextlib
+import numpy as np
 try:
     import queue
 except ImportError:
     import Queue as queue
-import time
-import numpy as np
 
-if not hasattr(contextlib, 'ExitStack'):
-    import contextlib2 as contextlib
+from visual_dynamics.utils.container import ImageDataContainer
+from visual_dynamics.utils.transformer import Transformer, OpsTransformer, ImageTransformer, CompositionTransformer
 
 
 # generator_queue copied from Keras library: https://github.com/fchollet/keras/blob/master/keras/models.py
@@ -131,7 +133,7 @@ class DataGenerator(object):
             offset_limits[data_name] = (offset_min - offset_all_min,
                                         offset_max - offset_all_min)
         with contextlib.ExitStack() as stack:
-            containers = [stack.enter_context(visual_dynamics.utils.container.ImageDataContainer(fname)) for fname in self._container_fnames]
+            containers = [stack.enter_context(ImageDataContainer(fname)) for fname in self._container_fnames]
             num_steps_per_traj = []
             num_steps_per_container = []
             num_trajs_per_container = []
@@ -202,14 +204,14 @@ class DataGenerator(object):
 
     def __next__(self):
         with contextlib.ExitStack() as stack:
-            containers = [stack.enter_context(visual_dynamics.utils.container.ImageDataContainer(fname)) for fname in self._container_fnames]
+            containers = [stack.enter_context(ImageDataContainer(fname)) for fname in self._container_fnames]
             with self._lock:
                 excerpt = next(self._excerpt_generator)
             if len(excerpt) == 0:
                 raise StopIteration
             batch_data = []
             for data_name, offset in self._data_name_offset_pairs:
-                transformer = self.transformers_dict.get(data_name, visual_dynamics.utils.transformer.Transformer())
+                transformer = self.transformers_dict.get(data_name, Transformer())
                 datum = None  # initialize later to use dtype of first single_datum
                 for i, all_ind in enumerate(excerpt):
                     container_ind, traj_iter, step_iter = self._get_local_inds(all_ind)
@@ -280,10 +282,10 @@ def main():
     parser.add_argument('container_fname', nargs='+', type=str)
     args = parser.parse_args()
 
-    image_transformer = visual_dynamics.utils.transformer.CompositionTransformer(
-        [visual_dynamics.utils.transformer.ImageTransformer(scale_size=0.125, crop_size=(32, 32)),
-         visual_dynamics.utils.transformer.OpsTransformer(scale=2.0 / 255.0, offset=-1.0, transpose=(2, 0, 1))])
-    action_transformer = visual_dynamics.utils.transformer.OpsTransformer(scale=0.1)
+    image_transformer = CompositionTransformer(
+        [ImageTransformer(scale_size=0.125, crop_size=(32, 32)),
+         OpsTransformer(scale=2.0 / 255.0, offset=-1.0, transpose=(2, 0, 1))])
+    action_transformer = OpsTransformer(scale=0.1)
     transformers = {'image': image_transformer, 'action': action_transformer}
 
     data_name_offset_pairs = [('image', 0), ('action', 0), ('image', 1)]

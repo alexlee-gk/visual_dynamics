@@ -7,8 +7,10 @@ import yaml
 
 from visual_dynamics import envs
 from visual_dynamics import policies
-from visual_dynamics import utils
 from visual_dynamics.envs import ServoingEnv
+from visual_dynamics.utils.config import from_config
+from visual_dynamics.utils.rl_util import do_rollouts, FeaturePredictorServoingImageVisualizer
+from visual_dynamics.utils.transformer import transfer_image_transformer
 
 
 def main():
@@ -28,9 +30,9 @@ def main():
         predictor_config = yaml.load(predictor_file)
 
     if issubclass(predictor_config['environment_config']['class'], envs.Panda3dEnv):
-        utils.transfer_image_transformer(predictor_config)
+        transfer_image_transformer(predictor_config)
 
-    predictor = utils.from_config(predictor_config)
+    predictor = from_config(predictor_config)
     if args.feature_inds:
         args.feature_inds = [int(ind) for ind in args.feature_inds]
         predictor.feature_name = [predictor.feature_name[ind] for ind in args.feature_inds]
@@ -39,7 +41,7 @@ def main():
     if issubclass(predictor.environment_config['class'], envs.RosEnv):
         import rospy
         rospy.init_node("learn_visual_servoing")
-    env = utils.from_config(predictor.environment_config)
+    env = from_config(predictor.environment_config)
     if not isinstance(env, ServoingEnv):
         env = ServoingEnv(env)
 
@@ -56,14 +58,14 @@ def main():
                                        '')
         algorithm_config['snapshot_prefix'] = snapshot_prefix
 
-    alg = utils.from_config(algorithm_config)
+    alg = from_config(algorithm_config)
     alg.run()
 
     if args.record_file and not args.visualize:
         args.visualize = 1
     if args.visualize:
-        image_visualizer = utils.FeaturePredictorServoingImageVisualizer(predictor, visualize=args.visualize)
-        utils.do_rollouts(env, servoing_pol, alg.num_trajs, alg.num_steps,
+        image_visualizer = FeaturePredictorServoingImageVisualizer(predictor, visualize=args.visualize)
+        do_rollouts(env, servoing_pol, alg.num_trajs, alg.num_steps,
                           output_dir=args.output_dir,
                           image_visualizer=image_visualizer,
                           record_file=args.record_file,

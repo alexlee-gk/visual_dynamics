@@ -14,6 +14,6 @@ try:
     from .pr2_moving_arm_target_policy import Pr2MovingArmTargetPolicy
 except ImportError:
     pass
-from .servoing_policy import ServoingPolicy
+from .servoing_policy import ServoingPolicy, TheanoServoingPolicy
 from .interactive_translation_angle_axis_policy import InteractiveTranslationAngleAxisPolicy
 from .position_based_servoing_policy import PositionBasedServoingPolicy

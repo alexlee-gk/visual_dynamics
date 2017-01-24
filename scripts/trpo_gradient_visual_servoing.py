@@ -10,9 +10,10 @@ from rllab.envs.normalized_env import normalize
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
 
 from visual_dynamics import envs
-from visual_dynamics import utils
 from visual_dynamics.envs import ServoingEnv, RllabEnv
 from visual_dynamics.policies import TheanoServoingPolicy
+from visual_dynamics.utils.config import from_config
+from visual_dynamics.utils.transformer import transfer_image_transformer
 
 
 class ServoingPolicyNetwork(object):
@@ -104,20 +105,20 @@ def main():
     # apply transformations from predictor to environment
     if args.image_transformer_fname:
         with open(args.image_transformer_fname) as image_transformer_file:
-            image_transformer = utils.from_yaml(image_transformer_file)
+            image_transformer = from_yaml(image_transformer_file)
     else:
         image_transformer = None
     if issubclass(predictor_config['environment_config']['class'], envs.Panda3dEnv):
-        utils.transfer_image_transformer(predictor_config, image_transformer)
+        transfer_image_transformer(predictor_config, image_transformer)
 
     # predictor
-    predictor = utils.from_config(predictor_config)
+    predictor = from_config(predictor_config)
 
     # environment
     if issubclass(predictor.environment_config['class'], envs.RosEnv):
         import rospy
         rospy.init_node("learn_visual_servoing")
-    env = utils.from_config(predictor.environment_config)
+    env = from_config(predictor.environment_config)
     if args.use_static_car:
         env.car_env.speed_offset_space.low = \
         env.car_env.speed_offset_space.high = np.array([0.0, 4.0])
