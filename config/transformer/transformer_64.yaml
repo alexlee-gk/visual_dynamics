@@ -1,23 +1,23 @@
 image:
   &id001
-  class: !!python/name:utils.transformer.CompositionTransformer ''
+  class: !!python/name:visual_dynamics.utils.transformer.CompositionTransformer ''
   transformers:
   - &id002
-    class: !!python/name:utils.transformer.ImageTransformer ''
+    class: !!python/name:visual_dynamics.utils.transformer.ImageTransformer ''
     scale_size: 0.25
     crop_size: [64, 64]
     crop_offset: [0, 0]
-  - class: !!python/name:utils.transformer.OpsTransformer ''
+  - class: !!python/name:visual_dynamics.utils.transformer.OpsTransformer ''
     transpose: !!python/tuple [2, 0, 1]
 
 depth_image:
   &id003
-  class: !!python/name:utils.transformer.CompositionTransformer ''
+  class: !!python/name:visual_dynamics.utils.transformer.CompositionTransformer ''
   transformers:
   - *id002
-  - class: !!python/name:utils.transformer.DepthImageTransformer ''
+  - class: !!python/name:visual_dynamics.utils.transformer.DepthImageTransformer ''
     space: null
 
 action:
-  class: !!python/name:utils.transformer.NormalizerTransformer ''
+  class: !!python/name:visual_dynamics.utils.transformer.NormalizerTransformer ''
   space: null

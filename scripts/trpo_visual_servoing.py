@@ -11,9 +11,9 @@ from rllab.core.network import wrapped_conv
 from rllab.envs.normalized_env import normalize
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
 
-import envs
-import utils
-from envs import ServoingEnv, RllabEnv
+from visual_dynamics import envs
+from visual_dynamics import utils
+from visual_dynamics.envs import ServoingEnv, RllabEnv
 
 
 class SiameseQuadraticErrorNetwork(object):

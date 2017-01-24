@@ -1,2 +1,2 @@
-class: !!python/name:algorithms.cem.ServoingCrossEntropyMethodAlgorithm ''
+class: !!python/name:visual_dynamics.algorithms.cem.ServoingCrossEntropyMethodAlgorithm ''
 sampling_iters: 10

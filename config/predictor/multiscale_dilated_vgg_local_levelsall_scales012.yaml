@@ -1,5 +1,5 @@
-class: !!python/name:predictor.predictor_theano.TheanoNetFeaturePredictor ''
-build_net: !!python/name:predictor.net_theano.build_multiscale_dilated_vgg_action_cond_encoder_net ''
+class: !!python/name:visual_dynamics.predictors.predictor_theano.TheanoNetFeaturePredictor ''
+build_net: !!python/name:visual_dynamics.predictors.net_theano.build_multiscale_dilated_vgg_action_cond_encoder_net ''
 input_names: ['x', 'u']
 encoding_levels: [0, 1, 2, 3, 4, 5]
 num_encoding_levels: 5
@@ -18,26 +18,26 @@ environment_config:
   action_space:
     __class__: *id001
     axis: [0.0, 0.0, 1.0]
-    class: &id002 !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+    class: &id002 !!python/name:visual_dynamics.spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
     dtype: float64
     high: [20.0, 10.0, 10.0, 1.5707963267948966]
     low: [-20.0, -10.0, -10.0, -1.5707963267948966]
   car_action_space:
     __class__: *id001
-    class: &id003 !!python/name:spaces.box_space.BoxSpace ''
+    class: &id003 !!python/name:visual_dynamics.spaces.box_space.BoxSpace ''
     dtype: float64
     high: [0.0, 0.0]
     low: [0.0, 0.0]
     shape: null
-  car_env_class: &id004 !!python/name:envs.car_panda3d_env.GeometricCarPanda3dEnv ''
+  car_env_class: &id004 !!python/name:visual_dynamics.envs.car_panda3d_env.GeometricCarPanda3dEnv ''
   car_model_names: [camaro2, mazda6, sport, kia_rio_blue, kia_rio_red, kia_rio_white]
-  class: &id005 !!python/name:envs.quad_panda3d_env.SimpleQuadPanda3dEnv ''
+  class: &id005 !!python/name:visual_dynamics.envs.quad_panda3d_env.SimpleQuadPanda3dEnv ''
   dt: 0.1
   offset: [0.0, -25.98076211353316, 15.0]
   sensor_names: [image]
 transformers:
   action:
-    class: &id008 !!python/name:utils.transformer.NormalizerTransformer ''
+    class: &id008 !!python/name:visual_dynamics.utils.transformer.NormalizerTransformer ''
     space:
       axis: [0.0, 0.0, 1.0]
       class: *id002
@@ -46,13 +46,13 @@ transformers:
       low: [-20.0, -10.0, -10.0, -1.5707963267948966]
     transpose: null
   depth_image:
-    class: &id006 !!python/name:utils.transformer.CompositionTransformer ''
+    class: &id006 !!python/name:visual_dynamics.utils.transformer.CompositionTransformer ''
     transformers:
-    - class: &id007 !!python/name:utils.transformer.ImageTransformer ''
+    - class: &id007 !!python/name:visual_dynamics.utils.transformer.ImageTransformer ''
       crop_offset: [0, 0]
       crop_size: [128, 128]
       scale_size: 0.5
-    - {class: !!python/name:utils.transformer.DepthImageTransformer '', space: null}
+    - {class: !!python/name:visual_dynamics.utils.transformer.DepthImageTransformer '', space: null}
   image:
     class: *id006
     transformers:
@@ -60,7 +60,7 @@ transformers:
       crop_offset: [0, 0]
       crop_size: [128, 128]
       scale_size: 0.5
-    - class: &id009 !!python/name:utils.transformer.OpsTransformer ''
+    - class: &id009 !!python/name:visual_dynamics.utils.transformer.OpsTransformer ''
       exponent: 1.0
       offset: 0.0
       scale: 1.0

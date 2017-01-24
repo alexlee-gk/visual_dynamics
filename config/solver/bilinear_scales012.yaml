@@ -1,4 +1,4 @@
-class: !!python/name:predictor.solver.BilinearSolver ''
+class: !!python/name:visual_dynamics.predictors.solver.BilinearSolver ''
 loss_batch_size: 32
 aggregating_batch_size: 1000
 test_iter: 10

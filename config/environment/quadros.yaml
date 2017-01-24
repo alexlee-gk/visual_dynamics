@@ -1,2 +1,2 @@
-class: !!python/name:envs.quad_ros_env.QuadRosEnv ''
+class: !!python/name:visual_dynamics.envs.quad_ros_env.QuadRosEnv ''
 dt: 0.1

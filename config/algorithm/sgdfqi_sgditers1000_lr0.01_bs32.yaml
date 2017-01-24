@@ -1,4 +1,4 @@
-class: !!python/name:algorithms.fqi.ServoingSgdFittedQIterationAlgorithm ''
+class: !!python/name:visual_dynamics.algorithms.fqi.ServoingSgdFittedQIterationAlgorithm ''
 sampling_iters: 10
 algorithm_iters: 10
 sgd_iters: 1000

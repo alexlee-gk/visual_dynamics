@@ -1,14 +1,16 @@
 import argparse
 import citysim3d.utils.panda3d_util as putil
 import numpy as np
+import theano
 from citysim3d.envs import SimpleQuadPanda3dEnv
 from rllab.algos.trpo import TRPO
 from rllab.baselines.gaussian_mlp_baseline import GaussianMLPBaseline
 from rllab.envs.normalized_env import normalize
 from rllab.policies.gaussian_mlp_policy import GaussianMLPPolicy
+from rllab.sampler.utils import rollout
 
-from envs import ServoingEnv, RllabEnv
-from spaces import BoxSpace, TranslationAxisAngleSpace
+from visual_dynamics.envs import ServoingEnv, RllabEnv
+from visual_dynamics.spaces import BoxSpace, TranslationAxisAngleSpace
 
 
 class Point3dSimpleQuadPanda3dEnv(SimpleQuadPanda3dEnv):

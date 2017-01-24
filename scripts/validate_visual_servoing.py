@@ -7,9 +7,11 @@ import numpy as np
 import yaml
 from citysim3d.envs import ServoingEnv
 
-import envs
-import policy
-import utils
+from visual_dynamics import envs
+from visual_dynamics import policies
+from visual_dynamics.utils.config import from_config
+from visual_dynamics.utils.rl_util import do_rollouts, discount_returns, FeaturePredictorServoingImageVisualizer
+from visual_dynamics.utils.transformer import transfer_image_transformer
 
 
 def main():
@@ -30,9 +32,9 @@ def main():
         predictor_config = yaml.load(predictor_file)
 
     if issubclass(predictor_config['environment_config']['class'], envs.Panda3dEnv):
-        utils.transfer_image_transformer(predictor_config)
+        transfer_image_transformer(predictor_config)
 
-    predictor = utils.from_config(predictor_config)
+    predictor = from_config(predictor_config)
     if args.feature_inds:
         args.feature_inds = [int(ind) for ind in args.feature_inds]
         predictor.feature_name = [predictor.feature_name[ind] for ind in args.feature_inds]
@@ -41,12 +43,12 @@ def main():
     if issubclass(predictor.environment_config['class'], envs.RosEnv):
         import rospy
         rospy.init_node("validate_visual_servoing")
-    env = utils.from_config(predictor.environment_config)
+    env = from_config(predictor.environment_config)
     if not isinstance(env, ServoingEnv):
         env = ServoingEnv(env, max_time_steps=args.num_steps)
 
     if args.visualize:
-        image_visualizer = utils.FeaturePredictorServoingImageVisualizer(predictor, visualize=args.visualize)
+        image_visualizer = FeaturePredictorServoingImageVisualizer(predictor, visualize=args.visualize)
     else:
         image_visualizer = None
 
@@ -62,13 +64,13 @@ def main():
 
     for w_init in args.w_inits:
         for lambda_init in args.lambda_inits:
-            pol = policy.ServoingPolicy(predictor, alpha=1.0, lambda_=lambda_init, w=w_init)
-            _, _, _, rewards = utils.do_rollouts(env, pol, args.num_trajs, args.num_steps,
+            pol = policies.ServoingPolicy(predictor, alpha=1.0, lambda_=lambda_init, w=w_init)
+            _, _, _, rewards = do_rollouts(env, pol, args.num_trajs, args.num_steps,
                                                  target_distance=args.target_distance,
                                                  image_visualizer=image_visualizer,
                                                  gamma=args.gamma,
                                                  seeds=np.arange(args.num_trajs))
-            discounted_returns = utils.discount_returns(rewards, args.gamma)
+            discounted_returns = discount_returns(rewards, args.gamma)
             row_values = [w_init, lambda_init, np.mean(discounted_returns), np.std(discounted_returns) / np.sqrt(len(discounted_returns))]
             print(row_format.format(*row_values))
 

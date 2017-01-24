@@ -1,11 +1,11 @@
-class: !!python/name:policy.mixed_policy.MixedPolicy ''
+class: !!python/name:visual_dynamics.policies.mixed_policy.MixedPolicy ''
 policies:
-- class: !!python/name:policy.quad_target_policy.QuadTargetPolicy ''
+- class: !!python/name:visual_dynamics.policies.quad_target_policy.QuadTargetPolicy ''
   env: null
   height_limits: [12, 18]
   angle_limits: [-1.5707963267948966, 1.5707963267948966]
   tightness: 1.0
-- class: !!python/name:policy.random_policy.RandomPolicy ''
+- class: !!python/name:visual_dynamics.policies.random_policy.RandomPolicy ''
   action_space: null
   state_space: null
 act_probs: [0.25, 0.75]

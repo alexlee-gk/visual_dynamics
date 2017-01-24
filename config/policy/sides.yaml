@@ -1,8 +1,8 @@
-class: !!python/name:policy.mixed_policy.MixedPolicy ''
+class: !!python/name:visual_dynamics.policies.mixed_policy.MixedPolicy ''
 policies:
-- class: !!python/name:policy.choice_policy.ChoicePolicy ''
+- class: !!python/name:visual_dynamics.policies.choice_policy.ChoicePolicy ''
   policies:
-  - class: !!python/name:policy.camera_target_policy.CameraTargetPolicy ''
+  - class: !!python/name:visual_dynamics.policies.camera_target_policy.CameraTargetPolicy ''
     env: null
     target_env: null
     camera_node_name: quad_camera
@@ -10,7 +10,7 @@ policies:
     target_node_name: car
     offset: [-16.0, 0.0, 4.0]
     tightness: 1.0
-  - class: !!python/name:policy.camera_target_policy.CameraTargetPolicy ''
+  - class: !!python/name:visual_dynamics.policies.camera_target_policy.CameraTargetPolicy ''
     env: null
     target_env: null
     camera_node_name: quad_camera
@@ -19,7 +19,7 @@ policies:
     offset: [16.0, 0.0, 4.0]
     tightness: 1.0
   reset_probs: [0.5, 0.5]
-- class: !!python/name:policy.random_policy.RandomPolicy ''
+- class: !!python/name:visual_dynamics.policies.random_policy.RandomPolicy ''
   action_space: null
   state_space: null
 act_probs: [0.5, 0.5]

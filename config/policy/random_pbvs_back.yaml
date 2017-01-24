@@ -1,6 +1,6 @@
-class: !!python/name:policy.correlated_additive_normal_policy.CorrelatedAdditiveNormalPolicy ''
+class: !!python/name:visual_dynamics.policies.correlated_additive_normal_policy.CorrelatedAdditiveNormalPolicy ''
 pol:
-  class: !!python/name:policy.position_based_servoing_policy.PositionBasedServoingPolicy ''
+  class: !!python/name:visual_dynamics.policies.position_based_servoing_policy.PositionBasedServoingPolicy ''
   lambda_: 1.0
   target_to_obj_T: [[1.0, 0.0, 0.0, 0.0],
                     [0.0, 1.0, 0.0, 1.4281480067421146],

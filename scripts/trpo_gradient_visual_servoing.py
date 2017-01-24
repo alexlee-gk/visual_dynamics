@@ -9,10 +9,10 @@ from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
 from rllab.envs.normalized_env import normalize
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
 
-import envs
-import utils
-from envs import ServoingEnv, RllabEnv
-from policy import TheanoServoingPolicy
+from visual_dynamics import envs
+from visual_dynamics import utils
+from visual_dynamics.envs import ServoingEnv, RllabEnv
+from visual_dynamics.policies import TheanoServoingPolicy
 
 
 class ServoingPolicyNetwork(object):

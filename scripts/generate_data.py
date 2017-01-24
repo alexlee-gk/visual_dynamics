@@ -1,12 +1,15 @@
-import argparse
 import time
-import yaml
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
+
+import argparse
 import matplotlib.animation as manimation
-from gui.grid_image_visualizer import GridImageVisualizer
-import envs
-import utils
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+import yaml
+
+from visual_dynamics import envs
+from visual_dynamics.gui.grid_image_visualizer import GridImageVisualizer
+from visual_dynamics.utils.config import from_config
+from visual_dynamics.utils.container import ImageDataContainer
 
 
 def main():
@@ -25,16 +28,16 @@ def main():
         if issubclass(env_config['class'], envs.RosEnv):
             import rospy
             rospy.init_node("generate_data")
-        env = utils.from_config(env_config)
+        env = from_config(env_config)
 
     with open(args.pol_fname) as yaml_string:
         policy_config = yaml.load(yaml_string)
         replace_config = {'env': env,
                           'action_space': env.action_space}
-        pol = utils.from_config(policy_config, replace_config=replace_config)
+        pol = from_config(policy_config, replace_config=replace_config)
 
     if args.output_dir:
-        container = utils.container.ImageDataContainer(args.output_dir, 'x')
+        container = ImageDataContainer(args.output_dir, 'x')
         container.reserve(list(env.observation_space.spaces.keys()) + ['state'], (args.num_trajs, args.num_steps + 1))
         container.reserve(['action', 'state_diff'], (args.num_trajs, args.num_steps))
         container.add_info(environment_config=env.get_config())

@@ -1,5 +1,5 @@
-class: !!python/name:predictor.predictor_theano.TheanoNetFeaturePredictor ''
-build_net: !!python/name:predictor.net_theano.build_multiscale_dilated_vgg_action_cond_encoder_net ''
+class: !!python/name:visual_dynamics.predictors.predictor_theano.TheanoNetFeaturePredictor ''
+build_net: !!python/name:visual_dynamics.predictors.net_theano.build_multiscale_dilated_vgg_action_cond_encoder_net ''
 input_names: ['x', 'u']
 num_encoding_levels: 1
 scales: [0, 1, 2]

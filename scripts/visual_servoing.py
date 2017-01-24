@@ -1,12 +1,12 @@
 from __future__ import division, print_function
 
 import argparse
+import yaml
 from citysim3d.envs import ServoingEnv
 
-import envs
-import policy
-import utils
-
+from visual_dynamics import policies
+from visual_dynamics import utils
+from visual_dynamics import envs
 
 def main():
     parser = argparse.ArgumentParser()
@@ -42,7 +42,7 @@ def main():
     if not isinstance(env, ServoingEnv):
         env = ServoingEnv(env, max_time_steps=args.num_steps)
 
-    pol = policy.ServoingPolicy(predictor, alpha=1.0, lambda_=args.lambda_init, w=args.w_init)
+    pol = policies.ServoingPolicy(predictor, alpha=1.0, lambda_=args.lambda_init, w=args.w_init)
 
     if args.record_file and not args.visualize:
         args.visualize = 1

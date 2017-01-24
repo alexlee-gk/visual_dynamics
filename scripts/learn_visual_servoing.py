@@ -5,10 +5,10 @@ import os
 import argparse
 import yaml
 
-import envs
-import policy
-import utils
-from envs import ServoingEnv
+from visual_dynamics import envs
+from visual_dynamics import policies
+from visual_dynamics import utils
+from visual_dynamics.envs import ServoingEnv
 
 
 def main():
@@ -43,7 +43,7 @@ def main():
     if not isinstance(env, ServoingEnv):
         env = ServoingEnv(env)
 
-    servoing_pol = policy.TheanoServoingPolicy(predictor, alpha=1.0, lambda_=args.lambda_init, w=args.w_init)
+    servoing_pol = policies.TheanoServoingPolicy(predictor, alpha=1.0, lambda_=args.lambda_init, w=args.w_init)
 
     with open(args.algorithm_fname) as algorithm_file:
         algorithm_config = yaml.load(algorithm_file)

@@ -1,4 +1,4 @@
-class: !!python/name:predictor.solver.TheanoNetSolver ''
+class: !!python/name:visual_dynamics.predictors.solver.TheanoNetSolver ''
 batch_size: 32
 test_iter: 10
 solver_type: ADAM

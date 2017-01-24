@@ -1,24 +1,24 @@
-class: !!python/name:envs.object_ogre_env.ObjectOgreEnv ''
+class: !!python/name:visual_dynamics.envs.object_ogre_env.ObjectOgreEnv ''
 action_space:
-  class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+  class: !!python/name:visual_dynamics.spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
   low: [-0, -0, -0, -0.7853981633974483]
   high: [0, 0, 0, 0.7853981633974483]
   dtype: float64
 observation_space:
-  class: !!python/name:spaces.tuple_space.Tuple ''
+  class: !!python/name:visual_dynamics.spaces.tuple_space.Tuple ''
   spaces:
-  - class: !!python/name:spaces.box_space.BoxSpace ''
+  - class: !!python/name:visual_dynamics.spaces.box_space.BoxSpace ''
     low: 0
     high: 255
     shape: !!python/tuple [480, 640]
     dtype: uint8
-  - class: !!python/name:spaces.box_space.BoxSpace ''
+  - class: !!python/name:visual_dynamics.spaces.box_space.BoxSpace ''
     low: 0
     high: 255
     shape: !!python/tuple [480, 640]
     dtype: uint8
 state_space:
-  class: !!python/name:spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+  class: !!python/name:visual_dynamics.spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
   low: [0., 0., 0., -.inf]
   high: [0., 0., 0., .inf]
   dtype: float64

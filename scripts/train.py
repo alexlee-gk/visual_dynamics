@@ -1,13 +1,16 @@
 from __future__ import division, print_function
+
 import os
+
 import argparse
-import yaml
-import theano
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import matplotlib.animation as manimation
-from gui.grid_image_visualizer import GridImageVisualizer
-import utils
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+import theano
+import yaml
+
+from visual_dynamics import utils
+from visual_dynamics.gui.grid_image_visualizer import GridImageVisualizer
 
 
 def main():

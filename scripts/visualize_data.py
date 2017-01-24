@@ -1,11 +1,14 @@
 from __future__ import division, print_function
+
 import argparse
-import theano
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import matplotlib.animation as manimation
-from gui.grid_image_visualizer import GridImageVisualizer
-import utils
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+import theano
+
+from visual_dynamics.gui.grid_image_visualizer import GridImageVisualizer
+from visual_dynamics.utils.config import from_yaml
+from visual_dynamics.utils.generator import DataGenerator
 
 
 def main():
@@ -15,19 +18,19 @@ def main():
     args = parser.parse_args()
 
     with open(args.predictor_fname) as predictor_file:
-        feature_predictor = utils.from_yaml(predictor_file)
+        feature_predictor = from_yaml(predictor_file)
 
     transformers = feature_predictor.transformers
     solver = feature_predictor.solvers[-1]
 
     # visualization is the same as what's at the end of train.py
-    data_gen = utils.generator.DataGenerator(solver.val_data_fnames if solver.val_data_fnames else solver.train_data_fnames,
-                                             data_name_offset_pairs=solver.data_name_offset_pairs,
-                                             transformers=transformers,
-                                             once=True,
-                                             batch_size=0,
-                                             shuffle=False,
-                                             dtype=theano.config.floatX)
+    data_gen = DataGenerator(solver.val_data_fnames if solver.val_data_fnames else solver.train_data_fnames,
+                             data_name_offset_pairs=solver.data_name_offset_pairs,
+                             transformers=transformers,
+                             once=True,
+                             batch_size=0,
+                             shuffle=False,
+                             dtype=theano.config.floatX)
 
     fig = plt.figure(figsize=(12, 12), frameon=False, tight_layout=True)
     fig.canvas.set_window_title(solver.snapshot_prefix)

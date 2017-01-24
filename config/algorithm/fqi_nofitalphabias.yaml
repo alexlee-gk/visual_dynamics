@@ -1,4 +1,4 @@
-class: !!python/name:algorithms.fqi.ServoingFittedQIterationAlgorithm ''
+class: !!python/name:visual_dynamics.algorithms.fqi.ServoingFittedQIterationAlgorithm ''
 sampling_iters: 10
 algorithm_iters: 10
 fit_alpha_bias: false
