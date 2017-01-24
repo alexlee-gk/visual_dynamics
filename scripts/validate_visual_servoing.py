@@ -66,10 +66,10 @@ def main():
         for lambda_init in args.lambda_inits:
             pol = policies.ServoingPolicy(predictor, alpha=1.0, lambda_=lambda_init, w=w_init)
             _, _, _, rewards = do_rollouts(env, pol, args.num_trajs, args.num_steps,
-                                                 target_distance=args.target_distance,
-                                                 image_visualizer=image_visualizer,
-                                                 gamma=args.gamma,
-                                                 seeds=np.arange(args.num_trajs))
+                                           target_distance=args.target_distance,
+                                           image_visualizer=image_visualizer,
+                                           gamma=args.gamma,
+                                           seeds=np.arange(args.num_trajs))
             discounted_returns = discount_returns(rewards, args.gamma)
             row_values = [w_init, lambda_init, np.mean(discounted_returns), np.std(discounted_returns) / np.sqrt(len(discounted_returns))]
             print(row_format.format(*row_values))

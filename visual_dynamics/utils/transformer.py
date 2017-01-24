@@ -3,7 +3,7 @@ from __future__ import division, print_function
 import cv2
 import numpy as np
 
-from visual_dynamics.utils.config import ConfigObject
+from visual_dynamics.utils.config import ConfigObject, get_config, from_config
 
 
 class Transformer(ConfigObject):
@@ -260,7 +260,7 @@ def extract_image_transformer(transformers):
             image_transformer_, transformer = split_first_transformer(transformer)
             transformers[name] = transformer
             if image_transformer:
-                assert config.get_config(image_transformer) == config.get_config(image_transformer_)
+                assert get_config(image_transformer) == get_config(image_transformer_)
             else:
                 assert isinstance(image_transformer_, ImageTransformer)
                 image_transformer = image_transformer_
@@ -271,13 +271,13 @@ def transfer_image_transformer(predictor_config, image_transformer=None):
     import citysim3d.utils.panda3d_util as putil
     from visual_dynamics import envs
 
-    transformers = config.from_config(predictor_config['transformers'])
+    transformers = from_config(predictor_config['transformers'])
     image_transformer_ = extract_image_transformer(transformers)
     if image_transformer is None:
         image_transformer = image_transformer_
-    predictor_config['transformers'] = config.get_config(transformers)
+    predictor_config['transformers'] = get_config(transformers)
 
-    environment_config = config.from_config(predictor_config['environment_config'])
+    environment_config = from_config(predictor_config['environment_config'])
     assert issubclass(environment_config['class'], envs.Panda3dEnv)
     input_names = predictor_config['input_names']
     input_shapes = predictor_config['input_shapes']
@@ -296,7 +296,7 @@ def transfer_image_transformer(predictor_config, image_transformer=None):
                                                                   crop_size=image_transformer.crop_size)
     environment_config['camera_size'] = camera_size
     environment_config['camera_hfov'] = camera_hfov
-    predictor_config['environment_config'] = config.get_config(environment_config)
+    predictor_config['environment_config'] = get_config(environment_config)
 
 
 def main():
