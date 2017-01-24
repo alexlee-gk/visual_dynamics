@@ -1,0 +1,42 @@
+diff --git a/lasagne/layers/conv.py b/lasagne/layers/conv.py
+index b5f9697..38a43d1 100644
+--- a/lasagne/layers/conv.py
++++ b/lasagne/layers/conv.py
+@@ -263,7 +263,7 @@ class BaseConvLayer(Layer):
+                  untie_biases=False,
+                  W=init.GlorotUniform(), b=init.Constant(0.),
+                  nonlinearity=nonlinearities.rectify, flip_filters=True,
+-                 n=None, **kwargs):
++                 n=None, filter_dilation=1, **kwargs):
+         super(BaseConvLayer, self).__init__(incoming, **kwargs)
+         if nonlinearity is None:
+             self.nonlinearity = nonlinearities.identity
+@@ -282,6 +282,7 @@ class BaseConvLayer(Layer):
+         self.filter_size = as_tuple(filter_size, n, int)
+         self.flip_filters = flip_filters
+         self.stride = as_tuple(stride, n, int)
++        self.filter_dilation = as_tuple(filter_dilation, n, int)
+         self.untie_biases = untie_biases
+ 
+         if pad == 'same':
+@@ -592,10 +593,11 @@ class Conv2DLayer(BaseConvLayer):
+                  pad=0, untie_biases=False,
+                  W=init.GlorotUniform(), b=init.Constant(0.),
+                  nonlinearity=nonlinearities.rectify, flip_filters=True,
+-                 convolution=T.nnet.conv2d, **kwargs):
++                 convolution=T.nnet.conv2d, filter_dilation=(1, 1), **kwargs):
+         super(Conv2DLayer, self).__init__(incoming, num_filters, filter_size,
+                                           stride, pad, untie_biases, W, b,
+                                           nonlinearity, flip_filters, n=2,
++                                          filter_dilation=filter_dilation,
+                                           **kwargs)
+         self.convolution = convolution
+ 
+@@ -604,6 +606,7 @@ class Conv2DLayer(BaseConvLayer):
+         conved = self.convolution(input, self.W,
+                                   self.input_shape, self.get_W_shape(),
+                                   subsample=self.stride,
++                                  filter_dilation=self.filter_dilation,
+                                   border_mode=border_mode,
+                                   filter_flip=self.flip_filters)
+         return conved

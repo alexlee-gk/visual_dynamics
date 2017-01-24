@@ -1,0 +1,38 @@
+diff --git a/theano/tensor/nlinalg.py b/theano/tensor/nlinalg.py
+index f8568bf..6911e44 100644
+--- a/theano/tensor/nlinalg.py
++++ b/theano/tensor/nlinalg.py
+@@ -70,7 +70,7 @@ class MatrixInverse(Op):
+ 
+     def make_node(self, x):
+         x = as_tensor_variable(x)
+-        assert x.ndim == 2
++        # assert x.ndim == 2
+         return Apply(self, [x], [x.type()])
+ 
+     def perform(self, node, inputs, outputs):
+@@ -95,7 +95,11 @@ class MatrixInverse(Op):
+         xi = self(x)
+         gz, = g_outputs
+         # TT.dot(gz.T,xi)
+-        return [-matrix_dot(xi, gz.T, xi).T]
++        if x.ndim == 2:
++            return [-matrix_dot(xi, gz.T, xi).T]
++        else:
++            return [-theano.tensor.batched_dot(theano.tensor.batched_dot(xi, gz.transpose((0, 2, 1))), xi).transpose((0, 2, 1))]
++
+ 
+     def R_op(self, inputs, eval_points):
+         r"""The gradient function should return
+@@ -115,7 +119,10 @@ class MatrixInverse(Op):
+         ev, = eval_points
+         if ev is None:
+             return [None]
+-        return [-matrix_dot(xi, ev, xi)]
++        if x.ndim == 2:
++            return [-matrix_dot(xi, ev, xi)]
++        else:
++            return [-theano.tensor.batched_dot(theano.tensor.batched_dot(xi, ev), xi)]
+ 
+     def infer_shape(self, node, shapes):
+         return shapes
