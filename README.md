@@ -1,6 +1,40 @@
 # visual_dynamics
 
-## Install dependencies from source and link to specific python installation
+## Installation instructions
+
+### Install bleeding-edge version of Theano and apply patch
+```
+git clone git://github.com/Theano/Theano.git
+cd Theano
+git apply patches/theano_matrix_inverse.patch
+python setup.py develop --prefix=~/.local
+```
+
+### Install bleeding-edge version of Lasagne and apply patch
+```
+git clone https://github.com/Lasagne/Lasagne.git
+cd Lasagne
+git apply patches/lasagne_dilation.patch
+pip install -r requirements.txt
+pip install --editable . --user
+```
+
+### Install OpenCV
+```
+sudo apt-get install python-opencv
+```
+
+### Install CitySim3D and its dependencies
+Follow the instructions from the [CitySim3D](https://github.com/alexlee-gk/citysim3d) site.
+
+### Install visual_dynamics and its dependencies
+```
+git clone git@github.com:alexlee-gk/visual_dynamics.git
+cd visual_dynamics
+pip install -r requirements.txt
+```
+
+## Advanced installation intructions: Install dependencies from source and link to specific python installation
 
 ### Set up a new python environment using pyenv
 
@@ -103,37 +137,21 @@ The option `WITH_CUDA=OFF` might be necessary if Caffe is used. See [this issue]
 2. http://stackoverflow.com/questions/33250375/compiling-opencv3-with-pyenv-using-python-3-5-0-on-osx
 
 
-## Optional dependencies
+## Example usage
 
-### Servos controlled through FT232H breakout board (for non-Jetson machines)
-
-Install libftdi and its dependencies:
+### Generate training and validation data
 ```
-sudo apt-get update
-sudo apt-get install build-essential libusb-1.0-0-dev swig cmake python-dev libconfuse-dev libboost-all-dev
-wget http://www.intra2net.com/en/developer/libftdi/download/libftdi1-1.2.tar.bz2
-tar xvf libftdi1-1.2.tar.bz2
-cd libftdi1-1.2
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX="/usr/" ../
-make
-sudo make install
+mkdir -p data
+python scripts/generate_data.py config/environment/simplequad.yaml config/policy/random_quad_back.yaml -n100 -t100 -o data/simplequad_train_data
+python scripts/generate_data.py config/environment/simplequad.yaml config/policy/random_quad_back.yaml -n10 -t100 -o data/simplequad_val_data
 ```
 
-Install Adafruit GPIO library:
+### Train multiscale bilinear dynamics for a particular feature representation
 ```
-cd /path/to/visual_dynamics
-cd ext/adafruit/
-sudo python setup.py install
+python scripts/train.py config/predictor/multiscale_dilated_vgg_local_level1_scales012.yaml config/transformer/transformer_128.yaml config/solver/adam_gamma0.9_level1scales012.yaml config/data/simplequad.yaml
 ```
 
-In order to use the device with root access, put the following in the file `/etc/udev/rules.d/99-libftdi.rules`:
+### Learn a weighting of the servoing features using fitted Q-iteration reinforcement learning
 ```
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", GROUP="dialout", MODE="0660"
+python scripts/learn_visual_servoing.py models/theano/multiscale_dilated_vgg_local_level1_scales012/transformer_128/adam_gamma0.9_level1scales012/simplequad/_iter_10000_model.yaml config/algorithm/fqi_nooptfitbias.yaml
 ```
-Make sure to unplug and plug in the device for this rule to take effect. If root access is still required, the user might need to be added to the dialout group:
-```
-sudo usermod -a -G dialout $USER
-```
-Make sure to log out and log in for this change to take effect.
