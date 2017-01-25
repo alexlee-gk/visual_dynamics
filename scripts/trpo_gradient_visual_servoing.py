@@ -12,7 +12,7 @@ from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
 from visual_dynamics import envs
 from visual_dynamics.envs import ServoingEnv, RllabEnv
 from visual_dynamics.policies import TheanoServoingPolicy
-from visual_dynamics.utils.config import from_config
+from visual_dynamics.utils.config import from_config, from_yaml
 from visual_dynamics.utils.transformer import transfer_image_transformer
 
 
