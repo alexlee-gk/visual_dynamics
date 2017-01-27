@@ -1,7 +1,33 @@
 import numpy as np
 import yaml
+from yaml.composer import Composer
+from yaml.constructor import Constructor
+from yaml.parser import Parser
+from yaml.reader import Reader
+from yaml.resolver import Resolver
+from yaml.scanner import Scanner
 
 from visual_dynamics.utils.python3 import get_signature_args
+
+
+class Python2to3Constructor(Constructor):
+
+    def find_python_name(self, name, mark):
+        if sys.version_info.major == 3:
+            if name == '__builtin__.dict':
+                name = 'builtins.dict'
+        return Constructor.find_python_name(self, name, mark)
+
+
+class Python2to3Loader(Reader, Scanner, Parser, Composer, Python2to3Constructor, Resolver):
+
+    def __init__(self, stream):
+        Reader.__init__(self, stream)
+        Scanner.__init__(self)
+        Parser.__init__(self)
+        Composer.__init__(self)
+        Python2to3Constructor.__init__(self)
+        Resolver.__init__(self)
 
 
 def get_config(instance):
@@ -46,7 +72,7 @@ def to_yaml(instance, *args, **kwargs):
 
 
 def from_yaml(yaml_string):
-    config = yaml.load(yaml_string)
+    config = yaml.load(yaml_string, Loader=Python2to3Loader)
     return from_config(config)
 
 

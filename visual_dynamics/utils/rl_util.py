@@ -1,6 +1,9 @@
 from __future__ import division, print_function
 
-import Tkinter
+try:
+    import tkinter
+except ImportError:
+    import Tkinter as tkinter
 import time
 
 import matplotlib.animation as manimation
@@ -156,7 +159,7 @@ def do_rollouts(env, pol, num_trajs, num_steps, target_distance=0,
                         image_visualizer.update(image, next_image, target_image, action)
                         if record_file:
                             writer.grab_frame()
-                    except Tkinter.TclError:
+                    except tkinter.TclError:
                         done = True
 
                 if done or episode_done:
