@@ -298,6 +298,102 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
         return config
 
 
+class ServoingPcaFittedQIterationAlgorithm(ServoingFittedQIterationAlgorithm):
+    def __init__(self, pca, *args, **kwargs):
+        super(ServoingPcaFittedQIterationAlgorithm, self).__init__(*args, **kwargs)
+        self.pca = pca
+        self._z = np.zeros(self.pca.components_.shape[0])
+        self.theta = self.servoing_pol.theta
+
+    @property
+    def theta(self):
+        return self.z.dot(self.pca.components_) + self.pca.mean_
+
+    @theta.setter
+    def theta(self, theta):
+        self.z = (theta - self.pca.mean_).dot(self.pca.components_.T)
+
+    @property
+    def z(self):
+        return self._z
+
+    @z.setter
+    def z(self, z):
+        self._z[...] = z
+        self.servoing_pol.theta[...] = self.theta
+
+    def fqi_update(self, S, A, R, S_p, phi=None, Q_sample=None):
+        try:
+            batch_size = len(S)
+            if phi is None:
+                tic()
+                A = np.asarray(A)
+                R = np.asarray(R)
+                tic()
+                phi = self.servoing_pol.phi(S, A, preprocessed=True)
+                toc("\tphi")
+
+            if Q_sample is None:
+                tic()
+                if self.gamma == 0:
+                    Q_sample = R
+                else:
+                    A_p = self.servoing_pol.pi(S_p, preprocessed=True)
+                    phi_p = self.servoing_pol.phi(S_p, A_p, preprocessed=True)
+                    V_p = phi_p.dot(self.theta) + self.bias
+                    Q_sample = R + self.gamma * V_p
+                toc("\tQ_sample")
+
+            tic()
+            import cvxpy
+            z_var = cvxpy.Variable(self.z.shape[0])
+            theta_var = self.pca.components_.T * z_var + self.pca.mean_
+            bias_var = cvxpy.Variable(1)
+            assert len(phi) == batch_size
+            scale = 1.0
+            solved = False
+            while not solved:
+                if self.opt_fit_bias:
+                    objective = cvxpy.Minimize(
+                        (1 / 2.) * cvxpy.sum_squares(
+                            (phi * np.sqrt(scale / batch_size)) * theta_var + bias_var * np.sqrt(scale / batch_size) -
+                            ((Q_sample + (bias_var - self.bias) * self.gamma) * np.sqrt(scale / batch_size))) +
+                        (self.l2_reg / 2.) * scale * cvxpy.sum_squares(theta_var))  # no regularization on bias
+                else:
+                    objective = cvxpy.Minimize(
+                        (1 / 2.) * cvxpy.sum_squares(
+                            (phi * np.sqrt(scale / batch_size)) * theta_var + bias_var * np.sqrt(scale / batch_size) -
+                            (Q_sample * np.sqrt(scale / batch_size))) +
+                        (self.l2_reg / 2.) * scale * cvxpy.sum_squares(theta_var))  # no regularization on bias
+                constraints = [0 <= theta_var]  # no constraint on bias
+
+                if self.eps is not None:
+                    constraints.append(cvxpy.sum_squares(theta_var - self.theta) <= (len(self.theta) * self.eps))
+
+                prob = cvxpy.Problem(objective, constraints)
+                for solver in [None, cvxpy.GUROBI, cvxpy.CVXOPT]:
+                    try:
+                        prob.solve(solver=solver)
+                    except cvxpy.error.SolverError:
+                        continue
+                    if theta_var.value is None:
+                        continue
+                    solved = True
+                    break
+
+                if not solved:
+                    scale *= 0.1
+                    print("Unable to solve FQI optimization. Reformulating objective with a scale of %f." % scale)
+
+            self.z = np.squeeze(np.array(z_var.value), axis=1)
+            self.bias = bias_var.value
+            proxy_bellman_error = objective.value / scale
+            toc("\tcvxpy")
+        except Exception as e:
+            import IPython as ipy; ipy.embed()
+        return proxy_bellman_error
+
+
 class ServoingSgdFittedQIterationAlgorithm(ServoingFittedQIterationAlgorithm):
     def __init__(self, env, servoing_pol, sampling_iters, algorithm_iters,
                  num_trajs=None, num_steps=None, gamma=None, act_std=None,
