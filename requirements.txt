@@ -1,9 +1,7 @@
 pyyaml
 h5py
 matplotlib
-pydotplus
 pycollada
+opencv-python
 future ; python_version < '3'
 contextlib2 ; python_version < '3.3'
-cvxpy
-nose2
