@@ -1,13 +1,14 @@
 import argparse
+
 import lasagne.layers as L
 import numpy as np
 import theano
 import theano.tensor as T
 import yaml
-from rllab.algos.trpo import TRPO
-from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
 from rllab.envs.normalized_env import normalize
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
+from sandbox.adam.parallel.gaussian_conv_baseline import ParallelGaussianConvBaseline
+from sandbox.adam.parallel.trpo import ParallelTRPO
 
 from visual_dynamics import envs
 from visual_dynamics.envs import ServoingEnv, RllabEnv
@@ -89,18 +90,22 @@ def main():
     parser.add_argument('--image_transformer_fname', type=str)
     parser.add_argument('--algorithm_fname', type=str)
     parser.add_argument('--conv_filters', nargs='*', type=int, default=[16, 32])
-    parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[16])
+    parser.add_argument('--conv_filter_sizes', nargs='*', type=int, default=[8, 4])
+    parser.add_argument('--conv_strides', nargs='*', type=int, default=[4, 2])
+    parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[256])
     parser.add_argument('--init_std', type=float, default=1.0)
     parser.add_argument('--n_itr', type=int, default=100)
     parser.add_argument('--step_size', type=float, default=0.01)
     parser.add_argument('--batch_size', type=int, default=10000)
     parser.add_argument('--use_static_car', action='store_true')
     parser.add_argument('--use_convnet', action='store_true')
+    parser.add_argument('--imitation_init', action='store_true')
     args = parser.parse_args()
 
     # instantiate predictor later since the transformers might need to be updated
+    from visual_dynamics.utils.config import Python2to3Loader
     with open(args.predictor_fname) as predictor_file:
-        predictor_config = yaml.load(predictor_file)
+        predictor_config = yaml.load(predictor_file, Loader=Python2to3Loader)
 
     # apply transformations from predictor to environment
     if args.image_transformer_fname:
@@ -129,12 +134,14 @@ def main():
     if args.use_convnet:
         import lasagne.nonlinearities as LN
         from rllab.core.network import ConvNetwork
+        assert len(args.conv_filters) == len(args.conv_filter_sizes)
+        assert len(args.conv_filters) == len(args.conv_strides)
         network_kwargs = dict(
             input_shape=env.observation_space.shape,
             output_dim=env.action_space.flat_dim,
             conv_filters=args.conv_filters,
-            conv_filter_sizes=[3] * len(args.conv_filters),
-            conv_strides=[2] * len(args.conv_filters),
+            conv_filter_sizes=args.conv_filter_sizes,
+            conv_strides=args.conv_strides,
             conv_pads=[0] * len(args.conv_filters),
             hidden_sizes=args.hidden_sizes,
             hidden_nonlinearity=LN.rectify,
@@ -158,7 +165,42 @@ def main():
         init_std=args.init_std,
         mean_network=mean_network,
     )
-    baseline = GaussianConvBaseline(
+
+    if args.use_convnet and args.imitation_init:
+        from rllab.sampler.utils import rollout
+        from rllab.regressors.gaussian_conv_regressor import GaussianConvRegressor
+        from rllab.optimizers.lbfgs_optimizer import LbfgsOptimizer
+        servoing_pol = TheanoServoingPolicy(predictor, w=10.0, lambda_=1.0)
+        if args.algorithm_fname:
+            with open(args.algorithm_fname) as algorithm_file:
+                algorithm_config = yaml.load(algorithm_file)
+            best_iter = np.argmax(algorithm_config['mean_discounted_returns'])
+            best_theta = np.asarray(algorithm_config['thetas'][best_iter])
+            servoing_pol.theta = best_theta
+        expert_mean_network = ServoingPolicyNetwork(env.observation_space.shape, env.action_space.flat_dim, servoing_pol)
+        expert_policy = GaussianConvPolicy(
+            env_spec=env.spec,
+            init_std=args.init_std,
+            mean_network=expert_mean_network,
+        )
+        optimizer = LbfgsOptimizer(max_opt_itr=1000)
+        regressor = GaussianConvRegressor('imitation_regressor', policy.observation_space.shape, policy.action_space.flat_dim, None, None, None, None, None,
+                                          mean_network=mean_network, optimizer=optimizer, use_trust_region=False)
+
+        observations = []
+        actions = []
+        for traj_iter in range(10):
+            d = rollout(env, expert_policy, max_path_length=100)
+            observations.append(d['observations'])
+            actions.append(d['actions'])
+        observations = np.concatenate(observations)
+        actions = np.concatenate(actions)
+        regressor.fit(observations, actions)
+        np.set_printoptions(suppress=True)
+        print(regressor.predict(observations)[:10])
+        print(actions[:10])
+
+    baseline = ParallelGaussianConvBaseline(
         env_spec=env.spec,
         regressor_args=dict(
             use_trust_region=True,
@@ -167,14 +209,15 @@ def main():
             normalize_outputs=True,
             hidden_sizes=args.hidden_sizes,
             conv_filters=args.conv_filters,
-            conv_filter_sizes=[3] * len(args.conv_filters),
-            conv_strides=[2] * len(args.conv_filters),
+            conv_filter_sizes=args.conv_filter_sizes,
+            conv_strides=args.conv_strides,
             conv_pads=[0] * len(args.conv_filters),
             batchsize=args.batch_size * 10,
+            optimizer=None,
         )
     )
 
-    algo = TRPO(
+    algo = ParallelTRPO(
         env=env,
         policy=policy,
         baseline=baseline,
@@ -183,6 +226,7 @@ def main():
         n_itr=args.n_itr,
         discount=0.9,
         step_size=args.step_size,
+        n_parallel=8,
     )
     algo.train()
     import IPython as ipy; ipy.embed()

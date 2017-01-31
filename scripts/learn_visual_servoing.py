@@ -30,8 +30,9 @@ def main():
 
     args = parser.parse_args()
 
+    from visual_dynamics.utils.config import Python2to3Loader
     with open(args.predictor_fname) as predictor_file:
-        predictor_config = yaml.load(predictor_file)
+        predictor_config = yaml.load(predictor_file, Loader=Python2to3Loader)
 
     if args.image_transformer_fname:
         with open(args.image_transformer_fname) as image_transformer_file:
