@@ -6,7 +6,7 @@ import numpy as np
 
 from visual_dynamics import envs
 from visual_dynamics import policies
-from visual_dynamics.utils.config import ConfigObject
+from visual_dynamics.utils.config import ConfigObject, to_yaml
 from visual_dynamics.utils.rl_util import do_rollouts, discount_returns
 
 
@@ -29,8 +29,7 @@ class ServoingOptimizationAlgorithm(Algorithm):
         self.servoing_pol = servoing_pol
         self.num_trajs = 10 if num_trajs is None else num_trajs
         self.num_steps = 100 if num_steps is None else num_steps
-        if self.env.max_time_steps != self.num_steps:
-            self.env.max_time_steps = self.num_steps
+        self.env.max_time_steps = self.num_steps
         self.gamma = 0.9 if gamma is None else gamma
         self.act_std = 0.2 if act_std is None else act_std
         self.noisy_pol = policies.AdditiveNormalPolicy(servoing_pol, env.action_space, None, act_std=self.act_std)
@@ -84,10 +83,13 @@ class ServoingOptimizationAlgorithm(Algorithm):
         return self.snapshot_prefix + '_iter_%s' % str(self.iter_) + ext
 
     def snapshot(self):
+        model_fname = self.get_snapshot_fname('_model.yaml')
         algorithm_fname = self.get_snapshot_fname('_algorithm.yaml')
         print("Saving algorithm to file", algorithm_fname)
         with open(algorithm_fname, 'w') as algorithm_file:
-            self.to_yaml(algorithm_file)
+            algorithm_config = self.get_config()
+            algorithm_config['servoing_pol']['predictor']['pretrained_fname'] = self.servoing_pol.predictor.save_model(model_fname)
+            to_yaml(algorithm_config, algorithm_file)
 
     def _get_config(self):
         config = super(ServoingOptimizationAlgorithm, self)._get_config()
