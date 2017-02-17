@@ -3,10 +3,11 @@ from __future__ import division, print_function
 import os
 
 import numpy as np
+import yaml
 
 from visual_dynamics import envs
 from visual_dynamics import policies
-from visual_dynamics.utils.config import ConfigObject, to_yaml
+from visual_dynamics.utils.config import ConfigObject
 from visual_dynamics.utils.rl_util import do_rollouts, discount_returns
 
 
@@ -89,7 +90,7 @@ class ServoingOptimizationAlgorithm(Algorithm):
         with open(algorithm_fname, 'w') as algorithm_file:
             algorithm_config = self.get_config()
             algorithm_config['servoing_pol']['predictor']['pretrained_fname'] = self.servoing_pol.predictor.save_model(model_fname)
-            to_yaml(algorithm_config, algorithm_file)
+            yaml.dump(algorithm_config, algorithm_file, width=float('inf'))
 
     def _get_config(self):
         config = super(ServoingOptimizationAlgorithm, self)._get_config()

@@ -13,10 +13,13 @@ class RandomPolicy(TargetPolicy):
         return self.action_space.sample()
 
     def reset(self):
-        state = self.state_space.sample()
-        if isinstance(state, tuple):
-            state = np.concatenate(state)
-        self._state = state
+        if self.state_space is None:
+            state = None
+        else:
+            state = self.state_space.sample()
+            if isinstance(state, tuple):
+                state = np.concatenate(state)
+            self._state = state
         return state
 
     def get_target_state(self):

@@ -510,7 +510,8 @@ class ServoingSgdFittedQIterationAlgorithm(ServoingFittedQIterationAlgorithm):
         # training updates
         learning_rate_var = theano.tensor.scalar(name='learning_rate')
         updates = lasagne.updates.adam(loss_var,
-                                       [self.sqrt_theta_var, self.bias_var],
+                                       [self.sqrt_theta_var, self.bias_var] + \
+                                       list(self.servoing_pol.predictor.get_all_params(trainable=True).values()),
                                        learning_rate=learning_rate_var)
 
         input_vars = [X_var, X_target_var, U_var]

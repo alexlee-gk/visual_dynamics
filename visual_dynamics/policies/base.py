@@ -4,14 +4,14 @@ from visual_dynamics.utils.config import ConfigObject
 class Policy(ConfigObject):
     def act(self, obs):
         """
-        Returns the action of this policies given the observations, and this
+        Returns the action of this policy given the observation, and this
         action may be non-deterministic.
 
         Args:
-            obs: tuple or list of observations
+            obs: observation
 
         Returns:
-            the action of this policies
+            the action of this policy
         """
         raise NotImplementedError
 

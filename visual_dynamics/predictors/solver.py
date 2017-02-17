@@ -9,10 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import theano
 import theano.tensor as T
+import yaml
 
 from visual_dynamics.gui.grid_image_visualizer import GridImageVisualizer
 from visual_dynamics.gui.loss_plotter import LossPlotter
-from visual_dynamics.utils.config import ConfigObject, to_yaml
+from visual_dynamics.utils.config import ConfigObject
 from visual_dynamics.utils.generator import DataGenerator, ParallelGenerator
 from visual_dynamics.utils.math_utils import OnlineStatistics
 from . import layers_theano as LT
@@ -381,7 +382,7 @@ class TheanoNetSolver(ConfigObject):
         with open(model_fname, 'w') as model_file:
             config = net.get_config()
             config['pretrained_fname'] = net.save_model(model_fname)
-            to_yaml(config, model_file)
+            yaml.dump(config, model_file, width=float('inf'))
         solver_fname = self.get_snapshot_fname('_solver.yaml')
         print("Saving solver to file", solver_fname)
         with open(solver_fname, 'w') as solver_file:
