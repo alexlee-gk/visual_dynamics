@@ -44,9 +44,8 @@ class LossPlotter:
             else:
                 plot.set_data(loss_iters, losses)
 
-        ylim = self._ax.get_ylim()
         if self._ax.get_yscale() == 'log':
-            ylim = (min(1, ylim[0]),
+            ylim = (10 ** np.floor(np.log10(np.min([loss for loss in np.concatenate(all_losses) if loss is not None]))),
                     np.max([loss for loss in np.concatenate(all_losses) if loss is not None]))
         else:
             ylim = (np.min([loss for loss in np.concatenate(all_losses) if loss is not None]),
