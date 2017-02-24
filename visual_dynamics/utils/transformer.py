@@ -144,6 +144,7 @@ class NormalizerTransformer(OpsTransformer):
         self._space = None
         self.space = space
         self.transpose = transpose
+        self._data_dtype = None
 
     @property
     def space(self):
@@ -173,6 +174,7 @@ class DepthImageTransformer(OpsTransformer):
         self._space = None
         self.space = space
         self.transpose = transpose
+        self._data_dtype = None
 
     @property
     def space(self):

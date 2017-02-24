@@ -8,6 +8,8 @@ class CarPanda3dEnv(citysim3d.envs.CarPanda3dEnv, Panda3dEnv):
         config = super(CarPanda3dEnv, self)._get_config()
         config.update({'action_space': self.action_space,
                        'sensor_names': self.sensor_names,
+                       'camera_size': self.camera_size,
+                       'camera_hfov': self.camera_hfov,
                        'model_names': self.model_names})
         return config
 

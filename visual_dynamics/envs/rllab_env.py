@@ -4,7 +4,7 @@ from rllab.envs.normalized_env import normalize
 
 from visual_dynamics.envs import Env, ServoingEnv
 from visual_dynamics.spaces import TranslationAxisAngleSpace
-from visual_dynamics.utils.transformer import Transformer, NormalizerTransformer
+from visual_dynamics.utils.transformer import OpsTransformer, NormalizerTransformer
 
 
 class RllabEnv(Env, rllab.envs.base.Env):
@@ -20,12 +20,12 @@ class RllabEnv(Env, rllab.envs.base.Env):
         assert isinstance(env, ServoingEnv)
         self._wrapped_env = env
         self._observation_name = observation_name or 'image'
-        self._transformers = transformers or {self._observation_name: Transformer(),
+        self._transformers = transformers or {self._observation_name: OpsTransformer(transpose=(2, 0, 1)),
                                               'action': NormalizerTransformer(env.action_space)}
 
     def _apply_transform_obs(self, obs):
         obs_transformer = self._transformers[self._observation_name]
-        transformed_obs = [obs_transformer.preprocess(obs_) for obs_ in [obs[self._observation_name],
+        transformed_obs = [obs_transformer.preprocess(obs_) for obs_ in [obs[self.  _observation_name],
                                                                          obs['target_' + self._observation_name]]]
         return np.concatenate(transformed_obs)
 
@@ -52,7 +52,7 @@ class RllabEnv(Env, rllab.envs.base.Env):
     def observation_space(self):
         obs_transformer = self._transformers[self._observation_name]
         obs_space = self._wrapped_env.observation_space.spaces[self._observation_name]
-        assert self._wrapped_env.observation_space.spaces['target_' + self._observation_name] == obs_space
+        # assert self._wrapped_env.observation_space.spaces['target_' + self._observation_name] == obs_space
         transformed_low = obs_transformer.preprocess(obs_space.low * np.ones(obs_space.shape))
         transformed_high = obs_transformer.preprocess(obs_space.high * np.ones(obs_space.shape))
         assert np.all(transformed_low == transformed_low.min())
@@ -75,3 +75,10 @@ class RllabEnv(Env, rllab.envs.base.Env):
         else:
             action[...] = scaled_action
         return obs, reward, done, info
+
+    def _get_config(self):
+        config = super(RllabEnv, self)._get_config()
+        config.update({'env': self._wrapped_env,
+                       'observation_name': self._observation_name,
+                       'transformers': self._transformers})
+        return config

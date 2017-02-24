@@ -1,7 +1,8 @@
+import numpy as np
 import citysim3d.envs
 
 from visual_dynamics.envs import Panda3dEnv
-from visual_dynamics.spaces import Space, TranslationAxisAngleSpace
+from visual_dynamics.spaces import Space, BoxSpace, TranslationAxisAngleSpace
 from visual_dynamics.utils.config import ConfigObject
 
 
@@ -13,11 +14,24 @@ class SimpleQuadPanda3dEnv(citysim3d.envs.SimpleQuadPanda3dEnv, Panda3dEnv):
             car_action_space = Space.create(car_action_space)
         config.update({'action_space': self.action_space,
                        'sensor_names': self.sensor_names,
+                       'camera_size': self.camera_size,
+                       'camera_hfov': self.camera_hfov,
                        'offset': self.offset.tolist(),
                        'car_env_class': self.car_env_class,
                        'car_action_space': car_action_space,
                        'car_model_names': self.car_model_names})
         return config
+
+
+class Point3dSimpleQuadPanda3dEnv(SimpleQuadPanda3dEnv):
+    def __init__(self, action_space, **kwargs):
+        super(Point3dSimpleQuadPanda3dEnv, self).__init__(action_space, **kwargs)
+        self._observation_space.spaces['pos'] = BoxSpace(-np.inf, np.inf, shape=(3,))
+
+    def observe(self):
+        obs = super(Point3dSimpleQuadPanda3dEnv, self).observe()
+        obs['pos'] = np.array(self.car_node.getTransform(self.camera_node).getPos())
+        return obs
 
 
 def main():

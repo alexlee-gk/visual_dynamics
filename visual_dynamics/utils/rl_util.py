@@ -110,7 +110,7 @@ def do_rollouts(env, pol, num_trajs, num_steps, target_distance=0,
     if cv2_record_file:
         import cv2
         fourcc = cv2.VideoWriter_fourcc(*'X264')
-        video_writer = cv2.VideoWriter(cv2_record_file, fourcc, 1.0 / env.dt, env.observation_space.spaces['image'].shape[:2])
+        video_writer = cv2.VideoWriter(cv2_record_file, fourcc, 1.0 / env.dt, env.observation_space.spaces['image'].shape[:2][::-1])
 
     start_time = time.time()
     if verbose:
