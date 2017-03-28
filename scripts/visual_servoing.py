@@ -1,11 +1,12 @@
 from __future__ import division, print_function
 
 import argparse
+
 import yaml
-from citysim3d.envs import ServoingEnv
 
 from visual_dynamics import envs
 from visual_dynamics import policies
+from visual_dynamics.envs import ServoingEnv
 from visual_dynamics.utils.config import from_config
 from visual_dynamics.utils.rl_util import do_rollouts, FeaturePredictorServoingImageVisualizer
 from visual_dynamics.utils.transformer import transfer_image_transformer
@@ -22,7 +23,7 @@ def main():
     parser.add_argument('--record_file', '-r', type=str, default=None)
     parser.add_argument('--target_distance', '-d', type=int, default=0)
     parser.add_argument('--feature_inds', '-i', type=str, help='inds of subset of features to use')
-    parser.add_argument('--w_init', type=float, default=10.0)
+    parser.add_argument('--w_init', type=float, default=1.0)
     parser.add_argument('--lambda_init', type=float, default=1.0)
     args = parser.parse_args()
 

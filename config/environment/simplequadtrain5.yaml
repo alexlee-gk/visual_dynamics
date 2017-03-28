@@ -1,0 +1,13 @@
+class: !!python/name:visual_dynamics.envs.quad_panda3d_env.SimpleQuadPanda3dEnv ''
+action_space:
+  class: !!python/name:visual_dynamics.spaces.translation_axis_angle_space.TranslationAxisAngleSpace ''
+  low: [-10, -10, -10, -1.5707963267948966]
+  high: [10, 10, 10, 1.5707963267948966]
+  axis: [0, 0, 1]
+  dtype: float64
+sensor_names: ['image']
+camera_size: [256, 256]
+camera_hfov: 26.007823885645635
+car_env_class: !!python/name:visual_dynamics.envs.car_panda3d_env.GeometricCarPanda3dEnv ''
+car_model_names: ['mazda6', 'chevrolet_camaro', 'nissan_gt_r_nismo', 'lamborghini_aventador', 'golf5']
+dt: 0.1

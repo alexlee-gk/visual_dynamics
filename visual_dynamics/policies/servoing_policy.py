@@ -6,15 +6,21 @@ import lasagne.layers as L
 import numpy as np
 import theano
 import theano.tensor as T
+import yaml
 
 from visual_dynamics.policies import Policy
-from visual_dynamics.spaces import TranslationAxisAngleSpace, AxisAngleSpace
+from visual_dynamics.spaces import AxisAngleSpace
+from visual_dynamics.spaces import TranslationAxisAngleSpace
 from visual_dynamics.utils import iter_util
-from visual_dynamics.utils.config import from_config
+from visual_dynamics.utils.config import Python2to3Loader
+from visual_dynamics.utils.config import from_config, from_yaml
 
 
 class ServoingPolicy(Policy):
-    def __init__(self, predictor, alpha=1.0, lambda_=0.0, w=1.0, use_constrained_opt=False):
+    def __init__(self, predictor, alpha=1.0, lambda_=0.0, w=1.0, use_constrained_opt=False, unweighted_features=False, algorithm_or_fname=None):
+        if isinstance(predictor, str):
+            with open(predictor) as predictor_file:
+                predictor = from_yaml(predictor_file)
         self.predictor = predictor
         self.action_transformer = self.predictor.transformers['u']
         self.action_space = from_config(self.predictor.environment_config['action_space'])
@@ -30,35 +36,71 @@ class ServoingPolicy(Policy):
         for feature_shape in feature_shapes:
             self.repeats.extend([np.prod(feature_shape[2:])] * feature_shape[1])
         w = np.asarray(w)
-        if np.isscalar(w) or w.ndim == 0:
+        if np.isscalar(w) or w.ndim == 0 or len(w) == 1:
             w = w * np.ones(len(self.repeats))  # numpy fails with augmented assigment
+        elif w.shape == (len(feature_names),):
+            w = np.repeat(w, [feature_shape[1] for feature_shape in feature_shapes])
         assert w.shape == (len(self.repeats),)
         self._w = w
         self._theta = np.append(self._w, self._lambda_)
-        self._w, self._lambda_ = np.split(self._theta, [len(self.w)])  # alias the parameters
+        self._w, self._lambda_ = np.split(self._theta, [len(self._w)])  # alias the parameters
         self.use_constrained_opt = use_constrained_opt
+        self.unweighted_features = unweighted_features
         self.image_name = 'image'
         self.target_image_name = 'target_image'
+
+        if algorithm_or_fname is not None:
+            from visual_dynamics.algorithms import ServoingFittedQIterationAlgorithm
+            if isinstance(algorithm_or_fname, str):
+                with open(algorithm_or_fname) as algorithm_file:
+                    algorithm_config = yaml.load(algorithm_file, Loader=Python2to3Loader)
+                assert issubclass(algorithm_config['class'], ServoingFittedQIterationAlgorithm)
+                mean_returns = algorithm_config['mean_returns']
+                thetas = algorithm_config['thetas']
+            else:
+                algorithm = algorithm_or_fname
+                assert isinstance(algorithm, ServoingFittedQIterationAlgorithm)
+                mean_returns = algorithm.mean_returns
+                thetas = algorithm.thetas
+            print("using parameters based on best returns")
+            best_return, best_theta = max(zip(mean_returns, thetas))
+            print(best_return)
+            print(best_theta)
+            self.theta = best_theta
 
     @property
     def theta(self):
         assert all(self._theta == np.append(self._w, self._lambda_))
-        return self._theta
+        if self.unweighted_features:
+            assert all(self._w == self._w[0])
+            theta = np.append(self.w[0], self.lambda_)
+        else:
+            theta = self._theta
+        return theta
 
     @theta.setter
     def theta(self, theta):
         assert all(self._theta == np.append(self._w, self._lambda_))
-        self._theta[...] = theta
+        if self.unweighted_features:
+            self.w = theta[0]
+            self.lambda_ = theta[1:]
+            assert all(self._w == self._w[0])
+        else:
+            self._theta[...] = theta
 
     @property
     def w(self):
         assert all(self._theta == np.append(self._w, self._lambda_))
+        if self.unweighted_features:
+            assert all(self._w == self._w[0])
         return self._w
 
     @w.setter
     def w(self, w):
         assert all(self._theta == np.append(self._w, self._lambda_))
         self._w[...] = w
+        if self.unweighted_features:
+            assert all(self._w == self._w[0])
 
     @property
     def lambda_(self):
@@ -336,7 +378,8 @@ class ServoingPolicy(Policy):
                        'alpha': self.alpha,
                        'lambda_': self.lambda_.tolist(),
                        'w': self.w.tolist() if self.w is not None else self.w,
-                       'use_constrained_opt': self.use_constrained_opt})
+                       'use_constrained_opt': self.use_constrained_opt,
+                       'unweighted_features': self.unweighted_features})
         return config
 
 
@@ -386,7 +429,7 @@ class TheanoServoingPolicy(ServoingPolicy):
         y_next_pred_vars = [T.flatten(next_feature_var, outdim=2) for next_feature_var in next_feature_vars]
         y_next_pred_vars = [theano.clone(y_next_pred_var, replace={U_var: U_lin_var}) for y_next_pred_var in y_next_pred_vars]
 
-        z_vars = [y_target_var - y_next_pred_var + T.batched_dot(jac_var, U_lin_var)
+        z_vars = [y_target_var - y_next_pred_var + T.batched_tensordot(jac_var, U_lin_var, axes=(2, 1))
                   for (y_target_var, y_next_pred_var, jac_var) in zip(y_target_vars, y_next_pred_vars, jac_vars)]
 
         feature_shapes = L.get_output_shape([self.predictor.pred_layers[name] for name in iter_util.flatten_tree(self.predictor.feature_name)])
@@ -400,10 +443,10 @@ class TheanoServoingPolicy(ServoingPolicy):
             A_split_var, _ = theano.scan(fn=lambda i, jac_split_vars: T.batched_dot(jac_split_vars[i].dimshuffle((0, 2, 1)), jac_split_vars[i]),
                                          sequences=[T.arange(len(jac_split_vars))],
                                          non_sequences=[T.as_tensor(jac_split_vars)])
-            b_split_var, _ = theano.scan(fn=lambda i, jac_split_vars, z_split_vars: T.batched_dot(jac_split_vars[i].dimshuffle((0, 2, 1)), z_split_vars[i]),
+            b_split_var, _ = theano.scan(fn=lambda i, jac_split_vars, z_split_vars: T.batched_tensordot(jac_split_vars[i].dimshuffle((0, 2, 1)), z_split_vars[i], axes=(2, 1)),
                                          sequences=[T.arange(len(jac_split_vars))],
                                          non_sequences=[T.as_tensor(jac_split_vars), T.as_tensor(z_split_vars)])
-            c_split_var, _ = theano.scan(fn=lambda i, z_split_vars: T.batched_dot(z_split_vars[i], z_split_vars[i]),
+            c_split_var, _ = theano.scan(fn=lambda i, z_split_vars: T.batched_tensordot(z_split_vars[i], z_split_vars[i], axes=(1, 1)),
                                          sequences=[T.arange(len(z_split_vars))],
                                          non_sequences=[T.as_tensor(z_split_vars)])
             A_split_vars.append(A_split_var)
@@ -441,8 +484,8 @@ class TheanoServoingPolicy(ServoingPolicy):
         X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
         A_split_var, b_split_var, c_split_var = self._get_A_b_c_split_vars()
 
-        phi_errors_var = (T.batched_dot(T.batched_tensordot(A_split_var.dimshuffle((1, 0, 2, 3)), U_var, axes=(3, 1)), U_var)
-                          - 2 * T.batched_dot(b_split_var.dimshuffle((1, 0, 2)), U_var)
+        phi_errors_var = (T.batched_tensordot(T.batched_tensordot(A_split_var.dimshuffle((1, 0, 2, 3)), U_var, axes=(3, 1)), U_var, axes=(2, 1))
+                          - 2 * T.batched_tensordot(b_split_var.dimshuffle((1, 0, 2)), U_var, axes=(2, 1))
                           + c_split_var.T)
         phi_actions_var = U_var ** 2
         phi_var = T.concatenate([phi_errors_var / self.repeats, phi_actions_var], axis=1)
@@ -463,7 +506,7 @@ class TheanoServoingPolicy(ServoingPolicy):
 
         A_var = T.tensordot(A_split_var, w_var / self.repeats, axes=(0, 0)) + T.diag(lambda_var)
         B_var = T.tensordot(b_split_var, w_var / self.repeats, axes=(0, 0))
-        pi_var = T.batched_dot(T.nlinalg.matrix_inverse(A_var), B_var)  # preprocessed units
+        pi_var = T.batched_tensordot(T.nlinalg.matrix_inverse(A_var), B_var, axes=(2, 1))  # preprocessed units
         return pi_var
 
     def _compile_pi_fn(self):

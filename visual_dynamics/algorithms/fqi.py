@@ -20,18 +20,23 @@ from visual_dynamics.utils.time_util import tic, toc
 class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
     def __init__(self, env, servoing_pol, sampling_iters, algorithm_iters,
                  num_trajs=None, num_steps=None, gamma=None, act_std=None,
-                 iter_=0, thetas=None, mean_discounted_returns=None,
+                 iter_=0, thetas=None, mean_returns=None, std_returns=None,
+                 mean_discounted_returns=None, std_discounted_returns=None,
                  learning_values=None, snapshot_interval=1, snapshot_prefix='',
-                 plot=True, l2_reg=0.0, max_batch_size=1000, max_memory_size=0,
+                 plot=True, skip_validation=False, l2_reg=0.0, max_batch_size=1000, max_memory_size=0,
                  eps=None, fit_alpha_bias=True, opt_fit_bias=False):
         super(ServoingFittedQIterationAlgorithm, self).__init__(env, servoing_pol, sampling_iters,
                                                                 num_trajs=num_trajs, num_steps=num_steps,
                                                                 gamma=gamma, act_std=act_std,
                                                                 iter_=iter_, thetas=thetas,
+                                                                mean_returns=mean_returns,
+                                                                std_returns=std_returns,
                                                                 mean_discounted_returns=mean_discounted_returns,
+                                                                std_discounted_returns=std_discounted_returns,
                                                                 learning_values=learning_values,
                                                                 snapshot_interval=snapshot_interval,
-                                                                snapshot_prefix=snapshot_prefix, plot=plot)
+                                                                snapshot_prefix=snapshot_prefix,
+                                                                plot=plot, skip_validation=skip_validation)
         self.algorithm_iters = algorithm_iters
         self.l2_reg = l2_reg
         self.max_batch_size = max_batch_size
@@ -112,8 +117,25 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
             if self.gamma == 0:
                 Q_sample = R
             else:
-                A_p = self.servoing_pol.pi(S_p, preprocessed=True)
-                phi_p = self.servoing_pol.phi(S_p, A_p, preprocessed=True)
+                if orig_batch_size > self.max_batch_size:
+                    A_p = self.servoing_pol.pi(S_p, preprocessed=True)
+                    phi_p = self.servoing_pol.phi(S_p, A_p, preprocessed=True)
+                else:
+                    if iter_ == 0:  # S_p is fixed across iterations so only compute A_b_c_split values at the first iteration
+                        tic()
+                        A_split, b_split, c_split = self.servoing_pol.A_b_c_split(S_p, preprocessed=True)
+                        toc("\tA_b_c_split")
+                    A_p = np.linalg.solve(
+                        np.tensordot(A_split, self.servoing_pol.w / self.servoing_pol.repeats, axes=(0, 0)) + np.diag(self.servoing_pol.lambda_),
+                        np.tensordot(b_split, self.servoing_pol.w / self.servoing_pol.repeats, axes=(0, 0))
+                    )
+                    A_p = np.array([self.servoing_pol.action_transformer.deprocess(a_p) for a_p in A_p])
+                    for a_p in A_p:
+                        self.servoing_pol.action_space.clip(a_p, out=a_p)
+                    A_p = np.array([self.servoing_pol.action_transformer.preprocess(a_p) for a_p in A_p])
+                    phi_p_errors = np.einsum('injk,nk,nj->ni', A_split, A_p, A_p) - 2 * np.einsum('inj,nj->ni', b_split, A_p) + c_split.T
+                    phi_p_actions = A_p ** 2
+                    phi_p = np.concatenate([phi_p_errors / self.servoing_pol.repeats, phi_p_actions], axis=1)
                 V_p = phi_p.dot(self.theta) + self.bias
                 Q_sample = R + self.gamma * V_p
             toc("\tQ_sample")
@@ -252,7 +274,10 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
         gs = gridspec.GridSpec(1, 2)
         plt.show(block=False)
 
-        return_plotter = LossPlotter(fig, gs[0], format_dicts=[dict(linewidth=2)] * 2, ylabel='mean discounted returns')
+        return_plotter = LossPlotter(fig, gs[0],
+                                     format_dicts=[dict(linewidth=2)] * 2,
+                                     labels=['mean returns / 10', 'mean discounted returns'],
+                                     ylabel='returns')
         return_major_locator = MultipleLocator(1)
         return_major_formatter = FormatStrFormatter('%d')
         return_minor_locator = MultipleLocator(1)
@@ -274,14 +299,14 @@ class ServoingFittedQIterationAlgorithm(ServoingOptimizationAlgorithm):
         return fig, return_plotter, learning_plotter
 
     def visualization_update(self, return_plotter, learning_plotter):
-        return_plotter.update([self.mean_discounted_returns])
+        return_plotter.update([np.asarray(self.mean_returns) * 0.1, self.mean_discounted_returns])
         bellman_errors = self.learning_values
         final_bellman_errors = [bellman_errors_[-1] for bellman_errors_ in bellman_errors]
         final_iters = list(range(1, self.iter_ + 2))
         bellman_errors_flat = [bellman_error for bellman_errors_ in bellman_errors
                                for bellman_error in (list(bellman_errors_) + [None])]
         iters = np.linspace(0, self.iter_ + 1, (self.algorithm_iters + 1) * (self.iter_ + 1) + 1)[1:]
-        iters_flat = [iter_ for iters_ in iters.reshape((-1, self.sampling_iters + 1))
+        iters_flat = [iter_ for iters_ in iters.reshape((-1, self.algorithm_iters + 1))
                       for iter_ in (iters_.tolist() + [None])]
         learning_plotter.update([final_bellman_errors, bellman_errors_flat],
                                 [final_iters[:len(final_bellman_errors)], iters_flat[:len(bellman_errors_flat)]])
@@ -397,7 +422,8 @@ class ServoingPcaFittedQIterationAlgorithm(ServoingFittedQIterationAlgorithm):
 class ServoingSgdFittedQIterationAlgorithm(ServoingFittedQIterationAlgorithm):
     def __init__(self, env, servoing_pol, sampling_iters, algorithm_iters,
                  num_trajs=None, num_steps=None, gamma=None, act_std=None,
-                 iter_=0, thetas=None, mean_discounted_returns=None,
+                 iter_=0, thetas=None, mean_returns=None, std_returns=None,
+                 mean_discounted_returns=None, std_discounted_returns=None,
                  learning_values=None, snapshot_interval=1, snapshot_prefix='',
                  plot=True, l2_reg=0.0, max_batch_size=1000, max_memory_size=0,
                  fit_alpha_bias=True, opt_fit_theta_bias=False, sgd_iters=1000,
@@ -406,7 +432,10 @@ class ServoingSgdFittedQIterationAlgorithm(ServoingFittedQIterationAlgorithm):
                                                num_trajs=num_trajs, num_steps=num_steps,
                                                gamma=gamma, act_std=act_std,
                                                iter_=iter_, thetas=thetas,
+                                               mean_returns=mean_returns,
+                                               std_returns=std_returns,
                                                mean_discounted_returns=mean_discounted_returns,
+                                               std_discounted_returns=std_discounted_returns,
                                                learning_values=learning_values,
                                                snapshot_interval=snapshot_interval,
                                                snapshot_prefix=snapshot_prefix, plot=plot)

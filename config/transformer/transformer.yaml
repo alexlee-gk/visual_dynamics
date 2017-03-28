@@ -1,0 +1,7 @@
+image:
+  class: !!python/name:visual_dynamics.utils.transformer.OpsTransformer ''
+  transpose: !!python/tuple [2, 0, 1]
+
+action:
+  class: !!python/name:visual_dynamics.utils.transformer.NormalizerTransformer ''
+  space: null

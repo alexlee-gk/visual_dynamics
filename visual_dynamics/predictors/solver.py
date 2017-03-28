@@ -285,7 +285,7 @@ class TheanoNetSolver(ConfigObject):
             val_loss = None
         return train_loss, val_loss
 
-    def standarize(self, net, aggregating_batch_size=1000, check=False):
+    def standarize(self, net, aggregating_batch_size=100, check=False):
         start_time = time.time()
         print("Standarizing outputs...")
 

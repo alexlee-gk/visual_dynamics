@@ -36,6 +36,8 @@ class LossPlotter:
                 enumerate(zip(self._plots, self._labels, self._format_strings, self._format_dicts, all_losses)):
             if all_loss_iters is not None and i < len(all_loss_iters) and all_loss_iters[i] is not None:
                 loss_iters = all_loss_iters[i]
+                if None not in loss_iters and None not in losses:
+                    loss_iters, losses = zip(*sorted(zip(loss_iters, losses)))
             else:
                 loss_iters = np.arange(len(losses))
             all_loss_iters_.append(loss_iters)

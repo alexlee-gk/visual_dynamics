@@ -1,46 +1,20 @@
 import argparse
-from collections import OrderedDict
 
-import lasagne
-import lasagne.init as LI
-import lasagne.layers as L
-import lasagne.layers as L
 import lasagne.nonlinearities as LN
-import lasagne.nonlinearities as nl
 import numpy as np
-import numpy as np
-import theano
-import theano
-import theano.tensor as T
-import theano.tensor as T
-import yaml
-from citysim3d.utils import panda3d_util as putil
-from lasagne import init
 from rllab.algos.trpo import TRPO
 from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
-from rllab.baselines.gaussian_mlp_baseline import GaussianMLPBaseline
-from rllab.core.network import ConvNetwork
 from rllab.envs.normalized_env import normalize
 from rllab.misc.instrument import stub, run_experiment_lite
 from rllab.optimizers.conjugate_gradient_optimizer import ConjugateGradientOptimizer
-from rllab.optimizers.lbfgs_optimizer import LbfgsOptimizer
 from rllab.optimizers.penalty_lbfgs_optimizer import PenaltyLbfgsOptimizer
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
-from rllab.regressors.gaussian_conv_regressor import GaussianConvRegressor
-from rllab.sampler.utils import rollout
 
-from visual_dynamics import envs
 from visual_dynamics.envs import ServoingEnv, RllabEnv
 from visual_dynamics.envs import SimpleQuadPanda3dEnv, GeometricCarPanda3dEnv
-from visual_dynamics.policies import TheanoServoingPolicy
-from visual_dynamics.policies.servoing_policy_network import ServoingPolicyNetwork
 from visual_dynamics.policies.vgg_conv_network import VggConvNetwork
-from visual_dynamics.predictors import layers_theano as LT
 from visual_dynamics.spaces import TranslationAxisAngleSpace, BoxSpace
-from visual_dynamics.utils.config import from_config, from_yaml
-from visual_dynamics.utils.transformer import OpsTransformer, NormalizerTransformer
-from visual_dynamics.utils.transformer import transfer_image_transformer
-
+from visual_dynamics.utils.transformer import CompositionTransformer, ImageTransformer, OpsTransformer, NormalizerTransformer
 
 
 stub(globals())
@@ -60,25 +34,26 @@ def main():
     parser.add_argument('--step_size', type=float, default=0.01)
     parser.add_argument('--batch_size', type=int, default=4000)
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--custom_local_flags', type=str, default=None)
     args = parser.parse_args()
 
     np.random.seed(args.seed)
 
-    camera_size, camera_hfov = putil.scale_crop_camera_parameters((640, 480), 60.0, scale_size=0.5, crop_size=(128,) * 2)
-    env = SimpleQuadPanda3dEnv(action_space=TranslationAxisAngleSpace(low=[-20., -10., -10., -1.57079633],
-                                                                      high=[20., 10., 10., 1.57079633],
+    env = SimpleQuadPanda3dEnv(action_space=TranslationAxisAngleSpace(low=[-10., -10., -10., -1.5707963267948966],
+                                                                      high=[10., 10., 10., 1.5707963267948966],
                                                                       axis=[0., 0., 1.]),
                                sensor_names=['image'],
-                               camera_size=camera_size,
-                               camera_hfov=camera_hfov,
-                               offset=[0., -25.98076211, 15.],
+                               camera_size=[256, 256],
+                               camera_hfov=26.007823885645635,
                                car_env_class=GeometricCarPanda3dEnv,
                                car_action_space=BoxSpace(low=[0., 0.],
                                                          high=[0., 0.]),
-                               car_model_names=['camaro2', 'mazda6', 'sport', 'kia_rio_blue', 'kia_rio_red', 'kia_rio_white'],
+                               car_model_names=['mazda6', 'chevrolet_camaro', 'nissan_gt_r_nismo',
+                                                'lamborghini_aventador', 'golf5'],
                                dt=0.1)
     env = ServoingEnv(env)
-    transformers = {'image': OpsTransformer(transpose=(2, 0, 1)),
+    transformers = {'image': CompositionTransformer([ImageTransformer(scale_size=0.5),
+                                                     OpsTransformer(transpose=(2, 0, 1))]),
                     'action': NormalizerTransformer(space=env.action_space)}
     env = RllabEnv(env, transformers=transformers)
     env = normalize(env)
@@ -123,8 +98,7 @@ def main():
                                     conv_filter_sizes=None,
                                     conv_strides=None,
                                     conv_pads=None,
-                                    batchsize=500,
-                                    # TODO: try other max_opt_itr
+                                    batchsize=200,
                                     optimizer=PenaltyLbfgsOptimizer(n_slices=50),
                                 ))
     baseline = GaussianConvBaseline(**conv_baseline_kwargs)
@@ -144,19 +118,15 @@ def main():
         run_experiment_lite(algo.train(),
                             snapshot_mode='gap',
                             snapshot_gap=10,
-                            mode="ec2",
-                            use_gpu=True,
                             seed=args.seed,
+                            custom_local_flags=args.custom_local_flags,
                             resume_from=args.resume_from)
     else:
         run_experiment_lite(algo.train(),
                             snapshot_mode='gap',
                             snapshot_gap=10,
-                            mode="ec2",
-                            use_gpu=True,
-                            seed=args.seed)
-
-    import IPython as ipy; ipy.embed()
+                            seed=args.seed,
+                            custom_local_flags=args.custom_local_flags)
 
 
 if __name__ == '__main__':

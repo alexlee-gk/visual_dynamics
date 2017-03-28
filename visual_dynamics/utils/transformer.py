@@ -119,8 +119,13 @@ class ImageTransformer(Transformer):
         return image
 
     def preprocess_shape(self, shape):
+        need_swap_channels = (len(shape) == 3 and shape[0] == 3)
+        if self.scale_size is not None and self.scale_size != 1.0:
+            if need_swap_channels:
+                shape = (shape[0],) + tuple([int(d * self.scale_size) for d in shape[1:]])
+            else:
+                shape = tuple([int(d * self.scale_size) for d in shape[:-1]]) + (shape[-1],)
         if self.crop_size is not None:
-            need_swap_channels = (len(shape) == 3 and shape[0] == 3)
             if need_swap_channels:
                 shape = (shape[0],) + tuple(self.crop_size)
             else:

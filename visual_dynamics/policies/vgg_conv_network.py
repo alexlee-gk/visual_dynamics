@@ -48,7 +48,7 @@ class VggConvNetwork(object):
         xlevels_c_dim = OrderedDict(zip(range(num_encoding_levels + 1), [3, 64, 128, 256, 512, 512]))
 
         import h5py
-        params_file = h5py.File("models/theano/vgg16_levelsall_model.h5", 'r')
+        params_file = h5py.File("models/theano/vgg16_levelsall_nodyn_model.h5", 'r')
         params_kwargs_list = []
         # encoding
         for ihid, l_hid in enumerate(l_hids):

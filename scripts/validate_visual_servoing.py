@@ -5,10 +5,10 @@ import csv
 import argparse
 import numpy as np
 import yaml
-from citysim3d.envs import ServoingEnv
 
 from visual_dynamics import envs
 from visual_dynamics import policies
+from visual_dynamics.envs import ServoingEnv
 from visual_dynamics.utils.config import from_config
 from visual_dynamics.utils.rl_util import do_rollouts, discount_returns, FeaturePredictorServoingImageVisualizer
 from visual_dynamics.utils.transformer import transfer_image_transformer
@@ -58,7 +58,7 @@ def main():
     print('=' * 60)
 
     if args.output_fname:
-        with open(args.output_fname, 'ab') as csvfile:
+        with open(args.output_fname, 'a') as csvfile:
             writer = csv.writer(csvfile, delimiter='\t', quotechar='|', quoting=csv.QUOTE_MINIMAL)
             writer.writerow(['w_init', 'lambda_init', 'mean', 'standard error'])
 
@@ -75,9 +75,10 @@ def main():
             print(row_format.format(*row_values))
 
             if args.output_fname:
-                with open(args.output_fname, 'ab') as csvfile:
+                with open(args.output_fname, 'a') as csvfile:
                     writer = csv.writer(csvfile, delimiter='\t', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                    writer.writerow([str(value) for value in (row_values + list(discounted_returns))])
+                    writer.writerow([str(value) for value in (row_values + list(discounted_returns))] +
+                                    [str(discounted_return) for discounted_return in discounted_returns])
 
 
 if __name__ == "__main__":

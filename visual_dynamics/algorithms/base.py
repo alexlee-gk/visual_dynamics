@@ -21,8 +21,9 @@ class Algorithm(ConfigObject):
 
 class ServoingOptimizationAlgorithm(Algorithm):
     def __init__(self, env, servoing_pol, sampling_iters, num_trajs=None, num_steps=None, gamma=None, act_std=None,
-                 iter_=0, thetas=None, mean_discounted_returns=None, learning_values=None, snapshot_interval=1,
-                 snapshot_prefix='', plot=True):
+                 iter_=0, thetas=None, mean_returns=None, std_returns=None, mean_discounted_returns=None,
+                 std_discounted_returns=None, learning_values=None, snapshot_interval=1, snapshot_prefix='',
+                 plot=True, skip_validation=False):
         assert isinstance(env, envs.ServoingEnv)
         assert isinstance(servoing_pol, policies.ServoingPolicy)
         self.env = env
@@ -37,11 +38,15 @@ class ServoingOptimizationAlgorithm(Algorithm):
 
         self.iter_ = iter_
         self.thetas = [np.asarray(theta) for theta in thetas] if thetas is not None else []
+        self.mean_returns = [np.asarray(ret) for ret in mean_returns] if mean_returns is not None else []
+        self.std_returns = [np.asarray(ret) for ret in std_returns] if std_returns is not None else []
         self.mean_discounted_returns = [np.asarray(ret) for ret in mean_discounted_returns] if mean_discounted_returns is not None else []
+        self.std_discounted_returns = [np.asarray(ret) for ret in std_discounted_returns] if std_discounted_returns is not None else []
         self.learning_values = [np.asarray(value) for value in learning_values] if learning_values is not None else []
         self.snapshot_interval = snapshot_interval
         self.snapshot_prefix = snapshot_prefix
         self.plot = plot
+        self.skip_validation = skip_validation
 
     def run(self):
         if self.plot:
@@ -51,11 +56,21 @@ class ServoingOptimizationAlgorithm(Algorithm):
         while self.iter_ <= self.sampling_iters:
             print("Iteration {} of {}".format(self.iter_, self.sampling_iters))
             self.thetas.append(self.servoing_pol.theta.copy())
-            _, _, _, rewards = do_rollouts(self.env, self.servoing_pol, self.num_trajs, self.num_steps,
-                                           seeds=np.arange(self.num_trajs))
-            mean_discounted_return = np.mean(discount_returns(rewards, self.gamma))
-            self.mean_discounted_returns.append(mean_discounted_return)
-            print("    mean discounted return = {:.6f}".format(mean_discounted_return))
+            if not self.skip_validation:
+                rewards = do_rollouts(self.env, self.servoing_pol, self.num_trajs, self.num_steps,
+                                      seeds=np.arange(self.num_trajs), ret_rewards_only=True)
+                returns = discount_returns(rewards, 1.0)
+                mean_return = np.mean(returns)
+                std_return = np.std(returns) / np.sqrt(len(returns))
+                self.mean_returns.append(mean_return)
+                self.std_returns.append(std_return)
+                discounted_returns = discount_returns(rewards, self.gamma)
+                mean_discounted_return = np.mean(discounted_returns)
+                std_discounted_return = np.std(discounted_returns) / np.sqrt(len(discounted_returns))
+                self.mean_discounted_returns.append(mean_discounted_return)
+                self.std_discounted_returns.append(std_discounted_return)
+                print("    mean discounted return = {:.6f} ({:.6f})".format(mean_discounted_return, std_discounted_return))
+                print("    mean return = {:.6f} ({:.6f})".format(mean_return, std_return))
 
             if self.iter_ < self.sampling_iters:
                 learning_value = self.iteration()
@@ -66,7 +81,7 @@ class ServoingOptimizationAlgorithm(Algorithm):
                 learning_fig_fname = self.get_snapshot_fname('_learning.pdf')
                 fig.savefig(learning_fig_fname)
 
-            if self.snapshot_interval and self.iter_ % self.snapshot_interval == 0:
+            if self.snapshot_interval and (self.iter_ % self.snapshot_interval == 0 or self.iter_ == self.sampling_iters):
                 self.snapshot()
 
             self.iter_ += 1
@@ -103,8 +118,10 @@ class ServoingOptimizationAlgorithm(Algorithm):
                        'act_std': self.act_std,
                        'iter_': self.iter_,
                        'thetas': [theta.tolist() for theta in self.thetas],
+                       'mean_returns': [ret.tolist() for ret in self.mean_returns],
                        'mean_discounted_returns': [ret.tolist() for ret in self.mean_discounted_returns],
                        'learning_values': [value.tolist() for value in self.learning_values],
                        'snapshot_prefix': self.snapshot_prefix,
-                       'plot': self.plot})
+                       'plot': self.plot,
+                       'skip_validation': self.skip_validation})
         return config

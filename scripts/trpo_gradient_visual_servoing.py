@@ -1,235 +1,138 @@
+import matplotlib
+matplotlib.use('Agg')
+
 import argparse
 
-import lasagne.layers as L
-import numpy as np
-import theano
-import theano.tensor as T
-import yaml
+import lasagne.nonlinearities as LN
+from rllab.algos.trpo import TRPO
+from rllab.baselines.gaussian_conv_baseline import GaussianConvBaseline
 from rllab.envs.normalized_env import normalize
+from rllab.misc.instrument import stub, run_experiment_lite
+from rllab.optimizers.conjugate_gradient_optimizer import ConjugateGradientOptimizer
+from rllab.optimizers.penalty_lbfgs_optimizer import PenaltyLbfgsOptimizer
 from rllab.policies.gaussian_conv_policy import GaussianConvPolicy
-from sandbox.adam.parallel.gaussian_conv_baseline import ParallelGaussianConvBaseline
-from sandbox.adam.parallel.trpo import ParallelTRPO
 
-from visual_dynamics import envs
 from visual_dynamics.envs import ServoingEnv, RllabEnv
+from visual_dynamics.envs import SimpleQuadPanda3dEnv, GeometricCarPanda3dEnv
 from visual_dynamics.policies import TheanoServoingPolicy
-from visual_dynamics.utils.config import from_config, from_yaml
-from visual_dynamics.utils.transformer import transfer_image_transformer
+from visual_dynamics.policies.servoing_policy_network import ServoingPolicyNetwork
+from visual_dynamics.policies.vgg_conv_network import VggConvNetwork
+from visual_dynamics.spaces import TranslationAxisAngleSpace, BoxSpace
+from visual_dynamics.utils.transformer import CompositionTransformer, ImageTransformer, OpsTransformer, NormalizerTransformer
 
 
-class ServoingPolicyNetwork(object):
-    def __init__(self, input_shape, output_dim, servoing_pol,
-                 name=None, input_var=None):
-
-        if name is None:
-            prefix = ""
-        else:
-            prefix = name + "_"
-
-        if len(input_shape) == 3:
-            l_in = L.InputLayer(shape=(None, np.prod(input_shape)), input_var=input_var)
-            l_hid = L.reshape(l_in, ([0],) + input_shape)
-        elif len(input_shape) == 2:
-            l_in = L.InputLayer(shape=(None, np.prod(input_shape)), input_var=input_var)
-            input_shape = (1,) + input_shape
-            l_hid = L.reshape(l_in, ([0],) + input_shape)
-        else:
-            l_in = L.InputLayer(shape=(None,) + input_shape, input_var=input_var)
-            l_hid = l_in
-
-        l_out = TheanoServoingPolicyLayer(l_hid, servoing_pol)
-        self._l_in = l_in
-        self._l_out = l_out
-        self._input_var = l_in.input_var
-
-    @property
-    def input_layer(self):
-        return self._l_in
-
-    @property
-    def output_layer(self):
-        return self._l_out
-
-    @property
-    def input_var(self):
-        return self._l_in.input_var
-
-
-class TheanoServoingPolicyLayer(L.Layer):
-    def __init__(self, incoming, servoing_pol, **kwargs):
-        assert isinstance(servoing_pol, TheanoServoingPolicy)
-        super(TheanoServoingPolicyLayer, self).__init__(incoming, **kwargs)
-
-        assert len(self.input_shape) == 4 and self.input_shape[1] == 6
-        self.action_space = servoing_pol.action_space
-
-        self.sqrt_w_var = self.add_param(np.sqrt(servoing_pol.w).astype(theano.config.floatX), servoing_pol.w.shape, name='sqrt_w')
-        self.sqrt_lambda_var = self.add_param(np.sqrt(servoing_pol.lambda_).astype(theano.config.floatX), servoing_pol.lambda_.shape, name='sqrt_lambda')
-        self.w_var = self.sqrt_w_var ** 2
-        self.lambda_var = self.sqrt_lambda_var ** 2
-
-        self.X_var, U_var, self.X_target_var, self.U_lin_var, alpha_var = servoing_pol.input_vars
-        w_var, lambda_var = servoing_pol.param_vars
-        pi_var = servoing_pol._get_pi_var()
-        self.pi_var = theano.clone(pi_var, replace={w_var: self.w_var,
-                                                    lambda_var: self.lambda_var,
-                                                    alpha_var: np.array(servoing_pol.alpha, dtype=theano.config.floatX)})
-
-    def get_output_shape_for(self, input_shape):
-        return self.action_space.shape
-
-    def get_output_for(self, input, **kwargs):
-        return theano.clone(self.pi_var, replace={self.X_var: input[:, :3, :, :],
-                                                  self.X_target_var: input[:, 3:, :, :],
-                                                  self.U_lin_var: T.zeros((input.shape[0],) + self.action_space.shape)})
+stub(globals())
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('predictor_fname', type=str)
-    parser.add_argument('--image_transformer_fname', type=str)
-    parser.add_argument('--algorithm_fname', type=str)
-    parser.add_argument('--conv_filters', nargs='*', type=int, default=[16, 32])
-    parser.add_argument('--conv_filter_sizes', nargs='*', type=int, default=[8, 4])
-    parser.add_argument('--conv_strides', nargs='*', type=int, default=[4, 2])
-    parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[256])
-    parser.add_argument('--init_std', type=float, default=1.0)
-    parser.add_argument('--n_itr', type=int, default=100)
+    parser.add_argument('--algorithm_fname', type=str, default=None)
+    parser.add_argument('--resume_from', type=str)
+    parser.add_argument('--num_encoding_levels', type=int, default=5)
+    parser.add_argument('--conv_filters', nargs='*', type=int, default=[16, 16])
+    parser.add_argument('--conv_filter_sizes', nargs='*', type=int, default=[4, 4])
+    parser.add_argument('--conv_strides', nargs='*', type=int, default=[2, 2])
+    parser.add_argument('--hidden_sizes', nargs='*', type=int, default=[32, 32])
+    parser.add_argument('--init_std', type=float, default=0.2)
+    parser.add_argument('--n_itr', type=int, default=500)
     parser.add_argument('--step_size', type=float, default=0.01)
-    parser.add_argument('--batch_size', type=int, default=10000)
-    parser.add_argument('--use_static_car', action='store_true')
-    parser.add_argument('--use_convnet', action='store_true')
-    parser.add_argument('--imitation_init', action='store_true')
+    parser.add_argument('--batch_size', type=int, default=4000)
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--custom_local_flags', type=str, default=None)
+    parser.add_argument('--w_init', type=float, nargs='+', default=1.0)
+    parser.add_argument('--lambda_init', type=float, nargs='+', default=1.0)
     args = parser.parse_args()
 
-    # instantiate predictor later since the transformers might need to be updated
-    from visual_dynamics.utils.config import Python2to3Loader
-    with open(args.predictor_fname) as predictor_file:
-        predictor_config = yaml.load(predictor_file, Loader=Python2to3Loader)
-
-    # apply transformations from predictor to environment
-    if args.image_transformer_fname:
-        with open(args.image_transformer_fname) as image_transformer_file:
-            image_transformer = from_yaml(image_transformer_file)
-    else:
-        image_transformer = None
-    if issubclass(predictor_config['environment_config']['class'], envs.Panda3dEnv):
-        transfer_image_transformer(predictor_config, image_transformer)
-
-    # predictor
-    predictor = from_config(predictor_config)
-
-    # environment
-    if issubclass(predictor.environment_config['class'], envs.RosEnv):
-        import rospy
-        rospy.init_node("learn_visual_servoing")
-    env = from_config(predictor.environment_config)
-    if args.use_static_car:
-        env.car_env.speed_offset_space.low = \
-        env.car_env.speed_offset_space.high = np.array([0.0, 4.0])
+    env = SimpleQuadPanda3dEnv(action_space=TranslationAxisAngleSpace(low=[-10., -10., -10., -1.5707963267948966],
+                                                                      high=[10., 10., 10., 1.5707963267948966],
+                                                                      axis=[0., 0., 1.]),
+                               sensor_names=['image'],
+                               camera_size=[256, 256],
+                               camera_hfov=26.007823885645635,
+                               car_env_class=GeometricCarPanda3dEnv,
+                               car_action_space=BoxSpace(low=[0., 0.],
+                                                         high=[0., 0.]),
+                               car_model_names=['mazda6', 'chevrolet_camaro', 'nissan_gt_r_nismo',
+                                                'lamborghini_aventador', 'golf5'],
+                               dt=0.1)
+    # TODO: this should be true but it doesn't work with stubbed objects
+    # assert env.get_config() == environment_config
     env = ServoingEnv(env)
-    env = RllabEnv(env, transformers=predictor.transformers)
+    transformers = {'image': CompositionTransformer([ImageTransformer(scale_size=0.5),
+                                                     OpsTransformer(transpose=(2, 0, 1))]),
+                    'action': NormalizerTransformer(space=env.action_space)}
+    env = RllabEnv(env, transformers=transformers)
     env = normalize(env)
 
-    if args.use_convnet:
-        import lasagne.nonlinearities as LN
-        from rllab.core.network import ConvNetwork
-        assert len(args.conv_filters) == len(args.conv_filter_sizes)
-        assert len(args.conv_filters) == len(args.conv_strides)
-        network_kwargs = dict(
-            input_shape=env.observation_space.shape,
-            output_dim=env.action_space.flat_dim,
-            conv_filters=args.conv_filters,
-            conv_filter_sizes=args.conv_filter_sizes,
-            conv_strides=args.conv_strides,
-            conv_pads=[0] * len(args.conv_filters),
-            hidden_sizes=args.hidden_sizes,
-            hidden_nonlinearity=LN.rectify,
-            output_nonlinearity=None,
-            name="mean_network",
-        )
-        mean_network = ConvNetwork(**network_kwargs)
-    else:
-        # policy
-        servoing_pol = TheanoServoingPolicy(predictor, w=10.0, lambda_=1.0)
-        if args.algorithm_fname:
-            with open(args.algorithm_fname) as algorithm_file:
-                algorithm_config = yaml.load(algorithm_file)
-            best_iter = np.argmax(algorithm_config['mean_discounted_returns'])
-            best_theta = np.asarray(algorithm_config['thetas'][best_iter])
-            servoing_pol.theta = best_theta
-        mean_network = ServoingPolicyNetwork(env.observation_space.shape, env.action_space.flat_dim, servoing_pol)
+    servoing_pol = TheanoServoingPolicy(predictor=args.predictor_fname, w=args.w_init, lambda_=args.lambda_init, algorithm_or_fname=args.algorithm_fname)
+    mean_network = ServoingPolicyNetwork(env.observation_space.shape, env.action_space.flat_dim, servoing_pol)
 
     policy = GaussianConvPolicy(
         env_spec=env.spec,
         init_std=args.init_std,
         mean_network=mean_network,
+        learn_std=False,
     )
 
-    if args.use_convnet and args.imitation_init:
-        from rllab.sampler.utils import rollout
-        from rllab.regressors.gaussian_conv_regressor import GaussianConvRegressor
-        from rllab.optimizers.lbfgs_optimizer import LbfgsOptimizer
-        servoing_pol = TheanoServoingPolicy(predictor, w=10.0, lambda_=1.0)
-        if args.algorithm_fname:
-            with open(args.algorithm_fname) as algorithm_file:
-                algorithm_config = yaml.load(algorithm_file)
-            best_iter = np.argmax(algorithm_config['mean_discounted_returns'])
-            best_theta = np.asarray(algorithm_config['thetas'][best_iter])
-            servoing_pol.theta = best_theta
-        expert_mean_network = ServoingPolicyNetwork(env.observation_space.shape, env.action_space.flat_dim, servoing_pol)
-        expert_policy = GaussianConvPolicy(
-            env_spec=env.spec,
-            init_std=args.init_std,
-            mean_network=expert_mean_network,
-        )
-        optimizer = LbfgsOptimizer(max_opt_itr=1000)
-        regressor = GaussianConvRegressor('imitation_regressor', policy.observation_space.shape, policy.action_space.flat_dim, None, None, None, None, None,
-                                          mean_network=mean_network, optimizer=optimizer, use_trust_region=False)
-
-        observations = []
-        actions = []
-        for traj_iter in range(10):
-            d = rollout(env, expert_policy, max_path_length=100)
-            observations.append(d['observations'])
-            actions.append(d['actions'])
-        observations = np.concatenate(observations)
-        actions = np.concatenate(actions)
-        regressor.fit(observations, actions)
-        np.set_printoptions(suppress=True)
-        print(regressor.predict(observations)[:10])
-        print(actions[:10])
-
-    baseline = ParallelGaussianConvBaseline(
-        env_spec=env.spec,
-        regressor_args=dict(
-            use_trust_region=True,
-            step_size=args.step_size,
-            normalize_inputs=True,
-            normalize_outputs=True,
-            hidden_sizes=args.hidden_sizes,
-            conv_filters=args.conv_filters,
-            conv_filter_sizes=args.conv_filter_sizes,
-            conv_strides=args.conv_strides,
-            conv_pads=[0] * len(args.conv_filters),
-            batchsize=args.batch_size * 10,
-            optimizer=None,
-        )
+    assert len(args.conv_filters) == len(args.conv_filter_sizes)
+    assert len(args.conv_filters) == len(args.conv_strides)
+    network_kwargs = dict(
+        num_encoding_levels=args.num_encoding_levels,
+        conv_filters=args.conv_filters,
+        conv_filter_sizes=args.conv_filter_sizes,
+        conv_strides=args.conv_strides,
+        conv_pads=[0] * len(args.conv_filters),
+        hidden_sizes=args.hidden_sizes,
+        hidden_nonlinearity=LN.rectify,
+        output_nonlinearity=None,
+        name="mean_network"
     )
 
-    algo = ParallelTRPO(
-        env=env,
-        policy=policy,
-        baseline=baseline,
-        batch_size=args.batch_size,
-        max_path_length=100,
-        n_itr=args.n_itr,
-        discount=0.9,
-        step_size=args.step_size,
-        n_parallel=8,
-    )
-    algo.train()
-    import IPython as ipy; ipy.embed()
+    conv_baseline_kwargs = dict(env_spec=env.spec,
+                                regressor_args=dict(
+                                    mean_network=VggConvNetwork(
+                                        input_shape=env.observation_space.shape,
+                                        output_dim=1,
+                                        **network_kwargs),
+                                    use_trust_region=True,
+                                    step_size=args.step_size,
+                                    normalize_inputs=True,
+                                    normalize_outputs=True,
+                                    hidden_sizes=None,
+                                    conv_filters=None,
+                                    conv_filter_sizes=None,
+                                    conv_strides=None,
+                                    conv_pads=None,
+                                    batchsize=200,
+                                    optimizer=PenaltyLbfgsOptimizer(n_slices=50),
+                                ))
+    baseline = GaussianConvBaseline(**conv_baseline_kwargs)
+
+    algo = TRPO(env=env,
+                policy=policy,
+                baseline=baseline,
+                batch_size=args.batch_size,
+                max_path_length=100,
+                n_itr=args.n_itr,
+                discount=0.9,
+                step_size=args.step_size,
+                optimizer=ConjugateGradientOptimizer(num_slices=50),
+                )
+
+    if args.resume_from:
+        run_experiment_lite(algo.train(),
+                            snapshot_mode='gap',
+                            snapshot_gap=1,
+                            seed=args.seed,
+                            custom_local_flags=args.custom_local_flags,
+                            resume_from=args.resume_from)
+    else:
+        run_experiment_lite(algo.train(),
+                            snapshot_mode='gap',
+                            snapshot_gap=1,
+                            seed=args.seed,
+                            custom_local_flags=args.custom_local_flags)
 
 
 if __name__ == '__main__':

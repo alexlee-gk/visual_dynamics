@@ -10,7 +10,10 @@ import theano
 import theano.tensor as T
 
 from visual_dynamics.utils import iter_util
-from visual_dynamics.utils import visualization_theano
+try:
+    from visual_dynamics.utils import visualization_theano
+except ImportError:
+    visualization_theano = None
 from visual_dynamics.utils.config import ConfigObject, from_yaml
 from visual_dynamics.utils.container import MultiDataContainer
 from visual_dynamics.utils.transformer import Transformer
@@ -60,7 +63,8 @@ class TheanoNetPredictor(predictor.NetPredictor, ConfigObject):
             self.copy_from(pretrained_fname)
         # draw net and save to file
         net_graph_fname = os.path.join(self.get_model_dir(), 'net_graph.png')
-        visualization_theano.draw_to_file(self.get_all_layers(), net_graph_fname, output_shape=True, verbose=True)
+        if visualization_theano is not None:
+            visualization_theano.draw_to_file(self.get_all_layers(), net_graph_fname, output_shape=True, verbose=True)
         self._draw_fig_num = None
         # self.draw()
         self.solvers = solvers or []

@@ -2070,6 +2070,7 @@ def create_bilinear_layer(l_xlevel, l_u, level, bilinear_type='share', name=None
         set_layer_param_tags(l_xlevel_diff_pred_jac, transformation=True, **{'level%d' % level: True})
     elif bilinear_type == 'channelwise_full':
         l_x_shape = L.get_output_shape(l_xlevel)
+        l_x_shape = tuple([int(d) if d is not None else d for d in l_x_shape])
         _, u_dim = L.get_output_shape(l_u)
         l_xlevel_fcs = []
         for i in range(u_dim + 1):
@@ -2080,7 +2081,6 @@ def create_bilinear_layer(l_xlevel, l_u, level, bilinear_type='share', name=None
             l_xlevel_fcs.append(l_xlevel_fc)
         l_xlevel_diff_pred = BatchwiseSumLayer(l_xlevel_fcs + [l_u], name=name)
         set_layer_param_tags(l_xlevel_diff_pred, transformation=True, **{'level%d' % level: True})
-
         l_linear_outputs = l_xlevel_fcs[:-1]
         l_xlevel_diff_pred_jac = L.concat([L.dimshuffle(L.flatten(l_linear_output, outdim=2), (0, 1, 'x'))
                                            for l_linear_output in l_linear_outputs], axis=-1)

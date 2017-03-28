@@ -163,3 +163,10 @@ class ConfigObject(object):
         if cls != cls_other:
             raise ValueError('this class %r is different from class in config %r' % (cls, cls_other))
         return instance
+
+    def __getstate__(self):
+        return self.get_config()
+
+    def __setstate__(self, d):
+        instance = from_config(d)
+        self.__dict__.update(instance.__dict__)

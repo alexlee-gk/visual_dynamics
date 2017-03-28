@@ -29,7 +29,7 @@ def main():
 
     if args.reset_states_fname:
         with open(args.reset_states_fname, 'w') as reset_state_file:
-            to_yaml(dict(environment_config=env_config,
+            to_yaml(dict(environment_config=env.get_config(),
                          reset_states=[reset_state.tolist() for reset_state in reset_states]),
                     reset_state_file)
 
