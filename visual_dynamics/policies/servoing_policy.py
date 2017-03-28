@@ -386,6 +386,12 @@ class ServoingPolicy(Policy):
 class TheanoServoingPolicy(ServoingPolicy):
     def __init__(self, *args, **kwargs):
         super(TheanoServoingPolicy, self).__init__(*args, **kwargs)
+        self.jac_fn = None
+        self.jac_z_fn = None
+        self.A_b_c_split2_fn = None
+        self.phi2_fn = None
+        self.pi2_fn = None
+        self.A_b_c_split_fn = None
         self.phi_fn = None
         self.pi_fn = None
         X_var, U_var = self.predictor.input_vars
@@ -407,6 +413,99 @@ class TheanoServoingPolicy(ServoingPolicy):
         #     self.max_batch_size = (100 * 128 * 3) // len(self.repeats)
         #     print("Using maximum batch size of %d" % self.max_batch_size)
         assert self.max_batch_size > 0
+
+    def _get_jac_vars(self):
+        if not self.predictor.feature_jacobian_name:
+            raise NotImplementedError
+
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+
+        names = [self.predictor.feature_name, self.predictor.feature_jacobian_name, self.predictor.next_feature_name]
+        vars_ = L.get_output([self.predictor.pred_layers[name] for name in iter_util.flatten_tree(names)], deterministic=True)
+        feature_vars, jac_vars, next_feature_vars = iter_util.unflatten_tree(names, vars_)
+
+        y_vars = [T.flatten(feature_var, outdim=2) for feature_var in feature_vars]
+        y_target_vars = [theano.clone(y_var, replace={X_var: X_target_var}) for y_var in y_vars]
+        y_target_vars = [theano.ifelse.ifelse(T.eq(alpha_var, 1.0),
+                                              y_target_var,
+                                              alpha_var * y_target_var + (1 - alpha_var) * y_var)
+                         for (y_var, y_target_var) in zip(y_vars, y_target_vars)]
+
+        jac_vars = [theano.clone(jac_var, replace={U_var: U_lin_var}) for jac_var in jac_vars]
+        return jac_vars
+
+    def _get_jac_z_vars(self):
+        if not self.predictor.feature_jacobian_name:
+            raise NotImplementedError
+
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+
+        names = [self.predictor.feature_name, self.predictor.feature_jacobian_name, self.predictor.next_feature_name]
+        vars_ = L.get_output([self.predictor.pred_layers[name] for name in iter_util.flatten_tree(names)], deterministic=True)
+        feature_vars, jac_vars, next_feature_vars = iter_util.unflatten_tree(names, vars_)
+
+        y_vars = [T.flatten(feature_var, outdim=2) for feature_var in feature_vars]
+        y_target_vars = [theano.clone(y_var, replace={X_var: X_target_var}) for y_var in y_vars]
+        y_target_vars = [theano.ifelse.ifelse(T.eq(alpha_var, 1.0),
+                                              y_target_var,
+                                              alpha_var * y_target_var + (1 - alpha_var) * y_var)
+                         for (y_var, y_target_var) in zip(y_vars, y_target_vars)]
+
+        jac_vars = [theano.clone(jac_var, replace={U_var: U_lin_var}) for jac_var in jac_vars]
+        y_next_pred_vars = [T.flatten(next_feature_var, outdim=2) for next_feature_var in next_feature_vars]
+        y_next_pred_vars = [theano.clone(y_next_pred_var, replace={U_var: U_lin_var}) for y_next_pred_var in y_next_pred_vars]
+
+        z_vars = [y_target_var - y_next_pred_var + T.batched_tensordot(jac_var, U_lin_var, axes=(2, 1))
+                  for (y_target_var, y_next_pred_var, jac_var) in zip(y_target_vars, y_next_pred_vars, jac_vars)]
+        return jac_vars, z_vars
+
+    def _get_pi2_var(self):
+        if not self.predictor.feature_jacobian_name:
+            raise NotImplementedError
+
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+
+        names = [self.predictor.feature_name, self.predictor.feature_jacobian_name, self.predictor.next_feature_name]
+        vars_ = L.get_output([self.predictor.pred_layers[name] for name in iter_util.flatten_tree(names)], deterministic=True)
+        feature_vars, jac_vars, next_feature_vars = iter_util.unflatten_tree(names, vars_)
+
+        y_vars = [T.flatten(feature_var, outdim=2) for feature_var in feature_vars]
+        y_target_vars = [theano.clone(y_var, replace={X_var: X_target_var}) for y_var in y_vars]
+        y_target_vars = [theano.ifelse.ifelse(T.eq(alpha_var, 1.0),
+                                              y_target_var,
+                                              alpha_var * y_target_var + (1 - alpha_var) * y_var)
+                         for (y_var, y_target_var) in zip(y_vars, y_target_vars)]
+
+        jac_vars = [theano.clone(jac_var, replace={U_var: U_lin_var}) for jac_var in jac_vars]
+        y_next_pred_vars = [T.flatten(next_feature_var, outdim=2) for next_feature_var in next_feature_vars]
+        y_next_pred_vars = [theano.clone(y_next_pred_var, replace={U_var: U_lin_var}) for y_next_pred_var in y_next_pred_vars]
+
+        z_vars = [y_target_var - y_next_pred_var + T.batched_tensordot(jac_var, U_lin_var, axes=(2, 1))
+                  for (y_target_var, y_next_pred_var, jac_var) in zip(y_target_vars, y_next_pred_vars, jac_vars)]
+
+        feature_shapes = L.get_output_shape([self.predictor.pred_layers[name] for name in iter_util.flatten_tree(self.predictor.feature_name)])
+
+        w_var, lambda_var = self.param_vars
+
+        A_var = None
+        b_var = None
+        normalized_w_vars = T.split(w_var / self.repeats, [feature_shape[1] for feature_shape in feature_shapes], len(feature_shapes))
+        for jac_var, z_var, normalized_w_var, feature_shape in zip(jac_vars, z_vars, normalized_w_vars, feature_shapes):
+            z_var = T.flatten(z_var)
+            jac_var = T.reshape(jac_var, (feature_shape[1], -1, self.action_space.shape[0]))
+            jac_w_var = T.reshape(jac_var * normalized_w_var[:, None, None], (-1, self.action_space.shape[0]))
+            jac_var = jac_var.reshape((-1, self.action_space.shape[0]))
+            if A_var is None:
+                A_var = jac_var.T.dot(jac_w_var)
+            else:
+                A_var += jac_var.T.dot(jac_w_var)
+            if b_var is None:
+                b_var = z_var.dot(jac_w_var)
+            else:
+                b_var += z_var.dot(jac_w_var)
+        A_var += T.diag(lambda_var)
+        pi_var = T.dot(T.nlinalg.matrix_inverse(A_var), b_var)  # preprocessed units
+        return pi_var
 
     def _get_A_b_c_split_vars(self):
         if not self.predictor.feature_jacobian_name:
@@ -477,6 +576,55 @@ class TheanoServoingPolicy(ServoingPolicy):
 
         return A_split_var, b_split_var, c_split_var
 
+    def _get_A_b_c_split2_vars(self):
+        """
+        Like _get_A_b_c_split2_vars() except that the first two dimensions of
+        A_split_var, b_split_var, c_split_var are the batch size and the
+        number of channels, instead of the other way around.
+        """
+        if not self.predictor.feature_jacobian_name:
+            raise NotImplementedError
+
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+
+        names = [self.predictor.feature_name, self.predictor.feature_jacobian_name, self.predictor.next_feature_name]
+        vars_ = L.get_output([self.predictor.pred_layers[name] for name in iter_util.flatten_tree(names)], deterministic=True)
+        feature_vars, jac_vars, next_feature_vars = iter_util.unflatten_tree(names, vars_)
+
+        y_vars = [T.flatten(feature_var, outdim=2) for feature_var in feature_vars]
+        y_target_vars = [theano.clone(y_var, replace={X_var: X_target_var}) for y_var in y_vars]
+        y_target_vars = [theano.ifelse.ifelse(T.eq(alpha_var, 1.0),
+                                              y_target_var,
+                                              alpha_var * y_target_var + (1 - alpha_var) * y_var)
+                         for (y_var, y_target_var) in zip(y_vars, y_target_vars)]
+
+        jac_vars = [theano.clone(jac_var, replace={U_var: U_lin_var}) for jac_var in jac_vars]
+        y_next_pred_vars = [T.flatten(next_feature_var, outdim=2) for next_feature_var in next_feature_vars]
+        y_next_pred_vars = [theano.clone(y_next_pred_var, replace={U_var: U_lin_var}) for y_next_pred_var in y_next_pred_vars]
+
+        z_vars = [y_target_var - y_next_pred_var + T.batched_tensordot(jac_var, U_lin_var, axes=(2, 1))
+                  for (y_target_var, y_next_pred_var, jac_var) in zip(y_target_vars, y_next_pred_vars, jac_vars)]
+
+        feature_shapes = L.get_output_shape([self.predictor.pred_layers[name] for name in iter_util.flatten_tree(self.predictor.feature_name)])
+
+        u_dim, = self.action_space.shape
+        A_split_vars = []
+        b_split_vars = []
+        c_split_vars = []
+        for jac_var, z_var, feature_shape in zip(jac_vars, z_vars, feature_shapes):
+            z_var = z_var.reshape((-1, np.prod(feature_shape[2:])))
+            jac_var = jac_var.reshape((-1, np.prod(feature_shape[2:]), u_dim))
+            A_split_var = T.batched_tensordot(jac_var, jac_var, axes=(1, 1))
+            b_split_var = T.batched_tensordot(jac_var, z_var, axes=(1, 1))
+            c_split_var = T.batched_tensordot(z_var, z_var, axes=(1, 1))
+            A_split_vars.append(A_split_var.reshape((-1, feature_shape[1], u_dim, u_dim)))
+            b_split_vars.append(b_split_var.reshape((-1, feature_shape[1], u_dim)))
+            c_split_vars.append(c_split_var.reshape((-1, feature_shape[1])))
+        A_split_var = T.concatenate(A_split_vars, axis=1)
+        b_split_var = T.concatenate(b_split_vars, axis=1)
+        c_split_var = T.concatenate(c_split_vars, axis=1)
+        return A_split_var, b_split_var, c_split_var
+
     def _get_A_b_split_vars(self):
         pass
 
@@ -500,6 +648,26 @@ class TheanoServoingPolicy(ServoingPolicy):
         print("... finished in %.2f s" % (time.time() - start_time))
         return phi_fn
 
+    def _get_phi2_var(self):
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+        A_split_var, b_split_var, c_split_var = self._get_A_b_c_split2_vars()
+
+        phi_errors_var = (T.batched_tensordot(T.batched_tensordot(A_split_var, U_var, axes=(3, 1)), U_var, axes=(2, 1))
+                          - 2 * T.batched_tensordot(b_split_var, U_var, axes=(2, 1))
+                          + c_split_var)
+        phi_actions_var = U_var ** 2
+        phi_var = T.concatenate([phi_errors_var / self.repeats, phi_actions_var], axis=1)
+        return phi_var
+
+    def _compile_phi2_fn(self):
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+        phi_var = self._get_phi2_var()
+        start_time = time.time()
+        print("Compiling phi2 function...")
+        phi2_fn = theano.function([X_var, U_var, X_target_var, U_lin_var, alpha_var], phi_var, on_unused_input='warn', allow_input_downcast=True)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return phi2_fn
+
     def _get_pi_var(self):
         w_var, lambda_var = self.param_vars
         A_split_var, b_split_var, _ = self._get_A_b_c_split_vars()
@@ -519,7 +687,134 @@ class TheanoServoingPolicy(ServoingPolicy):
         print("... finished in %.2f s" % (time.time() - start_time))
         return pi_fn
 
-    def phi(self, observations, actions, preprocessed=False):
+    def _compile_jac_fn(self):
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+        jac_vars = self._get_jac_vars()
+        start_time = time.time()
+        print("Compiling jac function...")
+        jac_fn = theano.function([X_var, U_lin_var],  # U_lin_var should be unused
+                                  jac_vars,
+                                  on_unused_input='warn',
+                                  allow_input_downcast=True)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return jac_fn
+
+    def jac(self, observations, preprocessed=False):
+        if self.w.shape != (len(self.repeats),):
+            raise NotImplementedError
+        batch_size = len(observations)
+        if preprocessed:
+            batch_image = np.array([obs['image'] for obs in observations])
+        else:
+            batch_image, = self.predictor.preprocess([[obs['image'] for obs in observations]], batch_size)
+        action_lin = np.zeros(self.action_space.shape)
+        u_lin = self.action_transformer.preprocess(action_lin)
+        batch_u_lin = np.array([u_lin] * batch_size)
+
+        if self.jac_fn is None:
+            self.jac_fn = self._compile_jac_fn()
+        jac = self.jac_fn(batch_image, batch_u_lin)
+        return jac
+
+    def _compile_jac_z_fn(self):
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+        jac_vars, z_vars = self._get_jac_z_vars()
+        start_time = time.time()
+        print("Compiling jac_z function...")
+        jac_z_fn = theano.function([X_var, X_target_var, U_lin_var, alpha_var],
+                                   jac_vars + z_vars,
+                                   on_unused_input='warn',
+                                   allow_input_downcast=True)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return jac_z_fn
+
+    def jac_z(self, observations, preprocessed=False):
+        if self.w.shape != (len(self.repeats),):
+            raise NotImplementedError
+        batch_size = len(observations)
+        if preprocessed:
+            batch_image = np.array([obs['image'] for obs in observations])
+            batch_target_image = np.array([obs['target_image'] for obs in observations])
+        else:
+            batch_image, = self.predictor.preprocess([[obs['image'] for obs in observations]], batch_size)
+            batch_target_image, = self.predictor.preprocess([[obs['target_image'] for obs in observations]], batch_size)
+        action_lin = np.zeros(self.action_space.shape)
+        u_lin = self.action_transformer.preprocess(action_lin)
+        batch_u_lin = np.array([u_lin] * batch_size)
+
+        if self.jac_z_fn is None:
+            self.jac_z_fn = self._compile_jac_z_fn()
+        jac_z = self.jac_z_fn(batch_image, batch_target_image, batch_u_lin, self.alpha)
+        jac, z = jac_z[:len(jac_z) // 2], jac_z[len(jac_z) // 2:]
+        return jac, z
+
+    def _compile_pi2_fn(self):
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+        w_var, lambda_var = self.param_vars
+        pi_var = self._get_pi2_var()
+        start_time = time.time()
+        print("Compiling pi2 function...")
+        pi2_fn = theano.function([X_var, X_target_var, U_lin_var, alpha_var, w_var, lambda_var],
+                                 pi_var,
+                                 on_unused_input='warn',
+                                 allow_input_downcast=True)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return pi2_fn
+
+    def _compile_A_b_c_split2_fn(self):
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+        A_split_var, b_split_var, c_split_var = self._get_A_b_c_split2_vars()
+        start_time = time.time()
+        print("Compiling A_b_c2 function...")
+        A_b_c_split2_fn = theano.function([X_var, X_target_var, U_lin_var, alpha_var],
+                                         [A_split_var, b_split_var, c_split_var],
+                                         on_unused_input='warn',
+                                         allow_input_downcast=True)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return A_b_c_split2_fn
+
+    def A_b_c_split2(self, observations, preprocessed=False):
+        """
+        Corresponds to the linearized objective
+
+        The following should be true
+        actions_pi = self.pi(states)
+        actions_act = [self.act(state) for state in states]
+        assert np.allclose(actions_pi, actions_act)
+        """
+        if self.w.shape != (len(self.repeats),):
+            raise NotImplementedError
+        batch_size = len(observations)
+        if batch_size <= self.max_batch_size:
+            if preprocessed:
+                batch_image = np.array([obs['image'] for obs in observations])
+                batch_target_image = np.array([obs['target_image'] for obs in observations])
+            else:
+                batch_image, = self.predictor.preprocess([[obs['image'] for obs in observations]], batch_size)
+                batch_target_image, = self.predictor.preprocess([[obs['target_image'] for obs in observations]], batch_size)
+            action_lin = np.zeros(self.action_space.shape)
+            u_lin = self.action_transformer.preprocess(action_lin)
+            batch_u_lin = np.array([u_lin] * batch_size)
+
+            if self.A_b_c_split2_fn is None:
+                self.A_b_c_split2_fn = self._compile_A_b_c_split2_fn()
+            A_split, b_split, c_split = self.A_b_c_split2_fn(batch_image, batch_target_image, batch_u_lin, self.alpha)
+            return A_split, b_split, c_split
+        else:
+            A_split, b_split, c_split = None, None, None
+            for i in range(0, batch_size, self.max_batch_size):
+                s = slice(i, min(i + self.max_batch_size, batch_size))
+                minibatch_A_split, minibatch_b_split, minibatch_c_split = self.A_b_c_split2(observations[s], preprocessed=preprocessed)
+                if A_split is None:
+                    A_split = np.empty((batch_size,) + minibatch_A_split.shape[1:])
+                    b_split = np.empty((batch_size,) + minibatch_b_split.shape[1:])
+                    c_split = np.empty((batch_size,) + minibatch_c_split.shape[1:])
+                A_split[s] = minibatch_A_split
+                b_split[s] = minibatch_b_split
+                c_split[s] = minibatch_c_split
+            return A_split, b_split, c_split
+
+    def phi2(self, observations, actions, preprocessed=False):
         """
         Corresponds to the linearized objective
 
@@ -544,21 +839,53 @@ class TheanoServoingPolicy(ServoingPolicy):
             u_lin = self.action_transformer.preprocess(action_lin)
             batch_u_lin = np.array([u_lin] * batch_size)
 
-            if self.phi_fn is None:
-                self.phi_fn = self._compile_phi_fn()
-            phi = self.phi_fn(batch_image, batch_u, batch_target_image, batch_u_lin, self.alpha)
+            if self.phi2_fn is None:
+                self.phi2_fn = self._compile_phi2_fn()
+            phi = self.phi2_fn(batch_image, batch_u, batch_target_image, batch_u_lin, self.alpha)
             return phi
         else:
             phi = None
             for i in range(0, batch_size, self.max_batch_size):
                 s = slice(i, min(i + self.max_batch_size, batch_size))
-                minibatch_phi = self.phi(observations[s], actions[s], preprocessed=preprocessed)
+                minibatch_phi = self.phi2(observations[s], actions[s], preprocessed=preprocessed)
                 if phi is None:
                     phi = np.empty((batch_size,) + minibatch_phi.shape[1:])
                 phi[s] = minibatch_phi
             return phi
 
-    def pi(self, observations, preprocessed=False):
+    def pi2(self, observations, preprocessed=False):
+        if self.w.shape != (len(self.repeats),):
+            raise NotImplementedError
+        batch_size = len(observations)
+        assert batch_size == 1
+        if preprocessed:
+            batch_image = np.array([obs['image'] for obs in observations])
+            batch_target_image = np.array([obs['target_image'] for obs in observations])
+        else:
+            batch_image, = self.predictor.preprocess([[obs['image'] for obs in observations]], batch_size)
+            batch_target_image, = self.predictor.preprocess([[obs['target_image'] for obs in observations]], batch_size)
+        action_lin = np.zeros(self.action_space.shape)
+        u_lin = self.action_transformer.preprocess(action_lin)
+        batch_u_lin = np.array([u_lin] * batch_size)
+
+        if self.pi2_fn is None:
+            self.pi2_fn = self._compile_pi2_fn()
+        pi = self.pi2_fn(batch_image, batch_target_image, batch_u_lin, self.alpha, self.w, self.lambda_)
+        return pi
+
+    def _compile_A_b_c_split_fn(self):
+        X_var, U_var, X_target_var, U_lin_var, alpha_var = self.input_vars
+        A_split_var, b_split_var, c_split_var = self._get_A_b_c_split_vars()
+        start_time = time.time()
+        print("Compiling A_b_c function...")
+        A_b_c_split_fn = theano.function([X_var, X_target_var, U_lin_var, alpha_var],
+                                         [A_split_var, b_split_var, c_split_var],
+                                         on_unused_input='warn',
+                                         allow_input_downcast=True)
+        print("... finished in %.2f s" % (time.time() - start_time))
+        return A_b_c_split_fn
+
+    def A_b_c_split(self, observations, preprocessed=False):
         """
         Corresponds to the linearized objective
 
@@ -581,10 +908,126 @@ class TheanoServoingPolicy(ServoingPolicy):
             u_lin = self.action_transformer.preprocess(action_lin)
             batch_u_lin = np.array([u_lin] * batch_size)
 
-            if self.pi_fn is None:
-                self.pi_fn = self._compile_pi_fn()
-            batch_u = self.pi_fn(batch_image, batch_target_image, batch_u_lin, self.alpha, self.w, self.lambda_)
+            if self.A_b_c_split_fn is None:
+                self.A_b_c_split_fn = self._compile_A_b_c_split_fn()
+            A_split, b_split, c_split = self.A_b_c_split_fn(batch_image, batch_target_image, batch_u_lin, self.alpha)
+            return A_split, b_split, c_split
+        else:
+            A_split, b_split, c_split = None, None, None
+            for i in range(0, batch_size, self.max_batch_size):
+                s = slice(i, min(i + self.max_batch_size, batch_size))
+                minibatch_A_split, minibatch_b_split, minibatch_c_split = self.A_b_c_split(observations[s], preprocessed=preprocessed)
+                if A_split is None:
+                    A_split = np.empty((minibatch_A_split.shape[0], batch_size) + minibatch_A_split.shape[2:])
+                    b_split = np.empty((minibatch_b_split.shape[0], batch_size) + minibatch_b_split.shape[2:])
+                    c_split = np.empty((minibatch_c_split.shape[0], batch_size) + minibatch_c_split.shape[2:])
+                A_split[:, s] = minibatch_A_split
+                b_split[:, s] = minibatch_b_split
+                c_split[:, s] = minibatch_c_split
+            return A_split, b_split, c_split
 
+    def phi(self, observations, actions, preprocessed=False, use_fn=True):
+        """
+        Corresponds to the linearized objective
+
+        The following should be true
+        phi = self.phi(states, actions)
+        theta = np.append(self.w, self.lambda_)
+        linearized_objectives = [self.linearized_objective(state, action, with_constant=False) for (state, action) in zip(states, actions)]
+        objectives = phi.dot(theta)
+        assert np.allclose(objectives, linearized_objectives)
+        """
+        if use_fn:
+            batch_size = len(observations)
+            if batch_size <= self.max_batch_size:
+                if preprocessed:
+                    batch_image = np.array([obs['image'] for obs in observations])
+                    batch_target_image = np.array([obs['target_image'] for obs in observations])
+                    batch_u = np.array(actions)
+                else:
+                    batch_image, = self.predictor.preprocess([[obs['image'] for obs in observations]], batch_size)
+                    batch_target_image, = self.predictor.preprocess([[obs['target_image'] for obs in observations]], batch_size)
+                    batch_u = np.array([self.action_transformer.preprocess(action) for action in actions])
+                action_lin = np.zeros(self.action_space.shape)
+                u_lin = self.action_transformer.preprocess(action_lin)
+                batch_u_lin = np.array([u_lin] * batch_size)
+
+                if self.phi_fn is None:
+                    self.phi_fn = self._compile_phi_fn()
+                phi = self.phi_fn(batch_image, batch_u, batch_target_image, batch_u_lin, self.alpha)
+                return phi
+            else:
+                phi = None
+                for i in range(0, batch_size, self.max_batch_size):
+                    s = slice(i, min(i + self.max_batch_size, batch_size))
+                    minibatch_phi = self.phi(observations[s], actions[s], preprocessed=preprocessed, use_fn=use_fn)
+                    if phi is None:
+                        phi = np.empty((batch_size,) + minibatch_phi.shape[1:])
+                    phi[s] = minibatch_phi
+                return phi
+        else:
+            # A_b_c_split_fn compiles and runs faster
+            A_split, b_split, c_split = self.A_b_c_split(observations, preprocessed=preprocessed)
+            if preprocessed:
+                batch_u = np.array(actions)
+            else:
+                batch_u = np.array([self.action_transformer.preprocess(action) for action in actions])
+            phi_errors = np.einsum('injk,nk,nj->ni', A_split, batch_u, batch_u) - 2 * np.einsum('inj,nj->ni', b_split, batch_u) + c_split.T
+            phi_actions = batch_u ** 2
+            phi = np.concatenate([phi_errors / self.repeats, phi_actions], axis=1)
+            return phi
+
+    def pi(self, observations, preprocessed=False, use_fn=True):
+        """
+        Corresponds to the linearized objective
+
+        The following should be true
+        actions_pi = self.pi(states)
+        actions_act = [self.act(state) for state in states]
+        assert np.allclose(actions_pi, actions_act)
+        """
+        if self.w.shape != (len(self.repeats),):
+            raise NotImplementedError
+        if use_fn:
+            batch_size = len(observations)
+            if batch_size <= self.max_batch_size:
+                if preprocessed:
+                    batch_image = np.array([obs['image'] for obs in observations])
+                    batch_target_image = np.array([obs['target_image'] for obs in observations])
+                else:
+                    batch_image, = self.predictor.preprocess([[obs['image'] for obs in observations]], batch_size)
+                    batch_target_image, = self.predictor.preprocess([[obs['target_image'] for obs in observations]], batch_size)
+                action_lin = np.zeros(self.action_space.shape)
+                u_lin = self.action_transformer.preprocess(action_lin)
+                batch_u_lin = np.array([u_lin] * batch_size)
+
+                if self.pi_fn is None:
+                    self.pi_fn = self._compile_pi_fn()
+                batch_u = self.pi_fn(batch_image, batch_target_image, batch_u_lin, self.alpha, self.w, self.lambda_)
+
+                actions = np.array([self.action_transformer.deprocess(u) for u in batch_u])
+                for action in actions:
+                    self.action_space.clip(action, out=action)
+                if preprocessed:
+                    return np.array([self.action_transformer.preprocess(action) for action in actions])
+                else:
+                    return actions
+            else:
+                actions = None
+                for i in range(0, batch_size, self.max_batch_size):
+                    s = slice(i, min(i + self.max_batch_size, batch_size))
+                    minibatch_actions = self.pi(observations[s], preprocessed=preprocessed, use_fn=use_fn)
+                    if actions is None:
+                        actions = np.empty((batch_size,) + minibatch_actions.shape[1:])
+                    actions[s] = minibatch_actions
+                return actions
+        else:
+            # A_b_c_split_fn compiles and runs faster
+            A_split, b_split, c_split = self.A_b_c_split(observations, preprocessed=preprocessed)
+            batch_u = np.linalg.solve(
+                np.tensordot(A_split, self.w / self.repeats, axes=(0, 0)) + np.diag(self.lambda_),
+                np.tensordot(b_split, self.w / self.repeats, axes=(0, 0))
+            )
             actions = np.array([self.action_transformer.deprocess(u) for u in batch_u])
             for action in actions:
                 self.action_space.clip(action, out=action)
@@ -592,12 +1035,3 @@ class TheanoServoingPolicy(ServoingPolicy):
                 return np.array([self.action_transformer.preprocess(action) for action in actions])
             else:
                 return actions
-        else:
-            actions = None
-            for i in range(0, batch_size, self.max_batch_size):
-                s = slice(i, min(i + self.max_batch_size, batch_size))
-                minibatch_actions = self.pi(observations[s], preprocessed=preprocessed)
-                if actions is None:
-                    actions = np.empty((batch_size,) + minibatch_actions.shape[1:])
-                actions[s] = minibatch_actions
-            return actions
