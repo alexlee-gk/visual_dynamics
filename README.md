@@ -1,7 +1,7 @@
 # visual_dynamics
 
-![Alt Text](http://rll.berkeley.edu/citysim3d/fqi_local_level4_test.gif)
-![Alt Text](http://rll.berkeley.edu/citysim3d/fqi_local_level4_novel_test.gif)
+![Alt Text](http://rll.berkeley.edu/visual_dynamics/fqi_local_level4_test.gif)
+![Alt Text](http://rll.berkeley.edu/visual_dynamics/fqi_local_level4_novel_test.gif)
 
 ## Installation instructions
 
