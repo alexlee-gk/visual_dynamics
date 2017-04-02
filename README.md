@@ -1,5 +1,8 @@
 # visual_dynamics
 
+![Alt Text](http://rll.berkeley.edu/citysim3d/fqi_local_level4_test.gif)
+![Alt Text](http://rll.berkeley.edu/citysim3d/fqi_local_level4_novel_test.gif)
+
 ## Installation instructions
 
 ### Install bleeding-edge version of Theano and apply patch
