@@ -1,4 +1,8 @@
 # visual_dynamics
+Algorithms used in the paper <a href="https://arxiv.org/abs/1703.11000" target="_blank">Learning Visual Servoing with Deep Features and Fitted Q-Iteration</a>.
+
+These are test executions of our policy based on VGG conv4_3 feature dynamics. The executions on the left use the cars seen during training and the ones on the right use novel cars. Our policy was trained with the fitted Q-iteration algorithm that we propose.
+To see executions of other methods, check out the <a href="http://rll.berkeley.edu/visual_servoing/" target="_blank">paper's website</a>.
 
 ![Alt Text](http://rll.berkeley.edu/visual_dynamics/fqi_local_level4_test.gif)
 ![Alt Text](http://rll.berkeley.edu/visual_dynamics/fqi_local_level4_novel_test.gif)
