@@ -41,7 +41,7 @@ cd visual_dynamics
 pip install -r requirements.txt
 ```
 
-## Advanced installation intructions: Install dependencies from source and link to specific python installation
+## Advanced installation instructions: Use pyenv and install dependencies from source
 
 ### Set up a new python environment using pyenv
 
